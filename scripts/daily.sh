@@ -56,6 +56,21 @@ git fetch --quiet origin main
 git checkout --quiet -B main origin/main
 npm ci --silent
 
+# `settings/` is gitignored, so this clone never has one: it holds the
+# operator's own configuration, which is not the repository's to carry. The
+# run reads it from the working checkout instead, the same single copy the
+# credentials come from, linked rather than copied so an edit there is live
+# on the next run.
+SETTINGS="${JOB_SEARCH_SETTINGS:-$REPO/settings}"
+if [[ ! -d "$SETTINGS" ]]; then
+  echo "no settings directory at $SETTINGS — the run has no User-Agent and" >&2
+  echo "will not make a request. Create it from settings.example, or set" >&2
+  echo "JOB_SEARCH_SETTINGS to point at it." >&2
+  exit 1
+fi
+rm -rf "$RUNNER/settings"
+ln -s "$SETTINGS" "$RUNNER/settings"
+
 # The store of record is the local Postgres, not the hosted project (the
 # design page's Data section). It is a container, so it can simply be down —
 # and a run that cannot reach it must say so here, before `openStore` dials
