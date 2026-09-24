@@ -693,3 +693,40 @@ test("httpStats counts every attempt by host and the time a caller waited", asyn
   assert.ok((after.hosts.get("tally-a.test")?.ms ?? 0) >= 0);
   assert.ok(after.ms >= before.ms);
 });
+
+// `fetch` resolves when the response headers arrive, which is before any of
+// the body has been read. An earlier version cleared the abort timer at that
+// moment and handed the Response to the caller, so a host that sent headers
+// and then stalled its body left the caller waiting on `.text()` with no
+// timer left to interrupt it. The body is now read inside the timeout, and
+// no Response escapes for anyone to read it later.
+test("HTTP: a response whose body never arrives is aborted, not waited on forever", async () => {
+  // Node's fetch ties the request's signal to the body stream, so an abort
+  // rejects a read in flight. The mock has to do the same or it would hang
+  // whatever the client does, and prove nothing.
+  const mockFetch: typeof fetch = async (_input, init) => {
+    const signal = init?.signal ?? null;
+    const stalled = new ReadableStream({
+      start(controller) {
+        signal?.addEventListener("abort", () => {
+          controller.error(new DOMException("The operation was aborted.", "AbortError"));
+        });
+      },
+    });
+    return new Response(stalled, { status: 200 });
+  };
+
+  const started = Date.now();
+  await assert.rejects(
+    getText("http://stalled-body-test.com", {
+      fetchImpl: mockFetch,
+      userAgent: TEST_USER_AGENT,
+      sleep: async () => {},
+      retries: 0,
+      timeoutMs: 100,
+    }),
+  );
+  // Far under the real timeout, so this shows the short one governed the
+  // body read rather than the request failing for some other reason.
+  assert.ok(Date.now() - started < 5000, "the stalled body was not waited out");
+});

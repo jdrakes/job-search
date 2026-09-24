@@ -20,6 +20,10 @@ export interface HttpOptions {
   // to exist - `discovery/probe.ts` - where a failure is the answer, not a
   // fault to wait out. Above the ladder's own length adds nothing.
   retries?: number;
+  // How long one attempt may take, headers and body together, before it is
+  // aborted. Omitted means TIMEOUT_MS. A test sets it small so it can prove
+  // the abort covers a stalled body without waiting the real timeout out.
+  timeoutMs?: number;
 }
 
 // The one exception to "no classes": a status has to ride along on the
@@ -177,9 +181,10 @@ async function fetchWithRetry(
   sleepFn: (ms: number) => Promise<void>,
   userAgent: string,
   retries: number,
+  timeoutMs: number,
   headers?: Record<string, string>,
   requestInit?: { method: string; body: string },
-): Promise<Response> {
+): Promise<{ status: number; ok: boolean; body: string }> {
   const host = getHost(url);
   const tally = tallyOf(host);
   const started = performance.now();
@@ -193,7 +198,7 @@ async function fetchWithRetry(
       await rateLimit(host, sleepFn);
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
       try {
         const init: RequestInit = {
@@ -204,8 +209,6 @@ async function fetchWithRetry(
 
         tally.requests += 1;
         const response = await fetchImpl(url, init);
-
-        clearTimeout(timeoutId);
 
         // A 429 is the vendor stating a quota, not a transient fault, so it
         // is asked once and never retried. Measured on 2026-09-22: after
@@ -236,7 +239,15 @@ async function fetchWithRetry(
           throw new HttpError(response.status, `HTTP ${response.status} after ${attempt} retries`);
         }
 
-        return response;
+        // The body is read here, inside the timeout, rather than by the
+        // caller. `fetch` resolves when the headers arrive, so a host that
+        // sends headers and then stalls its body would otherwise hang a
+        // caller that has no timer of its own: the one armed above was
+        // cleared the moment the headers landed. Nothing else can read the
+        // body afterwards, because no Response leaves this function.
+        const body = await response.text();
+        clearTimeout(timeoutId);
+        return { status: response.status, ok: response.ok, body };
       } catch (err) {
         clearTimeout(timeoutId);
         lastError = err instanceof Error ? err : new Error(String(err));
@@ -285,6 +296,7 @@ export async function getJson<T>(url: string, options?: HttpOptions): Promise<T>
     sleep,
     userAgent,
     retryCount(options?.retries),
+    options?.timeoutMs ?? TIMEOUT_MS,
     options?.headers,
   );
 
@@ -292,7 +304,7 @@ export async function getJson<T>(url: string, options?: HttpOptions): Promise<T>
     throw new HttpError(response.status, `HTTP ${response.status}`);
   }
 
-  return response.json();
+  return JSON.parse(response.body) as T;
 }
 
 // Workday's listing is a search endpoint taking its query as a POSTed JSON
@@ -314,6 +326,7 @@ export async function postJson<T>(
     sleep,
     userAgent,
     retryCount(options?.retries),
+    options?.timeoutMs ?? TIMEOUT_MS,
     headers,
     {
       method: "POST",
@@ -325,7 +338,7 @@ export async function postJson<T>(
     throw new HttpError(response.status, `HTTP ${response.status}`);
   }
 
-  return response.json();
+  return JSON.parse(response.body) as T;
 }
 
 export async function getText(url: string, options?: HttpOptions): Promise<string> {
@@ -340,6 +353,7 @@ export async function getText(url: string, options?: HttpOptions): Promise<strin
     sleep,
     userAgent,
     retryCount(options?.retries),
+    options?.timeoutMs ?? TIMEOUT_MS,
     options?.headers,
   );
 
@@ -347,7 +361,7 @@ export async function getText(url: string, options?: HttpOptions): Promise<strin
     throw new HttpError(response.status, `HTTP ${response.status}`);
   }
 
-  return response.text();
+  return response.body;
 }
 
 // The tags that start a new block of text.
