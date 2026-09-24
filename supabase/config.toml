@@ -1,0 +1,69 @@
+# Supabase CLI configuration for the LOCAL instance only.
+#
+# Reference: https://supabase.com/docs/guides/local-development/cli/config
+#
+# `supabase init` writes 400 lines of commented defaults. This is that file cut
+# down to Postgres and PostgREST, with everything else off. Nothing here is
+# pushed anywhere: `supabase config push`
+# is a separate command nobody in this repo runs, and the live project's
+# settings are the operator's, made in the dashboard.
+#
+# Keys and ports for the running instance come from `supabase status`; the
+# local instance mints its own, so no credential of the operator's is
+# involved.
+project_id = "job-search"
+
+[api]
+enabled = true
+# 5433x, not the CLI's default 5432x: another local Supabase project already
+# holds 54321-54327 on this machine, and `supabase start` fails outright on a
+# bound port. Nothing reads these numbers directly: `supabase status` discovers
+# the URL dynamically, so a machine with the defaults free may use them.
+port = 54331
+# `public` is where db/schema.sql's tables live, so it is the only one the
+# store adapter ever names in Accept-Profile/Content-Profile.
+schemas = ["public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54332
+shadow_port = 54330
+# Must match the live project's; `SHOW server_version` on it says which.
+major_version = 17
+
+[db.migrations]
+enabled = true
+
+[db.seed]
+# No seed file: the contract suite creates the rows it needs and deletes them.
+enabled = false
+
+# On only because the CLI mints and prints the local API keys with it: with
+# `auth` off, `supabase status -o env` reports no SERVICE_ROLE_KEY and the
+# test suite has nothing to authenticate the contract suite with.
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:3000"
+
+# Off because the store contract exercises Postgres and PostgREST and nothing
+# else, and every extra container is another image to pull before a test runs.
+# The UI tasks (20 and 21) will need `studio`; turn it back on there rather
+# than carrying it unused now.
+[studio]
+enabled = false
+
+[realtime]
+enabled = false
+
+[storage]
+enabled = false
+
+[local_smtp]
+enabled = false
+
+[analytics]
+enabled = false
+
+[edge_runtime]
+enabled = false
