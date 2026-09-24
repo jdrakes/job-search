@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+node_modules/
+ui/dist/
+.vercel
+supabase/.temp/
+docs/plans/
+captures/
+.claude/worktrees/
+data/
+experiments/
+settings/
+*.scratch*

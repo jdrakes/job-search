@@ -1,0 +1,47 @@
+#!/bin/bash
+# Every commit runs the whole TypeScript gate: format, types, tests.
+# A half-written data/ file, a broken import, a failing test: none of them
+# reach the history. Enable once per clone:  git config core.hooksPath .githooks
+# Bypassing with --no-verify is the one thing this cannot stop; do not.
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+# Use Node 24 for TypeScript support (.ts file stripping enabled by default).
+# nvm is a shell function, not an executable, so `command -v nvm` is always
+# false here (non-interactive bash); guard on nvm.sh existing instead.
+NVM_SH="${NVM_DIR:-$HOME/.nvm}/nvm.sh"
+if [ -f "$NVM_SH" ]; then
+  # shellcheck disable=SC1090
+  . "$NVM_SH"
+  nvm use > /dev/null 2>&1 || true
+fi
+
+node_major=$(node --version 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/')
+if [ -z "$node_major" ] || [ "$node_major" -lt 24 ]; then
+  printf '\npre-commit: Node %s found, 24+ required (see .nvmrc); run `nvm use` or install Node 24.\n' "$(node --version 2>/dev/null || echo 'not found')" >&2
+  exit 1
+fi
+
+fail=0
+
+# TypeScript formatting check
+if ! npm run fmt:check > /dev/null 2>&1; then
+  printf '\npre-commit: npm run fmt:check failed; run "npm run fmt" to fix.\n' >&2
+  fail=1
+fi
+
+# TypeScript type checking
+if ! npm run typecheck > /dev/null 2>&1; then
+  printf '\npre-commit: npm run typecheck failed; fix type errors above.\n' >&2
+  fail=1
+fi
+
+# TypeScript tests
+if ! npm test > /dev/null 2>&1; then
+  printf '\npre-commit: npm test failed; fix test failures above.\n' >&2
+  fail=1
+fi
+
+if [ "$fail" -ne 0 ]; then
+  printf '\npre-commit: refusing the commit; fix the failures above.\n' >&2
+  exit 1
+fi

@@ -1,0 +1,4 @@
+# Captured HTML fixtures are other systems' markup, kept byte-for-byte so the
+# parsers are tested against what those systems really send. Prettier cannot
+# parse some of it, and reformatting it would change what is under test.
+tests/fixtures/*.html

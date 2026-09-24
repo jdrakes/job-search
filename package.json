@@ -1,0 +1,32 @@
+{
+  "name": "job-search",
+  "description": "A job search tool that discovers, monitors, and judges job postings across multiple job boards.",
+  "license": "MIT",
+  "repository": "https://github.com/jdrakes/job-search",
+  "type": "module",
+  "engines": {
+    "node": ">=24.2"
+  },
+  "scripts": {
+    "test": "node --env-file-if-exists=.env --test 'tests/**/*.test.ts' 'ui/tests/**/*.test.ts'",
+    "typecheck": "tsc --noEmit && tsc -p ui/tsconfig.json --noEmit",
+    "fmt": "prettier --write .",
+    "fmt:check": "prettier --check .",
+    "build:ui": "tsc -p ui/tsconfig.json && node scripts/write-ui-config.ts",
+    "score:remote": "node --env-file=.env scripts/score-remote.ts",
+    "watch:survey": "node --env-file=.env scripts/watch-survey.ts",
+    "criteria:load": "node --env-file=.env scripts/criteria-load.ts",
+    "reprobe": "node --env-file=.env scripts/reprobe.ts",
+    "contacts:sync": "node --env-file=.env scripts/contacts-sync.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.23.1",
+    "prettier": "^3.0.0",
+    "typescript": "^5.7.0",
+    "vue": "^3.5.42"
+  },
+  "dependencies": {
+    "pg": "^8.23.0"
+  }
+}
