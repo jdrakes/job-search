@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Job search</title>
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <!-- iOS ignores an SVG icon and applies its own rounded mask, so this is
+         a full-bleed 180px raster. It cannot answer prefers-color-scheme:
+         a home screen gets one icon, and it is the light one. -->
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+    <link rel="stylesheet" href="./app.css" />
+    <!--
+      Written by scripts/write-ui-config.ts at build time from SUPABASE_URL,
+      SUPABASE_ANON_KEY and config/rules.json. The key is public by design:
+      row-level security is the guard.
+    -->
+    <script type="application/json" id="app-config">
+      { "url": "", "anonKey": "", "statuses": [] }
+    </script>
+    <!-- Vue is vendored by the build, never a CDN: this page holds a JWT. -->
+    <script type="importmap">
+      { "imports": { "vue": "./vendor/vue.esm-browser.prod.js" } }
+    </script>
+  </head>
+  <body>
+    <main id="app"></main>
+    <script type="module">
+      import { mountApp } from "./ui/src/app.js";
+
+      const config = document.getElementById("app-config").textContent;
+      mountApp("#app", config, window.localStorage);
+    </script>
+  </body>
+</html>

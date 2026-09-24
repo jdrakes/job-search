@@ -1,0 +1,39 @@
+{
+  "version": "v0002-2026-09-12",
+  "status": "approved",
+  "derived_at": "2026-09-12T09:00:00+00:00",
+  "supersedes": "v0001-2026-09-11",
+  "profile_hash": "sha256:7b08502a574a8ce0637424154e03f9c47c19b9db7aa1678c1f66ec4b1d1e2aab",
+  "approved_at": "2026-09-12T10:00:00+00:00",
+  "rejected_at": null,
+  "rejected_reason": null,
+  "body": {
+    "comp": {
+      "floor": {
+        "value": 120000,
+        "from": "The fixture floor is $120,000."
+      },
+      "target": {
+        "value": 122000,
+        "from": "The fixture target is $122,000."
+      }
+    },
+    "gates": {
+      "titles": {
+        "value": ["Staff", "Lead"],
+        "from": "The titles the fixture search admits are Staff and Lead."
+      },
+      "remote_required": {
+        "value": true,
+        "from": "Remote is required in the fixture."
+      }
+    },
+    "scoring": null,
+    "relevance": {
+      "bar": {
+        "value": "possible",
+        "from": "A fixture listing that is a possible match is read in full."
+      }
+    }
+  }
+}

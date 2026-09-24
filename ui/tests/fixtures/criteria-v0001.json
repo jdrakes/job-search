@@ -1,0 +1,38 @@
+{
+  "version": "v0001-2026-09-11",
+  "status": "approved",
+  "derived_at": "2026-09-11T09:00:00+00:00",
+  "supersedes": null,
+  "profile_hash": "sha256:9cef52d296c95c76fdbfa734b1049bf32c0206d0bd4220d0f88c9a17bd6edd81",
+  "approved_at": "2026-09-11T10:00:00+00:00",
+  "rejected_at": null,
+  "rejected_reason": null,
+  "body": {
+    "comp": {
+      "floor": {
+        "value": 111000,
+        "from": "The fixture floor is $111,000."
+      },
+      "target": {
+        "value": 122000,
+        "from": "The fixture target is $122,000."
+      }
+    },
+    "gates": {
+      "titles": {
+        "value": ["Staff", "Lead", "Principal"],
+        "from": "The titles the fixture search admits are Staff, Lead and Principal."
+      },
+      "remote_required": {
+        "value": true,
+        "from": "Remote is required in the fixture."
+      }
+    },
+    "scoring": {
+      "add_gate": {
+        "value": 41,
+        "from": "A fixture role scores at least 41 to be worth a row."
+      }
+    }
+  }
+}

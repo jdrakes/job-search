@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
+  <!--
+    The app's own "Applied" checkmark (ACT_ICONS.applied, ui/src/posting.ts:44)
+    knocked out of a filled accent field. Colours are the literal hex values
+    of the app.css `--accent` and `--accent-ink` custom properties (light
+    :root and its dark @media block) duplicated here because an SVG favicon
+    can't read the page's CSS custom properties — if app.css's palette
+    changes, update both places.
+
+    Knocked out rather than drawn in accent on a pale field: at 16px a
+    near-white field disappears into a light tab strip, and the same pale
+    tile reads as blank on a phone's home screen. --accent-ink is already
+    the app's label colour on --accent, so the pair carries its own
+    contrast: 5.93:1 light, 7.59:1 dark.
+
+    Stroke stays 1.5, the one weight 39853e9 gave this glyph everywhere
+    it renders. A knockout does read slightly thinner than the same
+    stroke drawn dark-on-light, but at 16px the difference against 1.75
+    is marginal and one weight for one glyph is the stated rule.
+  -->
+  <style>
+    rect { fill: #1a56e8; }
+    path { stroke: #ffffff; }
+    @media (prefers-color-scheme: dark) {
+      rect { fill: #7aa2ff; }
+      path { stroke: #0f1115; }
+    }
+  </style>
+  <rect x="0.5" y="0.5" width="15" height="15" rx="4" />
+  <path d="M3 8.5l3 3 7-7" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+</svg>

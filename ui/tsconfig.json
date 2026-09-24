@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": true,
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "target": "ES2024",
+    "lib": ["ES2024", "DOM"],
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "erasableSyntaxOnly": true,
+    "rootDir": "..",
+    "outDir": "dist"
+  },
+  "include": ["src/**/*.ts", "../src/schema.ts", "../src/judge/whole-word.ts"]
+}

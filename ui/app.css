@@ -1,0 +1,2208 @@
+/*
+ * One layout, laptop first and usable on a phone: the row
+ * head is a grid that collapses to one thing per line under 40rem, the
+ * header stops sticking and stacks, the prompts hang from the top instead
+ * of centring, and nothing else changes. No breakpoint switches screens,
+ * because there is only one screen.
+ *
+ * Every colour below was measured against the surface it actually sits on
+ * (2026-09-12, WCAG 2.x relative luminance), not eyeballed. The pairs that
+ * matter: light `--ink-2` 7.6:1 on paper and 6.9:1 on ground; light `--muted`
+ * 5.3:1 on paper, 4.9:1 on ground and 4.6:1 on raised (the greys one step
+ * lighter fail on ground at 4.4:1, so this is the floor); light `--accent`
+ * 5.9:1 on paper and white on it 5.9:1; dark `--ink-2` 8.9:1, dark `--muted`
+ * 5.6:1 on paper and 5.1:1 on raised; dark `--accent` 7.0:1 on paper and
+ * `--ground` on it 7.6:1. The four semantic colours all clear 5.9:1 on paper
+ * in both schemes.
+ */
+
+:root {
+  /* Surfaces, darkest text to lightest ground. */
+  --ink: #16181d;
+  --ink-2: #4b5563;
+  --muted: #646c79;
+  --line: #e2e5ea;
+  --line-strong: #c9ced6;
+  --raised: #eef0f3;
+  --paper: #ffffff;
+  --ground: #f4f5f7;
+
+  /* One accent for the interactive layer; `--accent-ink` is its label colour. */
+  --accent: #1a56e8;
+  --accent-ink: #ffffff;
+
+  /*
+   * The header mark: the same "Applied" checkmark as favicon.svg and
+   * ACT_ICONS.applied (ui/src/posting.ts:44), as a mask-image data URI:
+   * an outline-only shape (fill: none) whose stroke colour is irrelevant,
+   * since a mask reads the shape's alpha, not its colour. `.top h1::before`
+   * paints it with `background-color: var(--accent)`, so this reads `--accent`
+   * directly instead of embedding its hex, and (unlike the old
+   * background-image version) needs no separate dark-mode copy.
+   * `ui/favicon.svg` still hardcodes `--accent` and `--accent-ink` a
+   * second time: a standalone .svg file can't read the host page's custom
+   * properties, so that duplication is real, not an oversight, and stays.
+   * `ui/apple-touch-icon.png` bakes the light pair in a third time, since
+   * iOS takes one raster and answers no media query. All three draw the
+   * glyph at stroke-width 1.5.
+   */
+  --brand-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3 8.5l3 3 7-7' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
+  /* Semantic: a state, never a decoration. */
+  --warm: #8a4b00;
+  --danger: #b3261e;
+  --success: #0f6b2b;
+  --info: #0d5f6c;
+
+  --scrim: rgb(0 0 0 / 40%);
+  --shadow: 0 0.5rem 2rem rgb(0 0 0 / 18%);
+  --shadow-pin: 0 0.25rem 1rem rgb(0 0 0 / 6%);
+
+  /* Spacing: a 4px base. Every margin, padding and gap comes from here. */
+  --s-1: 0.25rem;
+  --s-2: 0.5rem;
+  --s-3: 0.75rem;
+  --s-4: 1rem;
+  --s-6: 1.5rem;
+  --s-8: 2rem;
+  --s-12: 3rem;
+
+  /*
+   * The bar's rendered height as a fact other rules read, not a floor:
+   * `.top`, `.detail-pane`, the pinned `.company-head` and grouped rows'
+   * `scroll-margin-top` all need the same number. Laptop is the bar's
+   * one-line height; the phone value, below under `max-width: 40rem`, is
+   * measured from the rendered bar at 375px.
+   */
+  --top-height: 3.25rem;
+
+  /*
+   * Type: five sizes, each with one job. The chrome (tabs, buttons, meta,
+   * hints) sits at 13px and the content at 15px: the 16px-everywhere first
+   * pass read as a default form, and a product surface
+   * earns its density by setting its controls a step smaller than its text.
+   */
+  --text-xs: 0.75rem; /* eyebrow labels, the tab count */
+  --text-sm: 0.8125rem; /* chrome: tabs, buttons, meta, hints, field labels */
+  --text-md: 0.9375rem; /* content: row heads, the reason, fields */
+  --text-lg: 1.125rem; /* the section heading, the dialog title */
+  --text-xl: 1.5rem; /* the sign-in statement */
+
+  --r-sm: 0.25rem;
+  --r-md: 0.375rem;
+  --r-lg: 0.625rem;
+
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --ease: 120ms ease-out;
+
+  /*
+   * The master-detail breakpoint, published as a flag the views can read:
+   * 0 here, 1 inside the query below. `usePaneMode` (`ui/src/posting.ts`)
+   * reads it rather than repeating the query in JavaScript, so the number
+   * is written once and moving it moves the views with it. The views need
+   * the answer in script because above the breakpoint a list row's head
+   * stops being a disclosure, and `aria-expanded` is not a thing a
+   * stylesheet can set.
+   */
+  --pane-mode: 0;
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #e8eaee;
+    --ink-2: #b4bac4;
+    --muted: #8b93a0;
+    --line: #2a2f38;
+    --line-strong: #3b414c;
+    --raised: #1f232b;
+    --paper: #171a20;
+    --ground: #0f1115;
+    --accent: #7aa2ff;
+    --accent-ink: #0f1115;
+    --warm: #f0b26b;
+    --danger: #ff8a80;
+    --success: #5fd97a;
+    --info: #5fd0e0;
+    --scrim: rgb(0 0 0 / 60%);
+    --shadow: 0 0.5rem 2rem rgb(0 0 0 / 50%);
+    --shadow-pin: 0 0.25rem 1rem rgb(0 0 0 / 40%);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0 var(--s-4) var(--s-12);
+  background: var(--ground);
+  color: var(--ink);
+  /*
+   * The page never scrolls sideways on a phone. Measured
+   * at 360px: one unbreakable token, a PostgREST URL in an error line,
+   * spilled 366px out of a 325px paragraph and widened the document to
+   * 385px. Set here, once, `anywhere` lets any such run break where it
+   * must and touches nothing that already fits. Only the tab strip scrolls
+   * sideways, inside its own `overflow-x: auto`.
+   */
+  overflow-wrap: anywhere;
+  font:
+    var(--text-md) / 1.5 -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+}
+
+main {
+  max-width: 60rem;
+  margin: 0 auto;
+}
+
+/*
+ * One measure per width, for every tab: 60rem below the master-detail
+ * breakpoint, 90rem from it up. The first cut widened `main` only where a
+ * pane was present (`main:has(.detail-pane)`) and then handed the widening
+ * back to the header with a padding of `calc((100% - 60rem) / 2)`, so the
+ * chrome held the 60rem measure while the list under it held 90rem. The
+ * intent was that switching tab could not move the wordmark; the effect,
+ * rendered at 1440px (2026-09-17), was a header floating over the middle of
+ * the page ("Job search" 300px right of the list's left edge and Sign out
+ * over the pane's) with nothing in the layout it lined up with. A header
+ * that aligns with the content it sits above is worth more than one that
+ * never moves, and widening every tab's `main` buys both: the wordmark is
+ * on the list's left edge, Sign out on the pane's right edge, and nothing
+ * shifts on a tab switch or when the loading skeleton (no pane) is replaced
+ * by the loaded queue: the case the padding was there to catch.
+ *
+ * What that widening must not do is stretch a view whose rows are not built
+ * for it: `.companies` and `.criteria` below cap their own content, and the
+ * sign-in is a 20rem column centred in whatever `main` is.
+ */
+@media (min-width: 80rem) {
+  :root {
+    --pane-mode: 1;
+  }
+
+  main {
+    max-width: 90rem;
+  }
+}
+
+h1,
+h2 {
+  margin: 0;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+}
+
+h1 {
+  font-size: var(--text-md);
+}
+
+h2 {
+  font-size: var(--text-lg);
+  margin: var(--s-4) 0 var(--s-3);
+}
+
+/* The count beside a heading is secondary to the heading's own words. Only
+   the Companies view's group headings carry one: the four view headings that
+   held the other counts went when the tabs became the headings (2026-09-23),
+   and the count each view showed went with them, to the tab and to
+   `.matched`. */
+h2 .count {
+  font-weight: 400;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+a {
+  color: var(--accent);
+  text-underline-offset: 0.15em;
+}
+
+p {
+  margin: 0;
+}
+
+button {
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  min-height: 2rem;
+  padding: var(--s-1) var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+  transition:
+    background-color var(--ease),
+    border-color var(--ease),
+    color var(--ease);
+}
+
+button:hover {
+  background: var(--raised);
+}
+
+button[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button.primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+}
+
+button.primary:hover {
+  background: color-mix(in srgb, var(--accent) 88%, var(--ink));
+}
+
+button.ghost {
+  border-color: transparent;
+  background: none;
+  color: var(--ink-2);
+}
+
+button.ghost:hover {
+  background: var(--raised);
+  color: var(--ink);
+}
+
+/* `appearance: none` on all three: iOS otherwise draws a search field as a
+   grey pill with a magnifier and a select as its own control, ignoring the
+   border and radius here. The select gets its
+   chevron drawn back below. */
+input,
+select,
+textarea {
+  appearance: none;
+  min-height: 2.25rem;
+  padding: var(--s-1) var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--paper);
+  color: inherit;
+  font: inherit;
+}
+
+select {
+  padding-right: var(--s-8);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 6l4 4 4-4' fill='none' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--s-2) center;
+  background-size: 1rem;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  border-color: var(--accent);
+  outline-offset: 0;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Reduced motion: every transition and animation collapses to nothing. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* --- Header ------------------------------------------------------------ */
+
+/*
+ * One row: wordmark, tabs, sign out. The tabs stretch to the header's full
+ * height so their underline sits on its rule. It sticks at every width so
+ * the tabs stay reachable four screens down a 38-row list. Under 40rem it
+ * stacks (wordmark and sign out, then a tab strip that scrolls sideways).
+ * It scrolled with the page there while it was three rows with the search
+ * box; at two rows it is worth the viewport, so it stays pinned on the
+ * phone too.
+ */
+.top {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  height: var(--top-height);
+  margin-bottom: var(--s-4);
+  background: var(--ground);
+  border-bottom: 1px solid var(--line);
+}
+
+/*
+ * What gives way: the tab strip scrolls. The wordmark and the sign-out never
+ * wrap or shrink; at 60rem the first cut let them break into two lines.
+ */
+.top h1 {
+  grid-area: brand;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  white-space: nowrap;
+}
+
+/*
+ * The mark rides on a pseudo-element, never on `.top h1` itself: a mask clips
+ * everything the element paints, so masking the h1 clipped its own "Job
+ * search" text down to the checkmark's shape and the wordmark vanished.
+ */
+.top h1::before {
+  content: "";
+  flex: none;
+  width: 1.125rem;
+  height: 1.125rem;
+  -webkit-mask: var(--brand-mark) center / contain no-repeat;
+  mask: var(--brand-mark) center / contain no-repeat;
+  background-color: var(--accent);
+}
+
+/* Pinned: once the page has scrolled, a soft shadow says the content is
+   passing under the header, not stopping at it. Scroll-driven, no script;
+   where the browser lacks it the hairline alone does the job. */
+@supports (animation-timeline: scroll()) {
+  .top {
+    animation: pin linear both;
+    animation-timeline: scroll(root);
+    animation-range: 0 var(--s-8);
+  }
+}
+
+@keyframes pin {
+  to {
+    box-shadow: var(--shadow-pin);
+  }
+}
+
+.top [role="tablist"] {
+  grid-area: tabs;
+  flex: 1 1 auto;
+  align-self: stretch;
+  display: flex;
+  gap: var(--s-1);
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  /* The 2px tab underline sits on the header's 1px rule, not above it. */
+  margin-bottom: -1px;
+}
+
+.top [role="tablist"]::-webkit-scrollbar {
+  display: none;
+}
+
+.top [role="tab"] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: 0;
+  padding: var(--s-2) var(--s-2);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.top [role="tab"]:hover {
+  color: var(--ink);
+}
+
+.top [role="tab"][aria-selected="true"] {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+}
+
+.top [role="tab"]:focus-visible {
+  outline-offset: -2px;
+  border-radius: var(--r-sm);
+}
+
+/*
+ * The count is a small pill, not text in brackets. Scoped to the tab bar: a
+ * bare `.count` would also restyle the count beside a heading, which is
+ * plain muted text.
+ */
+.top [role="tab"] .count {
+  min-width: 1.25rem;
+  padding: 0 var(--s-2);
+  border-radius: 999px;
+  background: var(--raised);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  line-height: 1.25rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.top [role="tab"][aria-selected="true"] .count {
+  color: var(--ink);
+}
+
+/*
+ * A round in flight, shown where the thing it changes is shown. The count
+ * on screen is the last round's until this one answers, so a stale number
+ * is exactly what a refresh should not leave sitting there looking current.
+ *
+ * The number keeps its place in the layout and only stops being painted:
+ * the pill is as wide as its digits, so swapping "38" for a 14px ring would
+ * shrink the Queue tab and shift the three tabs after it — the same shove
+ * this whole indicator exists to stop. `visibility` rather than `opacity`
+ * so a screen reader is not read a number the page is hiding; the live
+ * region beside the tabs says what is happening instead.
+ *
+ * `--accent` on the pill's `--raised` is 5.2:1 light and 6.3:1 dark, past
+ * the 3:1 WCAG 1.4.11 asks of a graphic that carries meaning. The track is
+ * a ghost by design. Under `prefers-reduced-motion` the global rule stops
+ * the turn and leaves a ring with one accent quarter, which still reads as
+ * a number not yet settled.
+ */
+.top [role="tab"] .count {
+  position: relative;
+}
+
+.top [role="tab"] .count.recounting .count-value {
+  visibility: hidden;
+}
+
+.spinner {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 0.875rem;
+  height: 0.875rem;
+  border: 2px solid var(--line-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 700ms linear infinite;
+}
+
+/* Said to a screen reader, shown to no one: the page itself says it by
+   turning the queue's count into a ring. It stays mounted and its text comes
+   and goes; a live region that appears with its text already in it is
+   announced unreliably. Out of flow, so it adds neither a flex gap on the
+   laptop nor a grid track on the phone. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.top .sign-out {
+  grid-area: out;
+  flex: none;
+  white-space: nowrap;
+}
+
+@media (max-width: 40rem) {
+  :root {
+    /* Two rows: wordmark, then the tab strip. */
+    --top-height: 5.375rem;
+  }
+
+  .top {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "brand out"
+      "tabs tabs";
+    row-gap: var(--s-2);
+    padding-top: var(--s-2);
+  }
+}
+
+/*
+ * iOS Safari zooms the page when a field under 16px takes focus and does
+ * not zoom back, and a zoomed page scrolls sideways: the horizontal scroll
+ * still seen on an iPhone after the layout measured clean in Chrome
+ * and WebKit on the real rows (2026-09-12). On a coarse pointer every field
+ * is 1rem, so no focus zooms.
+ */
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 1rem;
+  }
+}
+
+/* --- Status lines ------------------------------------------------------ */
+
+.error,
+.notice {
+  margin: 0 0 var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  border-left: 3px solid currentColor;
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+  font-size: var(--text-sm);
+}
+
+.error {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, var(--paper));
+}
+
+.notice {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 8%, var(--paper));
+}
+
+/* A success confirmation, floating above the page rather than inline:
+   it says a write landed without displacing anything already on screen.
+   Stacking (company head 1, header 5, toast 6, scrim 10): above the
+   sticky header, so a short viewport does not hide it, but under a
+   dialog's scrim. A toast runs for four seconds and a dialog can open
+   inside that window: under 40rem the panel's Cancel and Save are pinned
+   to its foot at the very edge the toast sits on, and at 20 the toast
+   covered them. */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: var(--s-6);
+  transform: translateX(-50%);
+  z-index: 6;
+  animation: rise 160ms ease-out;
+}
+
+/* The skeleton stands in for the list column of a master-detail page, not
+   for the whole widened page: left at 90rem it was a white band a third
+   wider than the list that replaced it a second later. */
+.list.skeleton {
+  max-width: 60rem;
+}
+
+/* Placeholder rows shaped like the list they stand in for, while the first
+   read is in flight. `prefers-reduced-motion` already forces animation
+   durations to near-zero globally (see above), so these bars go static for
+   free rather than needing their own override. */
+.skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-3) var(--s-4);
+}
+
+.skeleton-bar {
+  display: block;
+  height: 0.75rem;
+  border-radius: var(--r-sm);
+  background: var(--raised);
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+.skeleton-bar.bar-company {
+  width: 30%;
+}
+
+.skeleton-bar.bar-role {
+  width: 40%;
+}
+
+.skeleton-bar.bar-comp {
+  width: 15%;
+  margin-left: auto;
+}
+
+/* An empty bucket is the answer, so it gets the surface a list would have,
+   but not the full 90rem of a widened page (see the top of this file): one
+   short sentence and a mark centred in a 1408px band read as a missing
+   list rather than an answer (rendered at 1440px, 2026-09-17). 60rem is
+   the measure the page itself keeps below the breakpoint. */
+.empty {
+  max-width: 60rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-8) var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--paper);
+  color: var(--ink-2);
+  text-align: center;
+}
+
+.empty-mark {
+  color: var(--line-strong);
+}
+
+/* --- Sections ---------------------------------------------------------- */
+
+/* One line under a view's heading saying what the view means, in the
+   secondary type so the heading and the list keep the weight. */
+.hint {
+  margin: 0 0 var(--s-3);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+/*
+ * "3 of 38" while a filter is set, in the queue beside the box that narrowed
+ * the list and in the Record under the filter bar (design page, List: "the
+ * heading's count and the grouped headers follow it"). The counts used to be
+ * in the view headings; those went when the tabs became the headings, and
+ * this is the half of each that James could not read off a tab, so it sits
+ * where he is looking while he types rather than up in the chrome.
+ *
+ * Secondary type: he is reading the rows, and this only answers "how much
+ * did that take out". `tabular-nums` because it is re-rendered on every
+ * keystroke, and digits of one width keep it from shifting under the eye
+ * while he types.
+ */
+.matched {
+  margin: 0 0 var(--s-3);
+  font-size: var(--text-sm);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * In the queue it sits beside the input, not under the label: `.queue-search`
+ * is a row and the label inside it is a column of its own, so the line is
+ * aligned to the row's bottom and then lifted clear of the input's padding
+ * and border. Read at 1200px (2026-09-23): at `--s-1` the digits sat a few
+ * pixels under the placeholder's baseline; `--s-2` puts "2 of 4" and
+ * "Company or role" on one line.
+ */
+.queue-search .matched {
+  margin: 0 0 var(--s-2);
+}
+
+/*
+ * Three buttons where there were two (2026-09-17), so the group is allowed
+ * to wrap: a flex item shrinks to its longest word before it overflows, and
+ * unwrapped the narrowest phone would set "Group by company" over two lines
+ * inside its own button rather than dropping it to a line of its own. With
+ * the view's heading gone (2026-09-23) the group opens the panel, so on a
+ * phone it wraps within itself and still reads left to right in one order.
+ */
+.order {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+
+/*
+ * The queue's one filter box (design page, List, 2026-09-18). Its own row
+ * under the order buttons rather than a fourth item among them: `.order`
+ * already wraps to fit three buttons on a phone, and a box in that group
+ * would decide for itself where it landed between them.
+ *
+ * Not a `details` like the Record's `.filters`. That bar hides three controls
+ * behind a summary because it is three; this is one box James is meant to see
+ * and type in, and a disclosure would cost a tap to reach the thing that makes
+ * a 126-row queue usable.
+ */
+.queue-search {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s-3);
+  margin: var(--s-3) 0 var(--s-4);
+}
+
+.queue-search label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+
+.queue-search label > span {
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+.queue-search input[type="search"] {
+  /* Wide enough for a company and a role word together ("streamly conversions"
+     is 20 characters) and capped so it does not stretch to the pane's edge on
+     a desktop, where the list is only half the width anyway. */
+  width: min(100%, 22rem);
+  font-size: var(--text-sm);
+}
+
+@media (max-width: 40rem) {
+  /*
+   * The order group is the only control the queue's chrome carries, and on a
+   * phone it is a finger's target like the card's icons: 2.75rem is 44px,
+   * the WCAG touch target the row's buttons take below, where the shared
+   * `button` floor is 32px. It costs the list nothing: the group is already
+   * on a line of its own here.
+   */
+  .order button {
+    min-height: 2.75rem;
+  }
+
+  /* Same 44px reasoning as the buttons above, for the same finger. */
+  .queue-search input[type="search"] {
+    width: 100%;
+    min-height: 2.75rem;
+  }
+}
+
+/* --- The list ---------------------------------------------------------- */
+
+/*
+ * One surface, not one box per row. The head grid was already a table in
+ * card clothing; the border and gap around each card were what fought it
+ * (design record, 2026-09-11). Rows are separated by a rule and nothing
+ * else, so forty rows read as one thing to scan rather than forty objects.
+ */
+.list {
+  position: relative;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  overflow: clip;
+}
+
+/*
+ * `TransitionGroup name="list"` generates these class names from the
+ * `name` attribute (never written literally in a template) when a
+ * decided posting or a dropped company leaves its list. `.list-leave-active`
+ * takes the leaving row out of flow (the standard Vue FLIP technique) so
+ * the rows below it slide up into its place; `.list` above needs
+ * `position: relative` to anchor that. Its overflow is `clip`, not
+ * `hidden`: both cut the rounded corners and contain the leaving row, but
+ * `hidden` makes `.list` a scroll container, and a sticky `.company-head`
+ * would then stick to `.list` (which never scrolls) instead of the page.
+ */
+.list-move,
+.list-enter-active,
+.list-leave-active {
+  transition:
+    transform var(--ease),
+    opacity var(--ease);
+}
+
+.list-enter-from,
+.list-leave-to {
+  opacity: 0;
+  transform: translateY(calc(-1 * var(--s-2)));
+}
+
+.list-leave-active {
+  position: absolute;
+  width: 100%;
+}
+
+/* The surface clips its own edge, so a ring inside it draws inward. */
+.list :focus-visible {
+  outline-offset: -2px;
+}
+
+/*
+ * The master-detail split: a list column plus a persistent pane showing
+ * the selected posting's evidence. `minmax(50rem, 1fr)` and the 80rem
+ * query below are both wider than the row itself now needs, and that is
+ * deliberate (2026-09-17), not a stale number. See the next paragraph.
+ * `.head`'s own tracks (company `minmax(7rem,12rem)`, role
+ * `minmax(8rem,1fr)`, comp `fit-content(14rem)` ≈7rem typical, score
+ * 4rem, gaps 3rem, padding 2rem) ≈31rem; add the action group at
+ * 12.25rem (an 11.5rem flex basis plus the `--s-3` gutter it carries
+ * outside that basis as a margin, `.card .acts` below) for a list-row
+ * floor of ≈43.25rem, ≈6.75rem under the 50rem track. The list column
+ * keeps its 50rem on purpose, so the width the icon-square group freed
+ * (2026-09-17) stays inside the row instead of shrinking the column to
+ * match it. Most of it reaches the role track, but not all of it: grid
+ * grows company to its 12rem cap and comp to its content (capped at
+ * 14rem) before the `1fr` role track takes what is left, so a long
+ * company name or a long comp string gets its share first.
+ *
+ * The pane is 24rem at its floor and 28rem at its cap, where it was 32rem
+ * (2026-09-17). Free width over the floors goes to the pane first, so the
+ * old cap spent the first 8rem of any window wider than 1280px on a pane
+ * that did not need it while the list column stayed at its 50rem floor and
+ * the role track wrapped every second title. At 1440px the change is
+ * exactly 4rem off the pane and onto the row's title; at 1280px nothing
+ * moves, because the pane is under its cap either way (the arithmetic
+ * below). 28rem still holds the evidence list (a `max-content` label
+ * column of ≈7rem and the posting's own sentence beside it) at a measure
+ * the note prose reads at.
+ * Below 80rem nothing here applies: same single column as today.
+ *
+ * The floors sum to 76rem (50 + 2 gap + 24) and the query fires at 80rem,
+ * which is 78rem of content once the body's own 2rem of padding is paid:
+ * 2rem of daylight, and it is deliberate. That 76rem is the grid tracks'
+ * own minimums, not the row's own ≈43.25rem floor above, so freeing width
+ * inside the row leaves it untouched (checked against the numbers above,
+ * 2026-09-17, still true because none of 50, 2 or 24 changed). A media
+ * query is answered by the viewport; the layout is handed the viewport
+ * minus a classic, space-taking scrollbar: 17px on Windows, 15px on Linux
+ * and on a mac set to show scrollbars always. At the first pass's 78rem of
+ * floors, a 1280px window with a list long enough to scroll matched the
+ * query and then came up short, and the page scrolled sideways (reproduced
+ * with a forced classic scrollbar, 2026-09-16). At 76rem the floors clear a
+ * 1280px window with up to 32px of scrollbar in it, which is every
+ * scrollbar a desktop browser draws. Nothing moves on a window with overlay
+ * scrollbars: free space over the floors goes to the pane first (it is the
+ * track with room left under its max), so 1280px still lays out as exactly
+ * the 50rem list and 26rem pane the columns were drawn for, and only a real
+ * scrollbar's worth of width ever comes off the pane.
+ */
+/*
+ * Below the breakpoint the row itself is the detail surface (`expandable`,
+ * `ui/src/posting.ts`) and the pane has no column to sit in, so it is not
+ * laid out at all: without this the selected posting rendered a second
+ * time under the list on a phone, and a screen reader read it twice.
+ */
+.detail-pane {
+  display: none;
+}
+
+@media (min-width: 80rem) {
+  .master-detail {
+    display: grid;
+    grid-template-columns: minmax(50rem, 1fr) minmax(24rem, 28rem);
+    gap: var(--s-8);
+    align-items: start;
+  }
+
+  /*
+   * The pane brings its own surface. A row's paper comes from `.list`, not
+   * from `.card`: the pane's card sits outside every `.list`, so without
+   * these three it painted straight onto the body's `--ground`, and
+   * `.evidence`, which is `--ground` precisely to read as recessed *into* a
+   * paper card, went invisible in both schemes (rendered, 2026-09-16). The
+   * same three properties `.list` sets, for the same reason.
+   */
+  .detail-pane {
+    display: block;
+    position: sticky;
+    top: calc(var(--top-height) + var(--s-4));
+    max-height: calc(100vh - var(--top-height) - var(--s-8));
+    overflow: auto;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+  }
+
+  /*
+   * The row the pane is showing, marked `aria-current` for the same reason
+   * (`posting.ts`). It needs a treatment of its own, not `.card.open`'s:
+   * up here a list row never opens (the pane is the detail surface), so
+   * `.open` belongs to the pane's own card alone, and reusing its 3px rule
+   * would say "this row is open" about a row showing nothing. The selected
+   * row doubles that rule to 6px (the border plus an inset bar of the
+   * same accent) and takes the raised surface and lifted score chip an
+   * open row takes, so the eye follows one solid edge from the list into
+   * the pane. `--raised` rather than a wash of the accent: every text
+   * colour in the palette is measured on it (the header comment), and
+   * `--muted` at 4.6:1 there is already the floor. Scoped inside the
+   * query: below it nothing is selected, because there is no pane to
+   * select into.
+   */
+  .master-detail .list .card.selected {
+    border-left-color: var(--accent);
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+
+  .master-detail .list .card.selected .row,
+  .master-detail .list .card.selected .row:hover {
+    background: var(--raised);
+  }
+
+  .master-detail .list .card.selected .score {
+    background: var(--paper);
+  }
+
+  /* The pane's card is wider than a list row and has no neighbouring
+     rows to align columns with, so its head wraps like a phone's rather
+     than holding the row's fixed grid tracks. It does not wrap its own
+     row, though: the pane offers no outcomes (`actionable`), so the one
+     control left is the posting link, and wrapped it sat alone on a line
+     of its own under the status, an icon in the middle of nothing
+     (rendered, 2026-09-17). Kept on the head's line, it reads as what it
+     is: the way out to the posting, at the top corner of the thing it
+     opens. */
+  .detail-pane .card .row {
+    flex-wrap: nowrap;
+  }
+
+  /*
+   * The head takes the rest of the pane's width, and then a template that
+   * fits it. The row's four-across tracks (company | role | comp | score)
+   * are calibrated for the 50rem+ list column; forced into the pane's
+   * 24-28rem box they folded the role onto four or five lines and
+   * ellipsized the comp with the rest of the page half empty (rendered,
+   * 2026-09-16). This is the phone block's stack, which is the design's
+   * existing answer for a head in a narrow box: company and score on one
+   * line, then the role, the comp and the status line each on their own.
+   */
+  .detail-pane .card .head {
+    flex: 1 1 auto;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto auto auto;
+    grid-template-areas:
+      "company score"
+      "role role"
+      "comp comp"
+      "meta meta";
+    gap: var(--s-1) var(--s-3);
+    align-items: start;
+  }
+
+  /* Nothing sits to the comp's right any more, so right-aligning it left
+     it floating away from the role and company it belongs to. */
+  .detail-pane .card .comp {
+    text-align: left;
+  }
+
+  /* Nothing is reserved here: one control, sized to itself, beside the
+     head rather than under it. */
+  .detail-pane .card .acts {
+    flex: 0 0 auto;
+  }
+}
+
+.card {
+  /* A transparent rule on every row, so opening one shifts nothing. */
+  border-left: 3px solid transparent;
+}
+
+.card + .card {
+  border-top: 1px solid var(--line);
+}
+
+/*
+ * The company header, grouped mode only (`queueRows`, `ui/src/queue.ts`):
+ * a band across the list, not another row. The row under it already carries
+ * the company name at the content size in bold, so a header set the same way
+ * would be a second bold company name and two more numbers on a line that
+ * already holds a title, a comp range and a score. It is demoted instead:
+ * the chrome size (the tabs' and meta's 13px), on the page's own `--ground`
+ * recessed into the list's paper, the way `.evidence` is recessed into a
+ * card, so the eye reads a band it can skim past to find a company, and the
+ * names below it stay the list's content. Measured on that band
+ * (2026-09-17): light `--ink` 16.3:1 and `--muted` 4.9:1, dark `--ink`
+ * 15.7:1 and `--muted` 6.1:1.
+ *
+ * A heading, not a div. Sixty-eight companies is a thing you jump through,
+ * and an `h2` inside the panel its tab names gives a screen reader and a
+ * keyboard the same skim the band gives the eye. It is the first heading in
+ * the panel, so `h2` is the level under the page's one `h1`; it was an `h3`
+ * until 2026-09-23, when the view headings went and left that level empty.
+ * What the `h1, h2` rule sets for display type comes off: the margins, and
+ * the negative tracking, which at 13px only closes the letters up. The size
+ * and weight this rule sets already override what `h2` asks for.
+ *
+ * The left padding is the card's, not the list's (`--s-4` plus the 3px
+ * transparent status rule every `.card` carries), so the company name in the
+ * header sits on the same x as the company names in the rows it opens.
+ *
+ * It sticks under the bar until its group's last row has gone under it.
+ * Grouped rows do not repeat the company (the note above
+ * `.list.grouped .card .company`), so mid-group nothing else on screen says
+ * whose rows these are. The headers are flat siblings of the rows in one
+ * list, so a stuck header is covered by the next rather than pushed off:
+ * every earlier header stays stacked under the current one, which is
+ * invisible only while every header is the same height. Hence one line:
+ * `nowrap`, and the name is what gives (below). The dash and counts are an
+ * anonymous flex item whose leading space is dropped, so the gap is the
+ * space. `z-index: 1` puts it over the absolutely positioned leaving row
+ * and under the bar (the stacking note above `.toast`).
+ */
+.company-head {
+  position: sticky;
+  top: var(--top-height);
+  z-index: 1;
+  display: flex;
+  /* The name is a size up from the counts on a phone: one baseline, not one
+     top edge. */
+  align-items: baseline;
+  column-gap: 0.25em;
+  margin: 0;
+  padding: var(--s-2) var(--s-4) var(--s-2) calc(var(--s-4) + 3px);
+  background: var(--ground);
+  font-size: var(--text-sm);
+  font-weight: 400;
+  letter-spacing: normal;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+/* The name is the only thing in the header at full strength; its size and
+   its applied-here count are one quiet clause in one colour, the dash
+   included. A second weight inside a 13px secondary line would elaborate the
+   thing being demoted. When the line is short of room the name ellipsizes
+   and the counts stay whole: the counts are what he acts on. */
+.company-head .company {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/*
+ * A boundary between two companies is not a boundary between two roles at
+ * one company, and that difference is what the view is for. Between rows,
+ * the hairline above, unchanged. Opening a company, the palette's heavier
+ * line plus the band's own edge. `.card + .company-head` is `.card + .card`'s
+ * adjacency idiom: the list's first header opens the surface itself and needs
+ * no rule over it. Nothing under the header: the ground-to-paper edge is the
+ * boundary between a company and its first row, and a line there as well
+ * would say the header and its rows are two things.
+ */
+.card + .company-head {
+  border-top: 1px solid var(--line-strong);
+}
+
+/*
+ * Inside a group, where the rows still waiting on James end and the ones he
+ * has already acted on begin (`queueRows`, `ui/src/queue.ts`). Until now the
+ * only thing saying so was the status tag on each history card's second grid
+ * line, at the chrome size between two ages, which is the fact he went
+ * looking for and did not find ("I don't know which ones I've applied to
+ * already", 2026-09-17), so it should not be the quietest thing in the group.
+ *
+ * The heavier line, and only the line: `.card + .card` is already drawing a
+ * rule here, so this changes its colour and moves nothing about the row's box
+ * (2026-09-18). Deliberately one step under the boundary that opens a company
+ * (that one is this same `--line-strong` PLUS the header band's
+ * ground-to-paper edge), so a division inside a company can never read as a
+ * division between two. `.card:not(.history) + .card.history` is
+ * `.card + .card`'s adjacency idiom; a group always opens on a waiting row
+ * (a company with nothing waiting does not appear), so the row this fires on
+ * is the first history row of its company and never the first row of the list.
+ */
+.list.grouped .card:not(.history) + .card.history {
+  border-top-color: var(--line-strong);
+}
+
+/*
+ * Grouped, a row stops naming its own company. The header two lines up
+ * already said it, and a word that is identical on all eleven of Northwind's
+ * rows tells the reader of any one of them nothing: the ruling the score's
+ * caption got on 2026-09-17 ("the same word under all 90 rows said nothing
+ * a given row's reader did not already know"), applied to the one other word
+ * in this list that repeats. Left in, it also inverted the hierarchy the
+ * header above is built on: six "Globex"s at the content size in bold
+ * under the 13px header that names them, so the label you skim BY was
+ * quieter than six copies of the label you skim PAST (rendered at 1440px,
+ * 2026-09-17).
+ *
+ * The company's track goes with the word rather than standing empty: the
+ * role takes its 7-12rem back, which is where a wrapped title was already
+ * asking for width. Grouped and ungrouped then put their columns in
+ * different places, and that is the trade taken knowingly. What the head's
+ * grid is for is a row lining up with the rows around it (the note above
+ * `.card .head`), every row in a list is grouped or none is, so that holds
+ * either way, and changing order re-sorts all 100 rows anyway.
+ *
+ * On `.list`, not on the card: `.list` already takes `skeleton` and
+ * `dropped` as modifiers, and scoping it there leaves the pane's own card
+ * (which sits outside every `.list`) its company name, the one place the
+ * name is not a repetition.
+ */
+.list.grouped .card .company {
+  display: none;
+}
+
+.list.grouped .card .head {
+  grid-template-columns: minmax(8rem, 1fr) fit-content(14rem) 4rem;
+  grid-template-areas:
+    "role comp score"
+    "meta meta score";
+  /* On the head button because `focus()` is called on it, and a margin on an
+     ancestor moves nothing; an allowance over the pinned header's height,
+     never exactly it. */
+  scroll-margin-top: calc(var(--top-height) + 2.5rem);
+}
+
+/* The title leads the row now, so it takes the row's full-strength ink:
+   `--ink-2` is what a fact sitting BESIDE a lead gets, and with the company
+   gone every word in the row was one of those. Not bold: the header owns
+   the weight in this mode, and thirteen bold titles would rebuild the column
+   this rule just took out. */
+.list.grouped .card .role {
+  color: var(--ink);
+}
+
+/* The open row carries a rule of accent down its left edge and a raised
+   head; the detail below it is the same paper. */
+.card.open {
+  border-left-color: var(--accent);
+}
+
+.card .row:hover,
+.card.open .row {
+  background: var(--raised);
+}
+
+/*
+ * `.head` and `.acts` are siblings, not nested: a button cannot contain
+ * another button or a link (invalid HTML, and browsers mishandle it), and
+ * the open-posting icon needs to be its own focusable, clickable element
+ * rather than living inside the head's own toggle button. It sits in
+ * `.acts` with the outcomes it is now sized like (2026-09-17).
+ *
+ * Top-aligned, not centred. A row is as tall as its tallest text, and on a
+ * laptop a wrapped title or company name makes that two or three lines;
+ * centring then set the action group adrift somewhere in the middle of the
+ * row, level with nothing (rendered at 1440px and confirmed). Hanging the
+ * group from the top puts it level with the
+ * title line it acts on, and puts it at the same height in a one-line row
+ * and a three-line one, so the icons read as a column down the list.
+ */
+.card .row {
+  display: flex;
+  align-items: flex-start;
+}
+
+/*
+ * Every cell is placed by name, so each row's columns land on the same x
+ * as the row above whatever that row holds: comp is right-aligned at the
+ * head's edge, and the meta line runs under company, role and comp.
+ * The first fault reported on the pass was that alignment was off;
+ * auto-placement was why: each cell fell where that row's own contents
+ * left it, and the actions beside the head varied in width from row to
+ * row.
+ */
+.card .head {
+  display: grid;
+  /* The comp column is capped: an `auto` track let a 120-character
+     `comp_display` take its full width and fold the role into three lines
+     (seen 2026-09-12); `fit-content` gives it what a range needs and no
+     more, and the ellipsis takes the rest. */
+  grid-template-columns: minmax(7rem, 12rem) minmax(8rem, 1fr) fit-content(14rem) 4rem;
+  grid-template-rows: auto auto;
+  grid-template-areas:
+    "company role comp score"
+    "meta meta meta score";
+  /* Row gap was `--s-1` (4px) between the title line and the meta line;
+     the icon-square group handed 7.75rem back to the head (2026-09-17,
+     the arithmetic above), and this spends a corner of it on air rather
+     than width: `--s-2` (8px) so a wrapped title doesn't run into its
+     own status line. Column gap is unchanged. */
+  gap: var(--s-2) var(--s-4);
+  align-items: baseline;
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  /* Right padding is `--s-4`, not `--s-3`: it is the whole gutter between
+     the score tile and the first icon now that the action group starts at
+     its own box's left edge (`.card .acts`), and 12px put a 40px button
+     against the tile's corner. */
+  padding: var(--s-3) var(--s-4);
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.card .head:hover {
+  background: none;
+}
+
+/*
+ * Every action in one group at the right, in the order the row is read:
+ * the open-posting arrow, then the outcomes, then Close. The phone's
+ * icon treatment at every width, scaled up, so there is one control style
+ * here rather than a
+ * 2rem link sitting apart from a row of word buttons.
+ *
+ * The width is fixed, not `auto`, because every row's `.head` has to come
+ * out the same width or the company/role/comp/score columns stop lining
+ * up down the list: the first fault reported on the pass was alignment
+ * (2026-09-12), and the comment above `.head` says why. 11.5rem is the
+ * arrow plus three outcomes at 2.5rem with 0.5rem gaps, the widest an
+ * ordinary row gets; the right-hand gutter is a margin so the whole
+ * 11.5rem is group. A revealed end-status row (arrow plus five) wraps
+ * 4 + 2, as five words wrapped 3 + 2 before this.
+ *
+ * The group fills that fixed box from its LEFT edge. A row holds three
+ * controls (the queue's arrow, Applied, Close) or two (an end status's
+ * arrow and Change) where the box is drawn for four, and packing them
+ * right put the slack (up to 3rem of it) between the score and the first
+ * icon, a hole in the middle of the row that moved from row to row as the
+ * count did (rendered at 1440px, 2026-09-17). Packed left, the slack falls
+ * at the row's outer edge where the card's own padding already is, the
+ * gutter from the score tile is the same on every row, and the arrow (the
+ * one control almost every row carries) lands on one x down the list.
+ */
+.card .acts {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--s-2);
+  flex: 0 0 11.5rem;
+  padding: var(--s-1) 0;
+  margin-right: var(--s-3);
+}
+
+/*
+ * A posting with no usable URL renders no link, and packing the group left
+ * would then start its outcomes in the link's place, one slot left of
+ * every other row's: the drift the 2026-09-12 correction called out by
+ * name ("whether or not the row has a posting link"). The slot is held
+ * open instead: 2.5rem of square plus the 0.5rem gap after it. Above the
+ * phone only, where the group is a fixed column with slots to hold; below
+ * it the group is sized to what it holds and sits at the row's right, and
+ * 3rem of padding there would push six 44px targets off a 360px screen.
+ */
+@media (min-width: 40rem) {
+  .card .acts:not(:has(.icon-btn)) {
+    padding-left: 3rem;
+  }
+}
+
+/*
+ * One square for all three: the outcomes, the quiet Change control and the
+ * posting link are one size and one shape, whatever else they wear. 2.5rem
+ * is 40px, the laptop's target; the phone block below takes it to
+ * 2.75rem (44px), the WCAG touch target (2026-09-17). Each
+ * one's word is its `aria-label` and its `title`; none of them writes it
+ * on screen. Outcomes read as buttons, the row's primary move; Close and
+ * Change are the overrides and read as ghosts.
+ */
+.card .act,
+.card .change,
+.card .icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  min-height: 0;
+  padding: 0;
+  font-size: var(--text-md);
+}
+
+.card .act.close {
+  border-color: transparent;
+  background: none;
+  color: var(--muted);
+}
+
+.card .act.close:hover {
+  background: var(--paper);
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+/* A link is not a `button`, so it carries its own border, background and
+   hover rather than inheriting the one above: bare at rest, `--paper`
+   behind a `--line` border on hover. The group shares the box, not this
+   look: an `.act` takes `button:hover`'s `--raised` with its border
+   unchanged, `.change` is a `ghost` and does the same, and only
+   `.act.close` wears this exact hover. A filled outcome and a bare icon
+   hovering differently is the hierarchy, kept on purpose (2026-09-17).
+   The box itself comes from the shared rule above. */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--ink-2);
+  font-size: var(--text-md);
+  line-height: 1;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.icon-btn:hover {
+  background: var(--paper);
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+/* No line-height here on purpose: both spans take the body's 1.5 through
+   `.head`'s `font: inherit`, which is the loosest of the three settings in
+   play (the phone's `.company` is 1.3). A title that still wraps gets its
+   air from that 1.5 and from `.head`'s 8px row gap; a smaller number here
+   would tighten the wrapped lines it claimed to loosen (2026-09-17). */
+.card .company {
+  grid-area: company;
+  font-weight: 600;
+}
+
+.card .role {
+  grid-area: role;
+  color: var(--ink-2);
+}
+
+/* A posting with no title shows its key in the role's slot, in the mono face. */
+.key {
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+}
+
+/*
+ * `min-width: 0` belongs to the one child that clips itself. A blanket
+ * `.card .head > span { min-width: 0 }` also stripped `.company` of its
+ * min-content floor, and `.company` does not clip, so at 390px a long
+ * `comp_display` squeezed the company track to nothing and the company name
+ * painted straight over the comp text.
+ */
+.card .comp {
+  grid-area: comp;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * The score, at the head's end. Top-aligned, against the company and title
+ * it scores: spanning both grid rows at `align-self: center` (what it did
+ * until now) left it floating between the title line and the status line
+ * on every row whose title wrapped, level with neither and related to
+ * neither (rendered at 1440px: the "score looks off" of that
+ * note). Tabular figures so 8 sits under 80 down the column.
+ *
+ * The number carries no caption under it. One was tried on 2026-09-17 and
+ * rendered: the same word under all 117 rows said nothing a given row's
+ * reader did not already know, and read as noise down the column. The
+ * tile's own `title` names what the number counts on hover,
+ * and the design page's List section is where it is defined.
+ */
+.card .score {
+  grid-area: score;
+  align-self: start;
+  justify-self: end;
+  min-width: 4rem;
+  padding: var(--s-1) var(--s-2);
+  border-radius: var(--r-md);
+  background: var(--raised);
+  color: var(--ink);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.card.open .score,
+.card .row:hover .score {
+  background: var(--paper);
+}
+
+/*
+ * A history row keeps its score and loses the tile around it (2026-09-18).
+ * The filled square is what makes the score column read as a ranking, and the
+ * ranking is of the rows still competing for James's morning; a posting he
+ * applied to three weeks ago sat in the same square claiming the same thing.
+ * The figure itself stays (the design page says the card shows its score,
+ * and it is still what the posting was let through on); it just stops being a
+ * chip, so down a group the solid squares are exactly the rows left to decide.
+ * Measured (2026-09-18): `--ink-2` on `--paper` is 7.5:1 light and 9.0:1
+ * dark, and on the hovered row's `--raised` 6.5:1 and 8.1:1. The bar is
+ * 4.5:1, not 3:1 (18px at 600 is a hair under the 18.66px where bold
+ * counts as large text), and every pair clears it.
+ *
+ * It must follow the two rules above, not precede them: `.card .row:hover
+ * .score` matches at the same four-class weight, so at any earlier position a
+ * hovered history row would paint its tile back on.
+ */
+.list.grouped .card.history .score {
+  background: transparent;
+  color: var(--ink-2);
+}
+
+.card .meta {
+  grid-area: meta;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-1) var(--s-3);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+/* How long at the current status, said right after the status. `.posted-age`
+   (`posting.ts`) rides this same rule on purpose: the intent
+   was "low-emphasis, consistent with the existing `.age` treatment", not a
+   second look, so it carries no rule of its own. It stays in the markup as
+   the hook that tells the two `.age` spans apart (a test, or a future
+   reader) without duplicating this declaration. */
+.card .age {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * A status is a word with a dot, not a filled pill. Eight tones as filled
+ * chips down a forty-row list read as confetti (design record, 2026-09-11);
+ * an 8px dot carries the same colour at a fraction of the area, and the
+ * word itself stays `--ink-2` so every status reads at the same contrast.
+ * The tone classes come from `posting.ts` `STATUS_TONE`; each sets
+ * `--tone`, and only the dot reads it.
+ */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-weight: 500;
+}
+
+.tag.status::before {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--tone, var(--muted));
+  flex: 0 0 auto;
+}
+
+.tone-progress {
+  --tone: var(--accent);
+}
+
+.tone-success {
+  --tone: var(--success);
+}
+
+.tone-danger {
+  --tone: var(--danger);
+}
+
+.tone-neutral {
+  --tone: var(--muted);
+}
+
+@media (max-width: 40rem) {
+  /*
+   * One thing per line, in the order a phone is read, because the laptop's
+   * row crowded here and was hard to scan: the company, then the role, then
+   * the comp, then the status with its age. The DOM is the laptop's; the
+   * areas reorder it.
+   */
+  .card .head {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto auto auto;
+    grid-template-areas:
+      "company score"
+      "role role"
+      "comp comp"
+      "meta meta";
+    gap: var(--s-1) var(--s-3);
+    align-items: start;
+    padding: var(--s-3);
+  }
+
+  .card .company {
+    font-size: var(--text-md);
+    line-height: 1.3;
+  }
+
+  /*
+   * The phone's stack, minus the company line. This rule is not optional:
+   * `.list.grouped .card .head` above outweighs this block's own
+   * `.card .head` on specificity whatever the order, so without an override
+   * at the same weight a grouped phone would be handed the laptop's three
+   * across. The title keeps the full width the flat stack gives it; the
+   * score sits beside the comp, the two numbers on one line.
+   */
+  .list.grouped .card .head {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "role role"
+      "comp score"
+      "meta meta";
+  }
+
+  /* Centred on the score tile it now shares a line with. */
+  .list.grouped .card .comp {
+    align-self: center;
+  }
+
+  /* The card's side padding is `--s-3` here, so the header follows it and
+     the two company names keep the one x (the note above `.company-head`).
+     The name takes the size the flat stack's company line takes on a phone;
+     the clause after it stays the chrome size. */
+  .company-head {
+    padding: var(--s-2) var(--s-3) var(--s-2) calc(var(--s-3) + 3px);
+  }
+
+  .company-head .company {
+    font-size: var(--text-md);
+  }
+
+  .card .comp {
+    text-align: left;
+    font-size: var(--text-sm);
+  }
+
+  /*
+   * A finger, not a pointer: 2.75rem is 44px, the WCAG touch target, where
+   * the laptop's square is 40px. Nothing else about the group changes here
+   * (2026-09-17): it was already icons at every width.
+   */
+  .card .icon-btn,
+  .card .act,
+  .card .change {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+
+  /* The head takes the full width; under it every action sits in ONE
+     group at the right: open, the outcomes, then Close, at one gap, the
+     primary outcome still the raised one inside the group. */
+  .card .row {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .card .head {
+    flex: 1 0 100%;
+  }
+
+  /* The head has the row to itself here, so nothing needs the group's width
+     reserved and it takes what it holds: all six 44px targets fit one line
+     on a 375px screen, where a fixed 11.5rem would wrap them (2026-09-17). */
+  .card .acts {
+    flex: 0 0 auto;
+    padding: 0 0 var(--s-2);
+  }
+}
+
+/* --- The expansion ----------------------------------------------------- */
+
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-4);
+  border-top: 1px solid var(--line);
+}
+
+/*
+ * The reason James gave when he closed it against the processor. First in
+ * the drawer, above the evidence: closing says the processor was wrong, so
+ * his sentence is what the drawer is for and the facts it overrode are the
+ * background to it. Set as the page's marked block — the `.error`/`.notice`
+ * bar, tint and radius — in `--warm`, the semantic colour for a state
+ * neither wrong nor good. Its label is the `.evidence dt` eyebrow, so the
+ * two blocks read as one system, but his words sit at content size in
+ * `--ink` while the processor's sit at `--ink-2`: the card's own ranking of
+ * whose account is the account. Measured (2026-09-22) on the 8% tint, light
+ * #f6f1eb and dark #282626: `--warm` 6.1:1 light and 8.1:1 dark, `--ink`
+ * 15.8:1 and 12.5:1.
+ */
+.detail .note {
+  margin: 0;
+  padding: var(--s-2) var(--s-3);
+  border-left: 3px solid var(--warm);
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+  background: color-mix(in srgb, var(--warm) 8%, var(--paper));
+}
+
+.detail .note-label {
+  margin: 0 0 var(--s-1);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--warm);
+}
+
+.detail .note-body {
+  margin: 0;
+  font-size: var(--text-md);
+  color: var(--ink);
+}
+
+.detail .unsafe {
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+/* A definition list drawn as a two-column table: fact, then its value. */
+.evidence {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--s-1) var(--s-4);
+  margin: 0;
+  padding: var(--s-3) var(--s-4);
+  background: var(--ground);
+  border-radius: var(--r-md);
+}
+
+.evidence dt {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  padding-top: 0.2em;
+}
+
+.evidence dd {
+  margin: 0;
+}
+
+/* The posting's own words, set off as a quotation. */
+.evidence dd {
+  padding-left: var(--s-3);
+  border-left: 2px solid var(--line-strong);
+  color: var(--ink-2);
+}
+
+@media (max-width: 40rem) {
+  .evidence {
+    grid-template-columns: 1fr;
+  }
+
+  .evidence dd {
+    margin-bottom: var(--s-2);
+  }
+}
+
+/* --- The Record -------------------------------------------------------- */
+
+/*
+ * The Record's rows are the queue's cards, unchanged, so the two lists read
+ * as one surface. The filters fold under one line above it,
+ * 2026-09-15: collapsible): the summary carries how many are set, so a
+ * narrowed list is never a mystery while the bar is closed. Open, the
+ * three controls sit in one wrapping row at the chrome size.
+ */
+.filters {
+  margin: 0 0 var(--s-3);
+  font-size: var(--text-sm);
+}
+
+.filters summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: 2.25rem;
+  padding: 0 var(--s-2);
+  margin-left: calc(-1 * var(--s-2));
+  border-radius: var(--r-md);
+  color: var(--ink-2);
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+}
+
+.filters summary:hover {
+  color: var(--ink);
+  background: var(--raised);
+}
+
+/* inline-flex drops the native disclosure triangle; one is drawn back, so
+   the line still reads as something that opens. */
+.filters summary::-webkit-details-marker {
+  display: none;
+}
+
+.filters summary::before {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform var(--ease);
+}
+
+.filters[open] summary::before {
+  transform: rotate(45deg);
+}
+
+/* The set-filter count, the tab bar's pill. */
+.filters summary .count {
+  min-width: 1.25rem;
+  padding: 0 var(--s-2);
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  line-height: 1.25rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.filters .fields {
+  display: flex;
+  flex-wrap: wrap;
+  /* Top-aligned: every control is a one-line caption over a control, so
+     the captions share a baseline whatever sits under them. */
+  align-items: flex-start;
+  gap: var(--s-3) var(--s-4);
+  padding: var(--s-2) 0 var(--s-1);
+}
+
+.filters label > span {
+  display: block;
+  padding: 0;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+.filters label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+
+.filters input[type="search"] {
+  width: 11rem;
+  font-size: var(--text-sm);
+}
+
+.filters select {
+  font-size: var(--text-sm);
+}
+
+@media (max-width: 40rem) {
+  /* Two controls to a line rather than three stacked: the bar was taller
+     than the first row it filters. */
+  .filters label {
+    flex: 1 1 8rem;
+  }
+
+  .filters input[type="search"],
+  .filters select {
+    width: 100%;
+  }
+}
+
+/* --- Companies --------------------------------------------------------- */
+
+/*
+ * A company row carries four short things (a name, a board, a count and
+ * one control), and `main` is 90rem from the master-detail breakpoint up
+ * (the comment at the top of this file). Stretched to that, the count and
+ * the Drop control sat most of a 1440px window away from the name they
+ * belong to. The list keeps the measure the page had before the widening; the
+ * heading and the group headings sit above it at the same left edge.
+ */
+.companies .list {
+  max-width: 60rem;
+}
+
+/*
+ * Each state group's heading ("Watched", "Dropped"). It was an `h3` under the
+ * view's own `h2` until the tabs became the headings; with that `h2` gone the
+ * page ran `h1` straight to `h3`, which is a level a screen reader user
+ * navigating by heading finds missing and an axe run flags as
+ * `heading-order`. Promoted to `h2` on 2026-09-23, and it keeps the size and
+ * the rhythm it had: at `--text-lg` these labels would compete with the
+ * company names they open, and the deep top margin is what separates one
+ * group from the group above it.
+ */
+.group-head {
+  font-size: var(--text-md);
+  margin: var(--s-6) 0 var(--s-2);
+}
+
+/*
+ * A Companies row opens nothing, so its head is a plain block on the
+ * card's grid: the name, its boards beside it in the muted type, and the
+ * drop reason under both. One action at the right, the ghost the card's
+ * Close is.
+ */
+.card.company .head {
+  grid-template-columns: minmax(7rem, 16rem) minmax(0, 1fr) auto;
+  grid-template-areas:
+    "company board queued"
+    "why why why";
+  cursor: default;
+}
+
+/* How many of the queue's postings are this company's: the fact that says a
+   watched company is earning its place, at the row's end where the card
+   keeps its score. None reads in the muted type. */
+.card.company .queued {
+  grid-area: queued;
+  justify-self: end;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.card.company .queued.none {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.card.company .row:hover {
+  background: none;
+}
+
+/* One control, and no score or comp column beside it to keep aligned, so
+   the group is sized to what it holds rather than taking the card's
+   reserved 11.5rem: reserved, Drop sat a third of the way in from the
+   row's right edge (rendered at 1440px, 2026-09-17). Nothing to hold a
+   slot open for either (a company row has no posting link), so the
+   empty-link reservation above is given back. */
+.card.company .acts {
+  flex: 0 0 auto;
+  padding-left: 0;
+}
+
+.card.company .board {
+  grid-area: board;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.card.company .board.none {
+  font-style: italic;
+}
+
+.card.company .why {
+  grid-area: why;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+
+/* `.head .company`, not `.company`: the article carries the class too, and matching it bolded the whole row. */
+.list.dropped .head .company {
+  color: var(--ink-2);
+  font-weight: 500;
+}
+
+@media (max-width: 40rem) {
+  .card.company .head {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "company queued"
+      "board board"
+      "why why";
+  }
+
+  /* One action, so the row does not wrap it under the head as a card's
+     five are: name and boards at the left, Drop at the right, one line. */
+  .card.company .row {
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+
+  .card.company .head {
+    flex: 1 1 auto;
+  }
+
+  .card.company .acts {
+    padding: 0 var(--s-2) 0 0;
+  }
+}
+
+/* --- Criteria ---------------------------------------------------------- */
+
+/*
+ * One column of captioned fields at a reading width. Each list is one
+ * item a line and sized to its items, so the list is seen whole while it
+ * is edited. The floor is typed as a number and read back as money in the
+ * caption, the way every card says it.
+ */
+.criteria form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  max-width: 34rem;
+}
+
+/*
+ * Two columns from 60rem up. Nine fields in one 34rem column ran four
+ * screens deep on a laptop with the whole right half of the window empty,
+ * and every field is short (a word list six items long, a number), so
+ * nothing about them needs the full measure (rendered at 1440px,
+ * 2026-09-17). 60rem, not the 80rem master-detail breakpoint: this is a
+ * form deciding it has room for a second column, which it does long
+ * before there is room for a pane beside a list, and it is the width the
+ * page already used as its measure. `align-items: start` so a short field
+ * beside a tall one keeps its own height rather than stretching.
+ */
+@media (min-width: 60rem) {
+  .criteria form {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: var(--s-4) var(--s-6);
+    max-width: 64rem;
+  }
+
+  /* The refusal and the Save bar belong to the whole form, not to a column. */
+  .criteria form > .error,
+  .criteria .actions {
+    grid-column: 1 / -1;
+  }
+}
+
+.criteria textarea {
+  resize: vertical;
+  font-size: var(--text-md);
+  line-height: 1.5;
+}
+
+.criteria input {
+  max-width: 12rem;
+}
+
+.criteria .money {
+  margin-left: var(--s-2);
+  font-style: normal;
+  font-weight: 400;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The cost of saving sits beside Save, not above the form. */
+.criteria .actions {
+  align-items: center;
+}
+
+.criteria .actions .hint {
+  margin: 0 auto 0 0;
+}
+
+/* --- The edit dialog --------------------------------------------------- */
+
+/*
+ * Every panel sits OUTSIDE the card list: the note an edit carries is a
+ * text field, and a text field inside a list that redraws loses its caret.
+ * On a phone every panel opens at the TOP of the viewport: the keyboard
+ * rises from the bottom, and a sheet at the foot had its field and its
+ * Save under the keys, which is what a phone needs on Close. It opens a
+ * gap below the top edge rather than flush against it, so it reads as a
+ * card the scrim is holding and not a shade pulled down off the edge; the
+ * corners are rounded on all four sides at every width and the entrance
+ * still drops in from above. The top gap carries the safe-area inset,
+ * since the panel no longer touches the edge that inset guards. From 40rem
+ * up the panels centre. One treatment for both of them, Close and Drop
+ * alike.
+ */
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: max(var(--s-6), env(safe-area-inset-top)) var(--s-4) var(--s-4);
+  background: var(--scrim);
+  animation: fade 120ms ease-out;
+}
+
+.decide {
+  position: static;
+  width: min(34rem, 100%);
+  max-width: none;
+  max-height: 100%;
+  overflow: auto;
+  margin: 0;
+  padding: var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--paper);
+  color: inherit;
+  box-shadow: var(--shadow);
+  animation: drop 160ms ease-out;
+}
+
+/*
+ * Under 40rem the panel's buttons stick to its foot: the reason field and
+ * a refusal above it may not fit the half of a phone the keyboard leaves,
+ * so the form scrolls under the bar and Cancel and the primary stay on
+ * screen with the field being typed into.
+ */
+@media (max-width: 40rem) {
+  .decide {
+    padding-bottom: 0;
+  }
+
+  .decide .actions {
+    position: sticky;
+    bottom: 0;
+    margin: 0;
+    padding: var(--s-3) 0 var(--s-4);
+    background: var(--paper);
+  }
+}
+
+@media (min-width: 40rem) {
+  .scrim {
+    align-items: center;
+    padding: var(--s-4);
+  }
+
+  .decide {
+    max-height: calc(100% - var(--s-8));
+    padding: var(--s-6);
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes drop {
+  from {
+    opacity: 0;
+    transform: translateY(calc(-1 * var(--s-4)));
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translate(-50%, var(--s-2));
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@keyframes shimmer {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.decide h2 {
+  margin: 0 0 var(--s-4);
+  overflow-wrap: anywhere;
+}
+
+.decide form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+
+.decide label,
+.sign-in label,
+.criteria label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+
+.decide label span,
+.sign-in label span,
+.criteria label span {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+.decide textarea {
+  resize: vertical;
+}
+
+/* Close and Drop each ask one thing, so their panel is the narrow one; the
+   refusal sits under the field, inside the panel, where the typing is. */
+.close-prompt,
+.drop-prompt {
+  width: min(28rem, 100%);
+}
+
+.close-prompt .error,
+.drop-prompt .error {
+  margin: 0;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--s-2);
+  margin-top: var(--s-2);
+}
+
+/* --- Sign-in ----------------------------------------------------------- */
+
+/*
+ * No box. A bordered card centred on the page is the default-form look
+ * that read as dated; a small wordmark, one statement set
+ * large, a field and a button on the plain ground is the whole screen.
+ */
+.sign-in {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  max-width: 20rem;
+  margin: var(--s-12) auto;
+}
+
+.sign-in h1 {
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.sign-in .lead {
+  margin-bottom: var(--s-2);
+  font-size: var(--text-xl);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+
+.sign-in input {
+  min-height: 2.5rem;
+}
+
+/* A one-time code is read digit by digit, so it is set like one. */
+.sign-in input[name="code"] {
+  font-family: var(--mono);
+  font-size: var(--text-lg);
+  letter-spacing: 0.12em;
+}
+
+.sign-in button {
+  min-height: 2.5rem;
+  font-size: var(--text-md);
+}
+
+.sign-in .error {
+  margin: 0;
+}
