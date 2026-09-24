@@ -11,11 +11,9 @@
  */
 import {
   COMPANY_FIELDS,
-  CONTACT_FIELDS,
   CRITERIA_FIELDS,
   POSTING_LIST_FIELDS,
   type Company,
-  type Contact,
   type Criteria,
   type PostingSummary,
   type Status,
@@ -156,17 +154,6 @@ export async function loadCompanies(
   return selectAll<Company>(config, accessToken, "companies", params, httpFetch);
 }
 
-export async function loadContacts(
-  config: AppConfig,
-  accessToken: string,
-  httpFetch: typeof fetch = fetch,
-): Promise<ReadResult<Contact[]>> {
-  const params = new URLSearchParams();
-  params.set("select", CONTACT_FIELDS.join(","));
-  params.set("order", totalOrder("contacts"));
-  return selectAll<Contact>(config, accessToken, "contacts", params, httpFetch);
-}
-
 export async function loadCriteria(
   config: AppConfig,
   accessToken: string,
@@ -248,24 +235,6 @@ export async function setCompanyDrop(
   httpFetch: typeof fetch = fetch,
 ): Promise<WriteResult> {
   return patchOne(config, accessToken, "companies", "name", name, { ...patch }, httpFetch);
-}
-
-// the operator's five columns on a contact; `state` is the processor's and the
-// hosted grant refuses it. One writer for all five: the grant is one
-// `UPDATE (...)` naming exactly this set, so a note-only edit and a drop
-// both go through the same PATCH shape, carrying only what changed.
-export type ContactPatch = Partial<
-  Pick<Contact, "dropped_at" | "reason" | "note" | "contacted_at" | "alias_of">
->;
-
-export async function setContactPatch(
-  config: AppConfig,
-  accessToken: string,
-  email: string,
-  patch: ContactPatch,
-  httpFetch: typeof fetch = fetch,
-): Promise<WriteResult> {
-  return patchOne(config, accessToken, "contacts", "email", email, { ...patch }, httpFetch);
 }
 
 export type CriteriaPatch = Omit<Criteria, "id" | "updated_at">;

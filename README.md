@@ -247,21 +247,3 @@ what a term may not be, and how to add one without writing it down anywhere.
 that runs all three on every pull request. `npm run score:remote` after any
 change to a judge phrase list; it scores the remote criterion's text path
 against the postings already in your store.
-
-## Contacts
-
-Contacts records the recruiters you have actually written back to, so the
-list can show which companies you are already in conversation with.
-
-It is not a phase of the daily run, because it needs a mail connector that
-only an interactive session can drive. A session runs the searches and writes
-the raw threads to `captures/*.json`. That directory is gitignored, and
-captured mail never enters git. Everything after that is ordinary code over
-that file:
-
-```
-npm run contacts:sync -- captures/<file>.json
-```
-
-That carries your decisions down from the hosted store, judges the threads,
-and puts the processor's rows back up.

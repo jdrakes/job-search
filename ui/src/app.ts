@@ -1,10 +1,6 @@
 /**
- * The mounted application: sign-in, then five tabs sharing one round of
+ * The mounted application: sign-in, then four tabs sharing one round of
  * reads. A read that fails leaves the other tabs with what they had.
- * Contacts is the one exception: its read rides along in the same
- * `Promise.all` but is not part of the cached round below, so it is not
- * gated on the other four succeeding and does not need a stale value to
- * open on.
  *
  * `AppRoot`'s `setup()` is async, which is why `mountApp` wraps it in
  * `<Suspense>`: Vue requires that in the browser, though `renderToString`
@@ -22,15 +18,13 @@ import {
   type Ref,
 } from "vue";
 
-import type { Company, Contact, Criteria, PostingSummary } from "../../src/schema.ts";
+import type { Company, Criteria, PostingSummary } from "../../src/schema.ts";
 import {
   loadCompanies,
-  loadContacts,
   loadCriteria,
   loadPostings,
   loadQueue,
   type CompanyDropPatch,
-  type ContactPatch,
   type ReadResult,
   type StatusPatch,
 } from "./api.ts";
@@ -48,7 +42,6 @@ import {
 } from "./auth.ts";
 import { CompaniesView, type DroppedCompany } from "./companies.ts";
 import { parseConfig, type AppConfig } from "./config.ts";
-import { ContactsView, type PatchedContact } from "./contacts.ts";
 import { CriteriaView } from "./criteria.ts";
 import type { DecidedOutcome } from "./posting.ts";
 import { QueueView } from "./queue.ts";
@@ -126,23 +119,9 @@ function patchedWith(
   });
 }
 
-// The same idea again for contacts: `note`, a drop, `contacted_at` and
-// `alias_of` are the five columns the browser can write, and an edit here
-// is a `Partial<ContactPatch>`, not a whole row, so two edits to the same
-// contact (a note, then later a drop) must merge rather than replace.
-function contactsWith(
-  contacts: readonly Contact[],
-  patched: ReadonlyMap<string, ContactPatch>,
-): Contact[] {
-  return contacts.map((contact) => {
-    const patch = patched.get(contact.email);
-    return patch ? { ...contact, ...patch } : contact;
-  });
-}
-
 export const AppRoot = defineComponent({
   name: "AppRoot",
-  components: { SignIn, TabBar, QueueView, RecordView, CompaniesView, ContactsView, CriteriaView },
+  components: { SignIn, TabBar, QueueView, RecordView, CompaniesView, CriteriaView },
   props: {
     config: { type: Object as PropType<AppConfig>, required: true },
     store: { type: Object as PropType<SessionStore>, required: true },
@@ -169,7 +148,6 @@ export const AppRoot = defineComponent({
     const postingsResult = ref<ReadResult<PostingSummary[]> | null>(null);
     const companiesResult = ref<ReadResult<Company[]> | null>(null);
     const criteriaResult = ref<ReadResult<Criteria> | null>(null);
-    const contactsResult = ref<ReadResult<Contact[]> | null>(null);
 
     const refreshing = ref(false);
 
@@ -187,39 +165,22 @@ export const AppRoot = defineComponent({
       dropped.value = new Map(dropped.value).set(company.name, company.patch);
     }
 
-    // What James has edited on a contact — a note, a drop, `contacted_at` or
-    // `alias_of` — laid over the read the same way. Contacts are not part of
-    // the reads-cache round (below): the table is new and small, and a
-    // stale contacts list opening cold beside a fresh queue costs nothing
-    // the "refreshes behind it" design was built to avoid.
-    const contactPatches = ref<ReadonlyMap<string, ContactPatch>>(new Map());
-    function onContactPatched(contact: PatchedContact): void {
-      const prior = contactPatches.value.get(contact.email) ?? {};
-      contactPatches.value = new Map(contactPatches.value).set(contact.email, {
-        ...prior,
-        ...contact.patch,
-      });
-    }
-
     async function loadAll(accessToken: string): Promise<void> {
       // Taken before the reads are issued: a decision made while they are in
       // flight is not in their response, so dropping the whole map on
       // success would put the old status back on screen.
       const applied = new Set(decided.value.keys());
       const committed = new Set(dropped.value.keys());
-      const contactsCommitted = new Set(contactPatches.value.keys());
-      const [queue, postings, companies, criteria, contacts] = await Promise.all([
+      const [queue, postings, companies, criteria] = await Promise.all([
         loadQueue(props.config, accessToken, props.httpFetch),
         loadPostings(props.config, accessToken, {}, props.httpFetch),
         loadCompanies(props.config, accessToken, props.httpFetch),
         loadCriteria(props.config, accessToken, props.httpFetch),
-        loadContacts(props.config, accessToken, props.httpFetch),
       ]);
       queueResult.value = queue;
       postingsResult.value = postings;
       companiesResult.value = companies;
       criteriaResult.value = criteria;
-      contactsResult.value = contacts;
       if (queue.ok && postings.ok && companies.ok && criteria.ok) {
         saveReads(props.store, {
           queue: queue.value,
@@ -233,14 +194,6 @@ export const AppRoot = defineComponent({
         const stillDropped = new Map(dropped.value);
         for (const name of committed) stillDropped.delete(name);
         dropped.value = stillDropped;
-      }
-      // Its own gate, independent of the four above: a contacts read can
-      // fail or succeed on its own and must not hold up or be held up by
-      // the cached round.
-      if (contacts.ok) {
-        const stillPatched = new Map(contactPatches.value);
-        for (const email of contactsCommitted) stillPatched.delete(email);
-        contactPatches.value = stillPatched;
       }
     }
 
@@ -351,12 +304,6 @@ export const AppRoot = defineComponent({
       droppedWith(companiesResult.value?.ok ? companiesResult.value.value : [], dropped.value),
     );
     const criteria = computed(() => (criteriaResult.value?.ok ? criteriaResult.value.value : null));
-    const contacts = computed(() =>
-      contactsWith(
-        contactsResult.value?.ok ? contactsResult.value.value : [],
-        contactPatches.value,
-      ),
-    );
 
     const queueError = computed(() =>
       queueResult.value && !queueResult.value.ok ? queueResult.value.reason : null,
@@ -370,16 +317,12 @@ export const AppRoot = defineComponent({
     const criteriaError = computed(() =>
       criteriaResult.value && !criteriaResult.value.ok ? criteriaResult.value.reason : null,
     );
-    const contactsError = computed(() =>
-      contactsResult.value && !contactsResult.value.ok ? contactsResult.value.reason : null,
-    );
 
     const tabError = computed(() => {
       const errorByTab: Record<TabId, string | null> = {
         queue: queueError.value,
         record: postingsError.value,
         companies: companiesError.value,
-        contacts: contactsError.value,
         criteria: criteriaError.value,
       };
       return errorByTab[tab.value];
@@ -401,14 +344,12 @@ export const AppRoot = defineComponent({
       selectTab,
       onDecided,
       onDropped,
-      onContactPatched,
       queuePostings,
       allPostings,
       actedPostings,
       waitingPostings,
       companies,
       criteria,
-      contacts,
       tabError,
       TABS,
     };
@@ -464,13 +405,6 @@ export const AppRoot = defineComponent({
           :config="config"
           :access-token="session.accessToken"
           @dropped="onDropped" />
-
-        <ContactsView
-          v-if="tab === 'contacts'"
-          :contacts="contacts"
-          :config="config"
-          :access-token="session.accessToken"
-          @patched="onContactPatched" />
 
         <CriteriaView
           v-if="tab === 'criteria' && criteria !== null"

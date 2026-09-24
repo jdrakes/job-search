@@ -80,33 +80,3 @@ Being gitignored is the whole of this directory's protection, and it is also
 the whole of its risk. Nothing versions it, nothing copies it off the machine,
 and a fresh clone does not have it. If losing it would cost you anything, keep
 it in a private repository of its own.
-
-## employerDomain
-
-The domain of your own employer, if you have one. Contacts uses it to tell a
-colleague from a recruiter, by the counterpart's domain rather than by a
-company name, because a name match needs a company list and still misses a
-colleague writing from an address with no signature.
-
-Left out, no contact is ever classified as an employer, which is the right
-answer for anyone who has not said where they work.
-
-```
-"employerDomain": "example.com"
-```
-
-## domainAliases
-
-Maps a domain label to the firm's real name, for the cases where the two
-differ. Contacts reads a firm's name off its domain when no signature names
-it, and a label is a spelling rather than a name: a hyphenated name loses its
-hyphen, a label can carry a verb the name drops, and internal capitals cannot
-be guessed from lowercase.
-
-It is left out of the example on purpose. Which firms appear here is a fact
-about who you have corresponded with, so it is yours to write and it belongs
-in `settings/`, which is gitignored, rather than in the source.
-
-```
-"domainAliases": { "findfourthcoffee": "Fourth Coffee" }
-```

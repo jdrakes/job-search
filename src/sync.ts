@@ -45,9 +45,7 @@ export interface PullResult {
 // forms the tuple, before `ON CONFLICT` can route the row to its update, and
 // `postings.company` and both tables' `first_seen`/`last_seen` are NOT NULL
 // with no DEFAULT. An UPDATE names only what it sets.
-// Exported for `src/contacts/sync.ts`, which carries the operator's five contact
-// columns down by exactly this rule.
-export async function pullColumns(
+async function pullColumns(
   local: Store,
   hosted: Store,
   table: Table,

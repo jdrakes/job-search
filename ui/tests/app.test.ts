@@ -236,7 +236,6 @@ test("the grouped queue's history comes from the record read the shell already m
     ]),
     jsonReply([]),
     jsonReply([CRITERIA_ROW]),
-    jsonReply([]),
   ]);
 
   const html = await render(
@@ -245,10 +244,10 @@ test("the grouped queue's history comes from the record read the shell already m
     }),
   );
 
-  // The five reads the shell already makes (queue, postings, companies,
-  // criteria, contacts) — not a sixth for grouped history, which is what
-  // this test guards.
-  assert.equal(calls.length, 5, "the five reads the shell already makes");
+  // The four reads the shell already makes (queue, postings, companies,
+  // criteria) — not a fifth for grouped history, which is what this test
+  // guards.
+  assert.equal(calls.length, 4, "the four reads the shell already makes");
   assert.match(html, /<span class="company">Acme<\/span> — 1 waiting · 1 applied/);
   assert.match(html, /Principal Engineer/, "the applied role is a row under Acme's header");
   assert.doesNotMatch(html, /Cirrus/, "a company with nothing waiting opens no group");

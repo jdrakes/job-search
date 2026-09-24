@@ -4,8 +4,6 @@ import { test } from "node:test";
 import {
   COMPANY_FIELDS,
   COMPANY_STATES,
-  CONTACT_FIELDS,
-  CONTACT_STATES,
   CRITERIA_FIELDS,
   PLATFORMS,
   POSTING_FIELDS,
@@ -22,10 +20,10 @@ const MIGRATION_PATH = `${MIGRATIONS_DIR}/20260915000000_three_stores.sql`;
 // Each column lives on its own line as `"name" ...` inside the CREATE
 // TABLE block, the convention every migration here follows. The block is
 // looked up across every migration rather than in one fixed file, because
-// a table is declared wherever it is declared: `contacts` has a migration
-// of its own. The last migration to CREATE a name wins, since `criteria`
-// is created by the init, again by its own migration, and again by
-// three_stores, which drops the earlier one first.
+// a table is declared wherever it is declared: `reprobe_runs` has a
+// migration of its own. The last migration to CREATE a name wins, since
+// `criteria` is created by the init, again by its own migration, and again
+// by three_stores, which drops the earlier one first.
 function columnLinesOf(table: string): string[] {
   const marker = `CREATE TABLE IF NOT EXISTS "${table}" (`;
   const declaring = readdirSync(MIGRATIONS_DIR)
@@ -141,31 +139,6 @@ test("the last companies.state CHECK names discovered, watched, alias: a drop is
 
 test("the migrations' ADD COLUMN statements append to COMPANY_FIELDS in order", () => {
   assert.deepEqual(columnsOf("companies").slice(-2), ["dropped_at", "alias_of"]);
-});
-
-test("the migration's contacts columns match CONTACT_FIELDS, in order", () => {
-  // `contacts` is declared by a migration of its own, not by three_stores,
-  // so this fails unless columnLinesOf looks across every migration.
-  assert.deepEqual(columnsOf("contacts"), [...CONTACT_FIELDS]);
-});
-
-test("the migrations' contacts.state CHECK matches CONTACT_STATES, in order", () => {
-  assert.deepEqual(vocabularyOf("contacts", "state"), [...CONTACT_STATES]);
-});
-
-test("the contacts UPDATE grant names exactly the five columns James authors", () => {
-  // `state` is the processor's and every other column is derived from the
-  // capture, so the browser may write only the drop, the reason, the note,
-  // the contacted date and the alias. One GRANT UPDATE on `contacts`
-  // exists and no REVOKE follows it, so this list is the whole permission.
-  const grants = statementsOf()
-    .map((statement) => statement.match(/GRANT UPDATE \(([^)]*)\) ON TABLE "contacts"/)?.[1])
-    .filter((list) => list !== undefined);
-  assert.equal(grants.length, 1, "expected exactly one GRANT UPDATE on contacts");
-  assert.deepEqual(
-    grants[0].split(",").map((column) => column.trim().slice(1, -1)),
-    ["dropped_at", "reason", "note", "contacted_at", "alias_of"],
-  );
 });
 
 test("the migration drops the old criteria table before recreating it", () => {
