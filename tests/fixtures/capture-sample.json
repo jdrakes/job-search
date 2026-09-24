@@ -44,30 +44,6 @@
       ]
     },
     {
-      "id": "t-linkedin-inmail",
-      "subject": "Founding engineer, Series A, fully remote",
-      "messages": [
-        {
-          "id": "m-inmail-1",
-          "date": "2026-03-22T11:00:00Z",
-          "sender": "inmail-hit-reply@linkedin.com",
-          "sender_name": "Priya Venkataraman",
-          "to": ["operator@example.com"],
-          "labels": ["INBOX"],
-          "subject": "Founding engineer, Series A, fully remote",
-          "body": "Hi there,\n\nI am working a founding engineer search that looks like your last two roles.\n\nBest,\nPriya Venkataraman\nQuillhaven Search\n"
-        },
-        {
-          "id": "m-inmail-2",
-          "date": "2026-03-25T07:45:00Z",
-          "sender": "operator@example.com",
-          "labels": ["SENT"],
-          "subject": "Re: Founding engineer, Series A, fully remote",
-          "body": "Send the brief and I will read it this week.\n"
-        }
-      ]
-    },
-    {
       "id": "t-internal-1",
       "subject": "Internal opening on Digital",
       "messages": [
@@ -213,53 +189,6 @@
           "labels": ["SENT"],
           "subject": "Re: Contract, six months, remote",
           "body": "Not contracting, but thank you for asking.\n"
-        }
-      ]
-    },
-    {
-      "id": "t-linkedin-inmail-2",
-      "subject": "Platform lead, Series B, hybrid Austin",
-      "messages": [
-        {
-          "id": "m-inmail-3",
-          "date": "2026-03-18T15:30:00Z",
-          "sender": "inmail-hit-reply@linkedin.com",
-          "sender_name": "Sabine Ottokar",
-          "to": ["operator@example.com"],
-          "labels": ["INBOX"],
-          "subject": "Platform lead, Series B, hybrid Austin",
-          "body": "Hi there,\n\nA client of mine is hiring a platform lead and wanted an introduction.\n\nBest,\nSabine Ottokar\nWrenfield Talent\n"
-        },
-        {
-          "id": "m-inmail-4",
-          "date": "2026-03-19T08:10:00Z",
-          "sender": "operator@example.com",
-          "labels": ["SENT"],
-          "subject": "Re: Platform lead, Series B, hybrid Austin",
-          "body": "Hybrid is a no for me, but tell me about the client.\n"
-        }
-      ]
-    },
-    {
-      "id": "t-linkedin-inmail-nameless",
-      "subject": "Opportunity",
-      "messages": [
-        {
-          "id": "m-inmail-5",
-          "date": "2026-03-10T09:00:00Z",
-          "sender": "inmail-hit-reply@linkedin.com",
-          "to": ["operator@example.com"],
-          "labels": ["INBOX"],
-          "subject": "Opportunity",
-          "body": "Are you open to a conversation this week?\n"
-        },
-        {
-          "id": "m-inmail-6",
-          "date": "2026-03-11T09:00:00Z",
-          "sender": "operator@example.com",
-          "labels": ["SENT"],
-          "subject": "Re: Opportunity",
-          "body": "Who is this for?\n"
         }
       ]
     },

@@ -63,56 +63,6 @@ test("contactsOf: a contact's threads record, one by one, whether James sent in 
   assert.deepEqual(corwin.signals, ["replied-in-thread", "repeat-correspondent"]);
 });
 
-test("contactsOf: a LinkedIn InMail recruiter becomes a contact, with the company from her signature", () => {
-  const priya = contactFor(contactsOf(sampleCapture(), NOW), "linkedin-inmail:priya-venkataraman");
-  assert.equal(priya.name, "Priya Venkataraman");
-  assert.equal(priya.company, "Quillhaven Search");
-  assert.deepEqual(priya.signals, [
-    "replied-in-thread",
-    "linkedin-inmail",
-    "reply-address:inmail-hit-reply@linkedin.com",
-  ]);
-  assert.equal(priya.state, "active");
-});
-
-test("contactsOf: two recruiters sharing the InMail sender address are two rows, each with her own name", () => {
-  const contacts = contactsOf(sampleCapture(), NOW);
-  const priya = contactFor(contacts, "linkedin-inmail:priya-venkataraman");
-  const sabine = contactFor(contacts, "linkedin-inmail:sabine-ottokar");
-
-  assert.equal(priya.name, "Priya Venkataraman");
-  assert.equal(priya.company, "Quillhaven Search");
-  assert.equal(priya.thread_count, 1);
-  assert.equal(sabine.name, "Sabine Ottokar");
-  assert.equal(sabine.company, "Wrenfield Talent");
-  assert.equal(sabine.thread_count, 1);
-  // Neither holds the other's agency as a former employer, which is what
-  // one merged row produced.
-  assert.deepEqual(priya.company_history, []);
-  assert.deepEqual(sabine.company_history, []);
-});
-
-test("contactsOf: an InMail key is not a mailbox, and the address the mail came from is on the row", () => {
-  const sabine = contactFor(contactsOf(sampleCapture(), NOW), "linkedin-inmail:sabine-ottokar");
-  assert.equal(sabine.email.includes("@"), false);
-  assert.ok(sabine.signals.includes("linkedin-inmail"));
-  assert.ok(sabine.signals.includes("reply-address:inmail-hit-reply@linkedin.com"));
-});
-
-test("contactsOf: an InMail with no display name has no identity and yields no contact", () => {
-  const contacts = contactsOf(sampleCapture(), NOW);
-  assert.deepEqual(
-    contacts
-      .filter((contact) => contact.email.startsWith("linkedin-inmail:"))
-      .map((contact) => contact.email),
-    ["linkedin-inmail:priya-venkataraman", "linkedin-inmail:sabine-ottokar"],
-  );
-  assert.equal(
-    contacts.some((contact) => (contact.last_subject ?? "") === "Opportunity"),
-    false,
-  );
-});
-
 test("contactsOf: a recruiter who replies into a thread an ATS opened is the contact", () => {
   const hollis = contactFor(contactsOf(sampleCapture(), NOW), "hollis@larkmead.partners");
   assert.equal(hollis.name, "Hollis Marchbank");
@@ -205,7 +155,7 @@ test("contactsOf: a last contact 91 days before now is target", () => {
 
 test("contactsOf: no row carries dropped_at, reason, note, contacted_at or alias_of", () => {
   const contacts = contactsOf(sampleCapture(), NOW);
-  assert.equal(contacts.length, 7);
+  assert.equal(contacts.length, 5);
   for (const contact of contacts) {
     assert.equal(contact.dropped_at, null, `${contact.email} dropped_at`);
     assert.equal(contact.reason, null, `${contact.email} reason`);
@@ -416,34 +366,19 @@ test("contactsOf: a job title under the name is skipped and the agency below it 
   assert.equal(jonquil.company, "Ashcombe Partners");
 });
 
-test("contactsOf: linkedin.com is the relay an InMail crossed, never the sender's company", () => {
+test("contactsOf: a free-mail recruiter who signs off only later has no former employer", () => {
   const wilhelmina = onlyContact([
     {
-      id: "t-inmail-relay",
-      sender: "inmail-hit-reply@linkedin.com",
-      name: "Wilhelmina Fosbery",
-      body: "Hi James,\n\nAre you open to hearing about a platform role?\n",
-      on: "2026-03-08T09:00:00Z",
-      answered: "2026-03-09T09:00:00Z",
-    },
-  ]);
-  assert.equal(wilhelmina.email, "linkedin-inmail:wilhelmina-fosbery");
-  assert.equal(wilhelmina.company, null);
-});
-
-test("contactsOf: an InMail recruiter who signs off later never has Linkedin as a former employer", () => {
-  const wilhelmina = onlyContact([
-    {
-      id: "t-inmail-relay-1",
-      sender: "inmail-hit-reply@linkedin.com",
+      id: "t-unsigned-then-signed-1",
+      sender: "wilhelmina.fosbery@gmail.com",
       name: "Wilhelmina Fosbery",
       body: "Hi James,\n\nAre you open to hearing about a platform role?\n",
       on: "2026-03-08T09:00:00Z",
       answered: "2026-03-09T09:00:00Z",
     },
     {
-      id: "t-inmail-relay-2",
-      sender: "inmail-hit-reply@linkedin.com",
+      id: "t-unsigned-then-signed-2",
+      sender: "wilhelmina.fosbery@gmail.com",
       name: "Wilhelmina Fosbery",
       body: "Hi James,\n\nThe brief is attached.\n\nBest,\nWilhelmina Fosbery\nCorveth Search\n",
       on: "2026-03-20T09:00:00Z",
@@ -513,7 +448,7 @@ test("signature: a pronoun declaration under the name is not the company", () =>
 test("signature: a link bar under the name is not the company", () => {
   assert.equal(
     companyFromSignature(
-      "Hi James,\n\nA role.\n\nBest,\nWren Hollowby\nWebsite | LinkedIn | 973.809.0637\n",
+      "Hi there,\n\nA role.\n\nBest,\nWren Hollowby\nWebsite | Blog | 212.555.0147\n",
     ),
     "Brackenhall",
   );

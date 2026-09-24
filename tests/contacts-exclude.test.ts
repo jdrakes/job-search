@@ -94,16 +94,9 @@ test("isExcludedSender: a subdomain of an excluded ATS domain is still excluded"
   assert.equal(isExcludedSender("someone@boards.greenhouse-mail.io"), true);
 });
 
-test("isExcludedSender: keeps inmail-hit-reply@linkedin.com, a real recruiter writing through InMail", () => {
-  assert.equal(isExcludedSender("inmail-hit-reply@linkedin.com"), false);
-});
-
-test("isExcludedSender: keeps hit-reply@linkedin.com, a real recruiter writing through InMail", () => {
-  assert.equal(isExcludedSender("hit-reply@linkedin.com"), false);
-});
-
-test("isExcludedSender: the InMail carve-out survives mixed case and surrounding space", () => {
-  assert.equal(isExcludedSender(" Inmail-Hit-Reply@LinkedIn.com "), false);
+test("isExcludedSender: an address is read through mixed case and surrounding space", () => {
+  assert.equal(isExcludedSender(" JobAlerts-NoReply@SomeCompany.com "), true);
+  assert.equal(isExcludedSender(" Juno@Arvelo.Partners "), false);
 });
 
 function thread(messages: CaptureThread["messages"]): CaptureThread {
