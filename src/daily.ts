@@ -4,7 +4,6 @@ import { dirname, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-import { backupRecord } from "./backup.ts";
 import { boardsOf, watched } from "./companies.ts";
 import { loadCriteria } from "./criteria.ts";
 import { discover } from "./discover.ts";
@@ -195,30 +194,10 @@ async function main(): Promise<number> {
     }
   }
 
-  // Wrapped for the same reason publish is; the only phase nothing else
-  // depends on. Skipped, not failed, with no repository configured, the same
-  // shape as the pull and publish skips.
-  let backupFailed = false;
-  const repo = process.env["JOB_SEARCH_BACKUP_REPO"];
-  if (repo === undefined || repo === "") {
-    console.log("backup: skipped, no JOB_SEARCH_BACKUP_REPO");
-  } else {
-    try {
-      const copied = await phase("backup", () => backupRecord(store, repo), console.log);
-      console.log(
-        `backup: ${copied.postings} postings, ${copied.companies} companies, ` +
-          `${copied.verified} lines read back, ${copied.committed ? "committed" : "unchanged"}`,
-      );
-    } catch (error) {
-      backupFailed = true;
-      console.error(`backup failed, the record is on one machine: ${describeError(error)}`);
-    }
-  }
-
   // A silent nothing-happened must be visible. Listing errors only: judging
   // has its own count above.
   const everyBoardFailed = totalBoards > 0 && result.errors.length >= totalBoards;
-  return result.companies === 0 || everyBoardFailed || publishFailed || backupFailed ? 1 : 0;
+  return result.companies === 0 || everyBoardFailed || publishFailed ? 1 : 0;
 }
 
 // The one place that catches: a run whose first store read times out
