@@ -167,12 +167,27 @@ line is enough.
 30 6 * * 1-5 cd /path/to/job-search && node --env-file=.env src/daily.ts >> run.log 2>&1
 ```
 
-`scripts/daily.sh` is a wrapper for launchd on macOS. Its paths, container
-name and clone layout are environment variables with defaults, so set those
-before running it. What it does that a cron line does not is find node without
-a login shell, refuse to start when the store is unreachable instead of
-failing on the first read, and update its own clone from the remote before
-each run.
+That line is the whole of it, and for most people it is the right answer.
+
+`scripts/daily.sh` is a wrapper for launchd on macOS, and it is worth
+understanding before you copy it, because most of what it does you do not
+need. It finds node without a login shell, which launchd requires and cron
+mostly does not. It refuses to start when the store is unreachable, rather
+than failing on the first read. And it runs from a second clone of this
+repository that it makes for itself, updating that clone from the remote
+before each run.
+
+That last part exists for one situation: a repository somebody is working in
+while the run fires. Pulling at 06:30 in a checkout that has a branch open
+switches whoever is working on it onto main mid-edit. A second clone takes
+the pull instead. If you have one checkout and nobody editing it at dawn, you
+do not want any of this; the cron line above runs the same code with none of
+the machinery.
+
+Its paths, container name and clone layout are environment variables with
+defaults, so set those if you do use it. Note that the second clone has no
+`settings/` of its own, since that directory is gitignored, so the script
+links it from your working checkout.
 
 ## One store or two
 
