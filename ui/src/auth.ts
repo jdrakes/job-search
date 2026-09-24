@@ -1,5 +1,5 @@
 /**
- * Sign-in: a one-time code to James's address, over Supabase Auth's REST
+ * Sign-in: a one-time code to the operator's address, over Supabase Auth's REST
  * endpoints; two POSTs and a JWT is the whole protocol, so no SDK. The
  * session lives in `localStorage` and is bounded by
  * `INACTIVITY_TIMEOUT_SECONDS`, not the tab's lifetime. The store is

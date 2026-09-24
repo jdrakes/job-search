@@ -8,12 +8,12 @@
 // the active boundary untestable and every test dated.
 //
 // Everything returned is the processor's. `dropped_at`, `reason`, `note`,
-// `contacted_at` and `alias_of` are James's: they are null here and are
+// `contacted_at` and `alias_of` are the operator's: they are null here and are
 // written by nobody but him, which is the shape a re-run must not erase.
 import type { CompanyObservation, Contact, ContactState, ContactThread } from "../schema.ts";
 import type { Capture, CaptureMessage, CaptureThread } from "./capture.ts";
 import { findWholeWord } from "../judge/whole-word.ts";
-import { hasReplyFromJames, isExcludedSender } from "./exclude.ts";
+import { hasReplyFromOperator, isExcludedSender } from "./exclude.ts";
 
 // Domains that name where somebody reads mail, never who they work for.
 // Free mail is a personal mailbox: the signature names the agency or
@@ -308,7 +308,7 @@ function threadFactsOf(thread: CaptureThread, account: string): ThreadFacts | nu
     lastTime: Math.max(...times),
     // The inclusion bar lives once, in exclude.ts: a thread with no message
     // James sent is a sender, not a relationship.
-    sent: hasReplyFromJames(thread, account),
+    sent: hasReplyFromOperator(thread, account),
     name: displayName?.sender_name ?? signedName?.name ?? null,
     signedCompany: signedCompany?.company ?? null,
   };

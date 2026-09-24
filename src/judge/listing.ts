@@ -412,7 +412,7 @@ function judgeUnwatched(
   if (company === undefined) {
     return { criterion: "unwatched", verdict: "in", detail: "company not on record" };
   }
-  // The flag before the state: a drop is James's word on the company,
+  // The flag before the state: a drop is the operator's word on the company,
   // whatever the processor's column says.
   if (boards.dropped.has(posting.company)) {
     return {

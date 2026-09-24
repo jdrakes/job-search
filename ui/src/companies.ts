@@ -21,7 +21,7 @@ import { EmptyState } from "./empty-state.ts";
 import { focusAfterClose, trapFocus, type DialogClose } from "./focus-trap.ts";
 import { Toast, useToast } from "./toast.ts";
 
-// A drop is James's flag, not a state, so the page's groups are one more
+// A drop is the operator's flag, not a state, so the page's groups are one more
 // than the states: a dropped company sits in Dropped whatever its state.
 export type CompanyGroupKey = CompanyState | "dropped";
 
@@ -79,7 +79,7 @@ export function boardLabel(company: Company): string {
   return company.boards.map((board) => `${board.platform}:${board.id}`).join(", ");
 }
 
-/** James's reason if he gave one; otherwise the owner an alias points at; otherwise nothing. */
+/** the operator's reason if he gave one; otherwise the owner an alias points at; otherwise nothing. */
 export function whyText(company: Company): string | null {
   if (company.reason) return company.reason;
   if (company.alias_of) return `alias of ${company.alias_of}`;

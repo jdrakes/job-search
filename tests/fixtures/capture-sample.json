@@ -15,7 +15,7 @@
           "to": ["operator@example.com"],
           "labels": ["INBOX"],
           "subject": "Staff role at a payments company",
-          "body": "James,\n\nA payments client of ours is hiring a staff engineer. Worth a call?\n"
+          "body": "Hello,\n\nA payments client of ours is hiring a staff engineer. Worth a call?\n"
         },
         {
           "id": "m-kestrelmoor-2",

@@ -1,4 +1,4 @@
-// Pulls James's decisions down from the hosted store into the local store
+// Pulls the operator's decisions down from the hosted store into the local store
 // of record, and publishes the slice the list reads back up.
 //
 // The list is the only writer to the hosted store and `ui/src/api.ts` has
@@ -45,7 +45,7 @@ export interface PullResult {
 // forms the tuple, before `ON CONFLICT` can route the row to its update, and
 // `postings.company` and both tables' `first_seen`/`last_seen` are NOT NULL
 // with no DEFAULT. An UPDATE names only what it sets.
-// Exported for `src/contacts/sync.ts`, which carries James's five contact
+// Exported for `src/contacts/sync.ts`, which carries the operator's five contact
 // columns down by exactly this rule.
 export async function pullColumns(
   local: Store,

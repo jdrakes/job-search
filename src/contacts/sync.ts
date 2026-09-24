@@ -24,7 +24,7 @@ import { pullColumns } from "../sync.ts";
 import type { Capture } from "./capture.ts";
 import { contactsOf } from "./contact.ts";
 
-// James's five, named once and used both to pull them down and to subtract
+// the operator's five, named once and used both to pull them down and to subtract
 // them from everything that goes up, so the two cannot drift apart.
 const JAMES_COLUMNS = [
   "dropped_at",

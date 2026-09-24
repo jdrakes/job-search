@@ -204,7 +204,7 @@ interface Exchange {
   readonly answered: string;
 }
 
-// Her mail, then James's reply, which is the inclusion bar.
+// Her mail, then the operator's reply, which is the inclusion bar.
 function captureOf(exchanges: readonly Exchange[]): Capture {
   return {
     captured_at: "2026-04-02T08:00:00Z",
@@ -251,7 +251,7 @@ function unsignedFrom(sender: string): Contact {
       id: "t-unsigned",
       sender,
       name: "Delphine Crowther",
-      body: "Hi James,\n\nAre you open to a conversation this week?\n",
+      body: "Hi there,\n\nAre you open to a conversation this week?\n",
       on: "2026-03-12T10:00:00Z",
       answered: "2026-03-13T08:00:00Z",
     },
@@ -266,7 +266,7 @@ test("contactsOf: an unsigned follow-up is missing information, not a move to a 
       id: "t-fennimore-1",
       sender: "ingrid.saltmarsh@fennimore.partners",
       name: "Ingrid Saltmarsh",
-      body: "Hi James,\n\nA founding engineer brief for you.\n\nBest,\nIngrid Saltmarsh\nFennimore Partners\n",
+      body: "Hi there,\n\nA founding engineer brief for you.\n\nBest,\nIngrid Saltmarsh\nFennimore Partners\n",
       on: "2026-02-10T09:00:00Z",
       answered: "2026-02-11T09:00:00Z",
     },
@@ -289,7 +289,7 @@ test("contactsOf: a free-mail contact keeps the company her signature gave when 
       id: "t-cranmere-1",
       sender: "ottilie.verhoeven@gmail.com",
       name: "Ottilie Verhoeven",
-      body: "Hi James,\n\nA client of mine needs a platform lead.\n\nBest,\nOttilie Verhoeven\nCranmere Talent\n",
+      body: "Hi there,\n\nA client of mine needs a platform lead.\n\nBest,\nOttilie Verhoeven\nCranmere Talent\n",
       on: "2026-01-20T11:00:00Z",
       answered: "2026-01-21T11:00:00Z",
     },
@@ -312,7 +312,7 @@ test("contactsOf: a signature naming a firm the address does not becomes history
       id: "t-saltgrove-1",
       sender: SALTGROVE,
       name: "Hendrick Mallory",
-      body: "Hi James,\n\nA staff role with a client of ours.\n\nBest,\nHendrick Mallory\nRavensgate Search\n",
+      body: "Hi there,\n\nA staff role with a client of ours.\n\nBest,\nHendrick Mallory\nRavensgate Search\n",
       on: "2025-09-08T10:00:00Z",
       answered: "2025-09-09T11:30:00Z",
     },
@@ -357,7 +357,7 @@ test("contactsOf: a job title under the name is skipped and the agency below it 
     {
       id: "t-ashcombe-1",
       sender: "jonquil.trethewey@ashcombe.partners",
-      body: "Hi James,\n\nI have a founding engineer search on.\n\nBest,\nJonquil Trethewey\nSenior Technical Recruiter\nAshcombe Partners\n",
+      body: "Hi there,\n\nI have a founding engineer search on.\n\nBest,\nJonquil Trethewey\nSenior Technical Recruiter\nAshcombe Partners\n",
       on: "2026-03-02T09:00:00Z",
       answered: "2026-03-03T09:00:00Z",
     },
@@ -372,7 +372,7 @@ test("contactsOf: a free-mail recruiter who signs off only later has no former e
       id: "t-unsigned-then-signed-1",
       sender: "wilhelmina.fosbery@gmail.com",
       name: "Wilhelmina Fosbery",
-      body: "Hi James,\n\nAre you open to hearing about a platform role?\n",
+      body: "Hi there,\n\nAre you open to hearing about a platform role?\n",
       on: "2026-03-08T09:00:00Z",
       answered: "2026-03-09T09:00:00Z",
     },
@@ -380,7 +380,7 @@ test("contactsOf: a free-mail recruiter who signs off only later has no former e
       id: "t-unsigned-then-signed-2",
       sender: "wilhelmina.fosbery@gmail.com",
       name: "Wilhelmina Fosbery",
-      body: "Hi James,\n\nThe brief is attached.\n\nBest,\nWilhelmina Fosbery\nCorveth Search\n",
+      body: "Hi there,\n\nThe brief is attached.\n\nBest,\nWilhelmina Fosbery\nCorveth Search\n",
       on: "2026-03-20T09:00:00Z",
       answered: "2026-03-21T09:00:00Z",
     },
@@ -436,11 +436,11 @@ function companyFromSignature(body: string): string | null {
 
 test("signature: a pronoun declaration under the name is not the company", () => {
   assert.equal(
-    companyFromSignature("Hi James,\n\nA role.\n\nBest,\nWren Hollowby\nshe/her\n"),
+    companyFromSignature("Hi there,\n\nA role.\n\nBest,\nWren Hollowby\nshe/her\n"),
     "Brackenhall",
   );
   assert.equal(
-    companyFromSignature("Hi James,\n\nA role.\n\nBest,\nWren Hollowby\n(they/them)\n"),
+    companyFromSignature("Hi there,\n\nA role.\n\nBest,\nWren Hollowby\n(they/them)\n"),
     "Brackenhall",
   );
 });
@@ -456,25 +456,25 @@ test("signature: a link bar under the name is not the company", () => {
 
 test("signature: a horizontal rule is not the company", () => {
   assert.equal(
-    companyFromSignature("Hi James,\n\nA role.\n\nBest,\nWren Hollowby\n____________________\n"),
+    companyFromSignature("Hi there,\n\nA role.\n\nBest,\nWren Hollowby\n____________________\n"),
     "Brackenhall",
   );
   assert.equal(
-    companyFromSignature("Hi James,\n\nA role.\n\nBest,\nWren Hollowby\n--\n"),
+    companyFromSignature("Hi there,\n\nA role.\n\nBest,\nWren Hollowby\n--\n"),
     "Brackenhall",
   );
 });
 
 test("signature: the writer's own name repeated under itself is not the company", () => {
   assert.equal(
-    companyFromSignature("Hi James,\n\nA role.\n\nBest,\nWren Hollowby\nWren Hollowby\n"),
+    companyFromSignature("Hi there,\n\nA role.\n\nBest,\nWren Hollowby\nWren Hollowby\n"),
     "Brackenhall",
   );
 });
 
 test("signature: one part of the writer's name alone is not the company", () => {
   assert.equal(
-    companyFromSignature("Hi James,\n\nA role.\n\nBest,\nWren Hollowby\nWren\n"),
+    companyFromSignature("Hi there,\n\nA role.\n\nBest,\nWren Hollowby\nWren\n"),
     "Brackenhall",
   );
 });
@@ -482,7 +482,7 @@ test("signature: one part of the writer's name alone is not the company", () => 
 test("signature: a real agency line under a rejected line is still found", () => {
   assert.equal(
     companyFromSignature(
-      "Hi James,\n\nA role.\n\nBest,\nWren Hollowby\nshe/her\nThornquist Search\n",
+      "Hi there,\n\nA role.\n\nBest,\nWren Hollowby\nshe/her\nThornquist Search\n",
     ),
     "Thornquist Search",
   );
@@ -490,7 +490,7 @@ test("signature: a real agency line under a rejected line is still found", () =>
 
 test("signature: an agency whose name contains the writer's surname still stands", () => {
   assert.equal(
-    companyFromSignature("Hi James,\n\nA role.\n\nBest,\nWren Hollowby\nHollowby Talent Group\n"),
+    companyFromSignature("Hi there,\n\nA role.\n\nBest,\nWren Hollowby\nHollowby Talent Group\n"),
     "Hollowby Talent Group",
   );
 });
@@ -500,7 +500,7 @@ test("signature: the last sign-off wins, so a mid-message 'Thank you!' does not 
   // name: a valediction written before the real sign-off.
   assert.equal(
     companyFromSignature(
-      "Hi James,\n\nPlease send some times.\n\nThank you!\n\nBest,\nWren\nRecruiting Operations Specialist\n",
+      "Hi there,\n\nPlease send some times.\n\nThank you!\n\nBest,\nWren\nRecruiting Operations Specialist\n",
     ),
     "Brackenhall",
   );
@@ -511,7 +511,7 @@ test("signature: the full name under a first-name sign-off is still the writer",
   // company of "Brittan Locke" until the comparison used every word.
   assert.equal(
     companyFromSignature(
-      "Hi James,\n\nA role.\n\nBest,\nWren\n--\nWren Hollowby\nDirector of People\n",
+      "Hi there,\n\nA role.\n\nBest,\nWren\n--\nWren Hollowby\nDirector of People\n",
     ),
     "Brackenhall",
   );
@@ -521,7 +521,7 @@ test("signature: the display name is what a candidate is compared against", () =
   // The capture carries no sender_name here, so the comparison falls back to
   // the signature's own name line and must still reject the repeat.
   assert.equal(
-    companyFromSignature("Hi James,\n\nA role.\n\nRegards,\nWren Hollowby\nWren\n"),
+    companyFromSignature("Hi there,\n\nA role.\n\nRegards,\nWren Hollowby\nWren\n"),
     "Brackenhall",
   );
 });
@@ -550,7 +550,7 @@ function companyForDomain(domain: string): string | null {
             to: ["operator@example.com"],
             labels: ["INBOX"],
             subject: "A role",
-            body: "Hi James,\n\nA role.\n",
+            body: "Hi there,\n\nA role.\n",
           },
           {
             id: "d1m2",
@@ -587,7 +587,7 @@ test("company: a domain not in the alias map still reads as its capitalised labe
 
 test("company: a signature naming the firm still beats the alias map", () => {
   assert.equal(
-    companyFromSignature("Hi James,\n\nA role.\n\nBest,\nWren Hollowby\nThornquist Search\n"),
+    companyFromSignature("Hi there,\n\nA role.\n\nBest,\nWren Hollowby\nThornquist Search\n"),
     "Thornquist Search",
   );
 });

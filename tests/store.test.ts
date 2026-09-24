@@ -14,7 +14,7 @@ import type { Store } from "../src/store/store.ts";
 // The contract: one set of cases, run against every adapter. Each case
 // touches only rows whose key starts with a prefix unique to (adapter,
 // case), so the Postgres half can share a real database. `criteria` is the
-// single live row James's pipeline reads, so the contract exercises
+// single live row the operator's pipeline reads, so the contract exercises
 // `postings` and `companies` only.
 
 function company(name: string, overrides: Partial<Company> = {}): Company {

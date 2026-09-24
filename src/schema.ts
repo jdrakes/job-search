@@ -30,7 +30,7 @@ export type Platform = (typeof PLATFORMS)[number];
 export const STATUSES = ["applied", "interviewing", "rejected", "offer", "closed"] as const;
 export type Status = (typeof STATUSES)[number];
 
-// The processor's column. A drop is James's and lives in `dropped_at` and
+// The processor's column. A drop is the operator's and lives in `dropped_at` and
 // `reason` beside it; `alias` is a name whose board another company owns.
 export const COMPANY_STATES = ["discovered", "watched", "alias"] as const;
 export type CompanyState = (typeof COMPANY_STATES)[number];
@@ -40,7 +40,7 @@ export type Workplace = (typeof WORKPLACES)[number];
 
 // The processor's column, every value derived from the mail: `employer` is
 // a counterpart at the operator's own employer, `active` is a message
-// within 90 days, `target` is everyone else. James's drop is `dropped_at`
+// within 90 days, `target` is everyone else. the operator's drop is `dropped_at`
 // and `reason` beside it, the companies shape, so a re-run of the sync
 // cannot erase a decision.
 export const CONTACT_STATES = ["target", "active", "employer"] as const;
@@ -134,7 +134,7 @@ export const POSTING_LIST_FIELDS = POSTING_FIELDS.filter(
 export type PostingSummary = Omit<Posting, "body" | "body_hash" | "workplace">;
 
 // `state`, `boards`, `source`, `alias_of` and the timestamps are the
-// processor's; `dropped_at` and `reason` are James's and no publish writes
+// processor's; `dropped_at` and `reason` are the operator's and no publish writes
 // them. A watched company with `dropped_at` set is not read.
 export interface Company {
   readonly name: string;
@@ -217,7 +217,7 @@ export interface ContactThread {
 // Identity is the email address; nothing merges two addresses
 // automatically. Everything down to `last_subject` is the processor's,
 // derived from the capture; `dropped_at`, `reason`, `note`, `contacted_at`
-// and `alias_of` are James's and no sync writes them.
+// and `alias_of` are the operator's and no sync writes them.
 export interface Contact {
   readonly email: string;
   readonly name: string | null;

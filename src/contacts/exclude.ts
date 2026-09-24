@@ -55,7 +55,7 @@ export function isExcludedSender(address: string): boolean {
 // never answered, not a relationship. `SENT` is the label the search
 // response already carries per message, so this reads that rather than
 // re-deriving it from the sender address alone.
-export function hasReplyFromJames(thread: CaptureThread, account: string): boolean {
+export function hasReplyFromOperator(thread: CaptureThread, account: string): boolean {
   const lowerAccount = account.toLowerCase().trim();
   return thread.messages.some(
     (message) =>

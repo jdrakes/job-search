@@ -786,7 +786,7 @@ test("the drawer shows each reason once, as evidence, and a closed posting's not
   assert.doesNotMatch(html, /class="reason"/);
 });
 
-// Closing says the processor was wrong, so James's sentence leads the
+// Closing says the processor was wrong, so the operator's sentence leads the
 // drawer and the evidence it overrode follows it.
 test("the drawer puts the close reason above the evidence", async () => {
   const html = await render(PostingCard, {
