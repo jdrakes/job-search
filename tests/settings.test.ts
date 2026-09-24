@@ -23,6 +23,7 @@ test("loadSettings: a valid config.json returns its parsed values", () => {
       userAgent: "my-bot (+https://example.com)",
       discoverySources: ["hackernews", "weworkremotely"],
       extraSourcePath: "./sources/mine.ts",
+      extraDetailPath: "./details/mine.ts",
     }),
   );
 
@@ -30,6 +31,7 @@ test("loadSettings: a valid config.json returns its parsed values", () => {
     userAgent: "my-bot (+https://example.com)",
     discoverySources: ["hackernews", "weworkremotely"],
     extraSourcePath: "./sources/mine.ts",
+    extraDetailPath: "./details/mine.ts",
   });
 });
 
@@ -41,6 +43,7 @@ test("loadSettings: a config.json naming only one field leaves the others absent
   assert.equal(settings.userAgent, "solo-bot");
   assert.equal("discoverySources" in settings, false);
   assert.equal("extraSourcePath" in settings, false);
+  assert.equal("extraDetailPath" in settings, false);
 });
 
 test("loadSettings: an unknown key is ignored rather than rejected", () => {

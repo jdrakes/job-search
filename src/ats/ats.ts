@@ -24,6 +24,16 @@ export interface Reader {
   body?(board: Board, id: string, options?: HttpOptions): Promise<Listing | null>;
 }
 
+// A per-posting read an operator supplies for one board whose listing leaves
+// out what the posting's own page states: a workplace, a band, the text. It
+// turns that board two-phase, so the page is read once per posting the
+// listing criteria admit, not once per posting per run.
+export interface DetailRead {
+  readonly platform: Platform;
+  readonly board: string;
+  body(id: string, options?: HttpOptions): Promise<Listing | null>;
+}
+
 // Board JSON is untrusted. A missing or wrong-typed field reads as its
 // empty value, never a throw: a malformed field is not a malformed board.
 

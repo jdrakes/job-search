@@ -21,7 +21,9 @@ import { openHostedStore, openStore } from "./store/open.ts";
 import type { Store } from "./store/store.ts";
 import { publishSlice, pullDecisions } from "./sync.ts";
 
-import { READERS } from "./ats/readers.ts";
+import type { DetailRead, Reader } from "./ats/ats.ts";
+import { READERS, withDetailReads } from "./ats/readers.ts";
+import type { Platform } from "./schema.ts";
 
 const SOURCES = [hnSource, remoteOkSource, weWorkRemotelySource, builtInSource, theMuseSource];
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -109,6 +111,49 @@ export async function resolveSources(
   return [...selected, extra];
 }
 
+function isDetailRead(value: unknown): value is DetailRead {
+  if (typeof value !== "object" || value === null) return false;
+  const read = value as Record<string, unknown>;
+  return (
+    typeof read["platform"] === "string" &&
+    read["platform"] in READERS &&
+    typeof read["board"] === "string" &&
+    typeof read["body"] === "function"
+  );
+}
+
+// `extraDetailPath` names a module whose default export is an array of
+// `DetailRead`s: a board the operator reads a second time, from a page this
+// project does not ship a reader for. Absent, the readers are the shipped
+// ones. A path that will not import, or an export of the wrong shape, throws
+// naming the path: a read the operator configured and the run silently
+// skipped would judge that board's postings without the facts it exists for.
+export async function resolveReaders(
+  settings: Settings,
+  readers: Record<Platform, Reader> = READERS,
+): Promise<Record<Platform, Reader>> {
+  const path = settings.extraDetailPath;
+  if (path === undefined) return readers;
+  const resolvedPath = resolve(REPO_ROOT, path);
+  let module: { default?: unknown };
+  try {
+    module = (await import(resolvedPath)) as { default?: unknown };
+  } catch (error) {
+    throw new Error(
+      `settings: extraDetailPath "${path}" (resolved to ${resolvedPath}) ` +
+        `could not be imported: ${describeError(error)}`,
+    );
+  }
+  const reads = module.default;
+  if (!Array.isArray(reads) || !reads.every(isDetailRead)) {
+    throw new Error(
+      `settings: extraDetailPath "${path}" must have a default export that is an array of ` +
+        "detail reads, each naming a shipped platform, a board and a body function",
+    );
+  }
+  return withDetailReads(readers, reads);
+}
+
 async function main(): Promise<number> {
   const store = openStore();
   const settings = loadSettings();
@@ -133,6 +178,7 @@ async function main(): Promise<number> {
   // before the pull instead, an edit made in the Criteria view would not
   // reach the extra source until the run after next.
   const sources = await resolveSources(SOURCES, settings, store);
+  const readers = await resolveReaders(settings);
 
   // Before ingestion: a company discovery watches this morning is read this
   // morning. Wrapped, so discovery failing costs no watched company its
@@ -155,7 +201,7 @@ async function main(): Promise<number> {
   const companies = await watched(store);
   const totalBoards = companies.reduce((sum, company) => sum + boardsOf(company).length, 0);
 
-  const result = await phase("list", () => ingest(store, READERS), console.log);
+  const result = await phase("list", () => ingest(store, readers), console.log);
 
   console.log(
     `ingest: ${result.companies} companies, ${result.listed} listed, ${result.recorded} recorded, ` +
@@ -169,7 +215,7 @@ async function main(): Promise<number> {
   }
 
   // Every HTTP request this phase makes is a body fetch.
-  const judging = await phase("judge", () => judgeAll(store, READERS), console.log);
+  const judging = await phase("judge", () => judgeAll(store, readers), console.log);
   console.log(`judge: ${judging.judged} judged, ${judging.errors.length} errors`);
   for (const error of judging.errors) {
     console.log(`  ${error}`);
