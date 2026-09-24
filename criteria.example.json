@@ -1,0 +1,13 @@
+{
+  "level_words": ["senior", "staff"],
+  "role_words": ["backend"],
+  "excluded_title_words": ["intern"],
+  "team_name_words": [],
+  "excluded_states": [],
+  "missing_languages": [],
+  "comp_floor": 0,
+  "max_age_days": null,
+  "excluded_locations": [],
+  "product_words": [],
+  "assumed_bonus_pct": null
+}
