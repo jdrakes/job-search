@@ -199,7 +199,7 @@ author runs it that way because his store of record is a Postgres on his own
 machine holding every posting it has ever seen with its full text, which is
 hundreds of megabytes, while the slice the list needs is under one.
 
-## Four things that are deliberately separate
+## Three things that are deliberately separate
 
 - `scripts/write-ui-config.ts` bakes `SUPABASE_URL` and `SUPABASE_ANON_KEY`
   into the browser bundle at build time. Which project the page talks to is a
@@ -209,10 +209,6 @@ hundreds of megabytes, while the slice the list needs is under one.
   against Postgres only when `.env` names one. With `JOB_SEARCH_DB_URL` unset
   the Postgres half skips and prints why. Skipped there is correct, not
   broken.
-- `JOB_SEARCH_BACKUP_REPO` names a git repository the run commits a copy of
-  the record into. It receives real postings, so it must point at a private
-  repository. Unset, the backup phase logs that it skipped and the run is
-  otherwise unchanged.
 - The per-host delays in `src/net/http.ts` are not configurable and are not
   going to be. A delay there is a fact about a host, read off its robots.txt
   or measured against it, not a preference. As a setting it would be set to
