@@ -2,7 +2,7 @@
 // file's interfaces (`satisfies`) and the migration's column list
 // (tests/schema.test.ts), so a column can only drift if both are edited.
 
-export const TABLES = ["postings", "companies", "criteria", "contacts", "reprobe_runs"] as const;
+export const TABLES = ["postings", "companies", "criteria", "reprobe_runs"] as const;
 export type Table = (typeof TABLES)[number];
 
 export const PLATFORMS = [
@@ -37,14 +37,6 @@ export type CompanyState = (typeof COMPANY_STATES)[number];
 
 export const WORKPLACES = ["remote", "hybrid", "onsite"] as const;
 export type Workplace = (typeof WORKPLACES)[number];
-
-// The processor's column, every value derived from the mail: `employer` is
-// a counterpart at the operator's own employer, `active` is a message
-// within 90 days, `target` is everyone else. the operator's drop is `dropped_at`
-// and `reason` beside it, the companies shape, so a re-run of the sync
-// cannot erase a decision.
-export const CONTACT_STATES = ["target", "active", "employer"] as const;
-export type ContactState = (typeof CONTACT_STATES)[number];
 
 // Never derived from the company's name. `gone: 1` marks a board that
 // answered "not here" on the last run (`isGone` in companies.ts); absent
@@ -193,72 +185,6 @@ export const CRITERIA_FIELDS = [
   "assumed_bonus_pct",
 ] as const satisfies readonly (keyof Criteria)[];
 
-// One agency a contact wrote from, kept when a later thread shows another:
-// `company` holds the latest, `company_history` the ones before it, so a
-// recruiter who changed agencies stays one relationship. `company` is null
-// where the domain is free mail and no signature named one.
-export interface CompanyObservation {
-  readonly company: string | null;
-  readonly domain: string;
-  readonly first_seen: string;
-  readonly last_seen: string;
-}
-
-// One mail thread the contact appears in. `sent` records that James wrote
-// in it, which is the inclusion bar: a thread he never answered is not a
-// relationship.
-export interface ContactThread {
-  readonly id: string;
-  readonly subject: string | null;
-  readonly date: string;
-  readonly sent: boolean;
-}
-
-// Identity is the email address; nothing merges two addresses
-// automatically. Everything down to `last_subject` is the processor's,
-// derived from the capture; `dropped_at`, `reason`, `note`, `contacted_at`
-// and `alias_of` are the operator's and no sync writes them.
-export interface Contact {
-  readonly email: string;
-  readonly name: string | null;
-  readonly company: string | null;
-  readonly company_history: readonly CompanyObservation[];
-  readonly state: ContactState;
-  // Why this row was called a recruiter, so a wrong row reads back.
-  readonly signals: readonly string[];
-  readonly first_contact: string | null;
-  readonly last_contact: string | null;
-  readonly thread_count: number;
-  readonly threads: readonly ContactThread[];
-  readonly last_subject: string | null;
-  readonly dropped_at: string | null;
-  readonly reason: string | null;
-  readonly note: string | null;
-  readonly contacted_at: string | null;
-  // Another contact's email address, where James says the two are one
-  // person; null otherwise.
-  readonly alias_of: string | null;
-}
-
-export const CONTACT_FIELDS = [
-  "email",
-  "name",
-  "company",
-  "company_history",
-  "state",
-  "signals",
-  "first_contact",
-  "last_contact",
-  "thread_count",
-  "threads",
-  "last_subject",
-  "dropped_at",
-  "reason",
-  "note",
-  "contacted_at",
-  "alias_of",
-] as const satisfies readonly (keyof Contact)[];
-
 // One row per `scripts/reprobe.ts` pass. The backlog pass is by hand,
 // costs thousands of vendor requests and takes hours, and nothing recorded
 // that one had run: on 2026-09-23 a pass re-asked six platforms the
@@ -303,6 +229,5 @@ export const TABLE_FIELDS = {
   postings: POSTING_FIELDS,
   companies: COMPANY_FIELDS,
   criteria: CRITERIA_FIELDS,
-  contacts: CONTACT_FIELDS,
   reprobe_runs: REPROBE_RUN_FIELDS,
 } as const satisfies Record<Table, readonly string[]>;

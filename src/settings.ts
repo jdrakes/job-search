@@ -14,19 +14,6 @@ export interface Settings {
   readonly userAgent?: string;
   readonly discoverySources?: readonly string[];
   readonly extraSourcePath?: string;
-  // The domain of the operator's own employer, if they have one. Contacts
-  // uses it to tell a colleague from a recruiter, by the counterpart's
-  // domain rather than by a company name, since a name match needs a company
-  // list and still misses an address with no signature. Absent, no contact is
-  // ever classified as an employer, which is the right answer for anyone who
-  // has not said where they work.
-  readonly employerDomain?: string;
-  // Maps a domain label to the firm's real name, for the cases where the two
-  // differ. Contacts reads a firm's name off its domain when no signature
-  // names it, and a label is a spelling rather than a name. Hand-written and
-  // deliberately partial: it holds only what the operator has actually
-  // corresponded with, which is why it is configuration and not source.
-  readonly domainAliases?: Readonly<Record<string, string>>;
 }
 
 // `dir` defaults to `settings/` at the repo root; a caller (a test) passes
@@ -70,8 +57,6 @@ function parseSettings(value: unknown, path: string): Settings {
     userAgent?: string;
     discoverySources?: readonly string[];
     extraSourcePath?: string;
-    employerDomain?: string;
-    domainAliases?: Readonly<Record<string, string>>;
   } = {};
 
   if ("userAgent" in record) {
@@ -79,26 +64,6 @@ function parseSettings(value: unknown, path: string): Settings {
       throw new Error(`settings: ${path} field "userAgent" must be a string`);
     }
     settings.userAgent = record.userAgent;
-  }
-
-  if ("employerDomain" in record) {
-    if (typeof record.employerDomain !== "string") {
-      throw new Error(`settings: ${path} field "employerDomain" must be a string`);
-    }
-    settings.employerDomain = record.employerDomain;
-  }
-
-  if ("domainAliases" in record) {
-    const aliases = record.domainAliases;
-    if (
-      typeof aliases !== "object" ||
-      aliases === null ||
-      Array.isArray(aliases) ||
-      Object.values(aliases).some((name) => typeof name !== "string")
-    ) {
-      throw new Error(`settings: ${path} field "domainAliases" must be an object of string values`);
-    }
-    settings.domainAliases = aliases as Readonly<Record<string, string>>;
   }
 
   if ("discoverySources" in record) {
