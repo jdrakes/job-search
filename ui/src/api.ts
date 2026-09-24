@@ -236,7 +236,7 @@ export async function setStatus(
   return patchOne(config, accessToken, "postings", "key", key, { ...patch }, httpFetch);
 }
 
-// James's two columns on a company; `state` is the processor's and the
+// the operator's two columns on a company; `state` is the processor's and the
 // hosted grant refuses it.
 export type CompanyDropPatch = Pick<Company, "dropped_at" | "reason">;
 
@@ -250,7 +250,7 @@ export async function setCompanyDrop(
   return patchOne(config, accessToken, "companies", "name", name, { ...patch }, httpFetch);
 }
 
-// James's five columns on a contact; `state` is the processor's and the
+// the operator's five columns on a contact; `state` is the processor's and the
 // hosted grant refuses it. One writer for all five: the grant is one
 // `UPDATE (...)` naming exactly this set, so a note-only edit and a drop
 // both go through the same PATCH shape, carrying only what changed.

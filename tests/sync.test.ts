@@ -432,7 +432,7 @@ test("publishSlice removes a hosted posting that has left the slice", async () =
 });
 
 test("publishSlice never removes a hosted posting that carries a status", async () => {
-  // Kept=false with a status: James's record, not stale output.
+  // Kept=false with a status: the operator's record, not stale output.
   const local = memoryStore({ postings: [posting("kept::1", { kept: true })] });
   const hosted = memoryStore({
     postings: [

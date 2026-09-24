@@ -18,9 +18,8 @@ const EXCLUDED_LOCAL_PARTS = [
 ] as const;
 
 // Seeded from the 2026-09-23 mailbox probe: ATS and job-board domains, each
-// one a real observed sender. `linkedin.com` is here too, because job alerts
-// (`jobalerts-noreply@linkedin.com`) vastly outnumber the InMail addresses
-// carved out below.
+// one a real observed sender. A domain is here when everything it sends is
+// a receipt or an alert, so nothing on it is a relationship.
 const EXCLUDED_DOMAINS = [
   "greenhouse-mail.io",
   "us.greenhouse-mail.io",
@@ -35,10 +34,6 @@ const EXCLUDED_DOMAINS = [
   "linkedin.com",
 ] as const;
 
-// Real recruiters writing through LinkedIn InMail, on `linkedin.com`, which
-// this list would otherwise exclude whole.
-const SURVIVING_LINKEDIN_SENDERS = ["inmail-hit-reply@linkedin.com", "hit-reply@linkedin.com"];
-
 function domainExcluded(domain: string): boolean {
   return EXCLUDED_DOMAINS.some(
     (excluded) => domain === excluded || domain.endsWith(`.${excluded}`),
@@ -47,8 +42,6 @@ function domainExcluded(domain: string): boolean {
 
 export function isExcludedSender(address: string): boolean {
   const lower = address.toLowerCase().trim();
-  if (SURVIVING_LINKEDIN_SENDERS.includes(lower)) return false;
-
   const at = lower.lastIndexOf("@");
   if (at === -1) return false;
   const localPart = lower.slice(0, at);
@@ -62,7 +55,7 @@ export function isExcludedSender(address: string): boolean {
 // never answered, not a relationship. `SENT` is the label the search
 // response already carries per message, so this reads that rather than
 // re-deriving it from the sender address alone.
-export function hasReplyFromJames(thread: CaptureThread, account: string): boolean {
+export function hasReplyFromOperator(thread: CaptureThread, account: string): boolean {
   const lowerAccount = account.toLowerCase().trim();
   return thread.messages.some(
     (message) =>

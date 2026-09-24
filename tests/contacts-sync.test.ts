@@ -23,7 +23,7 @@ const FROM_HER: CaptureMessage = {
   to: [ACCOUNT],
   labels: ["INBOX"],
   subject: "A founding engineer brief",
-  body: "James,\n\nWorth a call?\n",
+  body: "Hello,\n\nWorth a call?\n",
 };
 
 const FROM_JAMES: CaptureMessage = {
@@ -131,7 +131,7 @@ test("a newer capture moves last_contact and leaves the decision alone", async (
   }
 });
 
-// The pull's `update` does name James's columns; that is its job, and it
+// The pull's `update` does name the operator's columns; that is its job, and it
 // only ever writes downwards. Every upsert, in either direction, carries
 // the processor's row, and naming one of his in it is the bug.
 test("no upsert in either direction names a column James authors", async () => {
@@ -200,7 +200,7 @@ const OLD_THREAD: CaptureThread = {
       to: [ACCOUNT],
       labels: ["INBOX"],
       subject: "A staff role at Kestrelmoor",
-      body: "James,\n\nWorth a look?\n\nBest,\nMarguerite Olwen\nKestrelmoor Search\n",
+      body: "Hello,\n\nWorth a look?\n\nBest,\nMarguerite Olwen\nKestrelmoor Search\n",
     },
     {
       id: "m-11",
@@ -225,7 +225,7 @@ const RECENT_THREAD: CaptureThread = {
       to: [ACCOUNT],
       labels: ["INBOX"],
       subject: "A platform lead in Austin",
-      body: "James,\n\nThis one is remote.\n",
+      body: "Hello,\n\nThis one is remote.\n",
     },
     {
       id: "m-21",

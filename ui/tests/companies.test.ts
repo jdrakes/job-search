@@ -163,7 +163,7 @@ test("boardLabel is empty text for a company with no boards", () => {
   assert.equal(boardLabel(company("Acme", { boards: [] })), "");
 });
 
-test("whyText prefers James's reason, falls back to the alias owner, else nothing", () => {
+test("whyText prefers the operator's reason, falls back to the alias owner, else nothing", () => {
   assert.equal(whyText(company("Acme", { reason: "acquired" })), "acquired");
   assert.equal(whyText(company("Acme", { alias_of: "Beta" })), "alias of Beta");
   assert.equal(

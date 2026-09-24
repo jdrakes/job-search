@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { CaptureThread } from "../src/contacts/capture.ts";
-import { hasReplyFromJames, isExcludedSender } from "../src/contacts/exclude.ts";
+import { hasReplyFromOperator, isExcludedSender } from "../src/contacts/exclude.ts";
 
 const ACCOUNT = "operator@example.com";
 
@@ -94,49 +94,42 @@ test("isExcludedSender: a subdomain of an excluded ATS domain is still excluded"
   assert.equal(isExcludedSender("someone@boards.greenhouse-mail.io"), true);
 });
 
-test("isExcludedSender: keeps inmail-hit-reply@linkedin.com, a real recruiter writing through InMail", () => {
-  assert.equal(isExcludedSender("inmail-hit-reply@linkedin.com"), false);
-});
-
-test("isExcludedSender: keeps hit-reply@linkedin.com, a real recruiter writing through InMail", () => {
-  assert.equal(isExcludedSender("hit-reply@linkedin.com"), false);
-});
-
-test("isExcludedSender: the InMail carve-out survives mixed case and surrounding space", () => {
-  assert.equal(isExcludedSender(" Inmail-Hit-Reply@LinkedIn.com "), false);
+test("isExcludedSender: an address is read through mixed case and surrounding space", () => {
+  assert.equal(isExcludedSender(" JobAlerts-NoReply@SomeCompany.com "), true);
+  assert.equal(isExcludedSender(" Juno@Arvelo.Partners "), false);
 });
 
 function thread(messages: CaptureThread["messages"]): CaptureThread {
   return { id: "thread-1", messages };
 }
 
-test("hasReplyFromJames: a thread with no sent message is rejected", () => {
+test("hasReplyFromOperator: a thread with no sent message is rejected", () => {
   const oneWay = thread([
     { id: "m1", date: "2026-01-01", sender: "juno@arvelo.partners", labels: ["INBOX"] },
   ]);
-  assert.equal(hasReplyFromJames(oneWay, ACCOUNT), false);
+  assert.equal(hasReplyFromOperator(oneWay, ACCOUNT), false);
 });
 
-test("hasReplyFromJames: a thread where James replied by SENT label is kept", () => {
+test("hasReplyFromOperator: a thread where James replied by SENT label is kept", () => {
   const replied = thread([
     { id: "m1", date: "2026-01-01", sender: "juno@arvelo.partners", labels: ["INBOX"] },
     { id: "m2", date: "2026-01-02", sender: ACCOUNT, labels: ["SENT"] },
   ]);
-  assert.equal(hasReplyFromJames(replied, ACCOUNT), true);
+  assert.equal(hasReplyFromOperator(replied, ACCOUNT), true);
 });
 
-test("hasReplyFromJames: a thread where a message's sender is the account address is kept even without a SENT label", () => {
+test("hasReplyFromOperator: a thread where a message's sender is the account address is kept even without a SENT label", () => {
   const replied = thread([
     { id: "m1", date: "2026-01-01", sender: "juno@arvelo.partners", labels: ["INBOX"] },
     { id: "m2", date: "2026-01-02", sender: ACCOUNT },
   ]);
-  assert.equal(hasReplyFromJames(replied, ACCOUNT), true);
+  assert.equal(hasReplyFromOperator(replied, ACCOUNT), true);
 });
 
-test("hasReplyFromJames: matching the account address ignores case", () => {
+test("hasReplyFromOperator: matching the account address ignores case", () => {
   const replied = thread([
     { id: "m1", date: "2026-01-01", sender: "juno@arvelo.partners", labels: ["INBOX"] },
     { id: "m2", date: "2026-01-02", sender: "Operator@Example.com" },
   ]);
-  assert.equal(hasReplyFromJames(replied, ACCOUNT), true);
+  assert.equal(hasReplyFromOperator(replied, ACCOUNT), true);
 });

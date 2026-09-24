@@ -3,7 +3,7 @@
 // `country_restriction` in text.ts the body): a name on one list and
 // missing from the other would let the same posting read as foreign by its
 // label and domestic by its text. In code, not the criteria row, since the
-// world's country names are not James's to set.
+// world's country names are not the operator's to set.
 //
 // The United States list can afford to be loose: it is consulted only after
 // a foreign name has matched, and only ever to keep a posting. A false hit

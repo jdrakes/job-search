@@ -57,7 +57,7 @@ export function useMasterDetail(
 
   // Held by the view rather than the card because a Record filter that
   // stops matching a revealed row unmounts it and mounts a fresh one when
-  // the filter widens. A key is never removed: a reveal is James's to keep
+  // the filter widens. A key is never removed: a reveal is the operator's to keep
   // for the life of the page.
   const revealed = ref<ReadonlySet<string>>(new Set());
   function onRevealed(key: string): void {

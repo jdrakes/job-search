@@ -4,8 +4,9 @@
 import { getText, htmlToText, type HttpOptions } from "../net/http.ts";
 import type { Source } from "./source.ts";
 
-// A cap against a listing with no stated end, same reasoning as
-// linkedin.ts's local MAX_PAGES.
+// A cap against a listing with no stated end: a board that keeps offering
+// another page would otherwise be read until it stopped. themuse.ts holds
+// its own for the same reason.
 const MAX_PAGES = 50;
 
 // The flagship board alone. Eight city editions (austin, boston,
@@ -14,10 +15,9 @@ const MAX_PAGES = 50;
 //
 //   - the nine hosts cost ~450 page requests a run, more than any other
 //     source;
-//   - the first run's new companies, grouped by source, were themuse 104,
-//     linkedin 75, weworkremotely 3, builtin 0 — Built In found nothing
-//     the tool did not already know, the city sites overlapping heavily
-//     with each other and with the flagship;
+//   - the first run's new companies, grouped by source, put Built In last
+//     with none at all: it found nothing the tool did not already know, the
+//     city sites overlapping heavily with each other and with the flagship;
 //   - the second run's builtin.com answered HTTP 429 after 4 retries,
 //     which failed the whole source: discover reports a throwing
 //     companies() as one error and loses the source's whole contribution

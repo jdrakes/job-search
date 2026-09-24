@@ -258,7 +258,7 @@ test("discover: a name already in companies is never probed", async () => {
   assert.equal(result.probed, 0);
   assert.equal(requested, false);
 
-  // The drop is James's and stays.
+  // The drop is the operator's and stays.
   const [row] = await store.select<Company>("companies", { name: "Acme" });
   assert.equal(row?.dropped_at, "2026-09-01T00:00:00Z");
   assert.equal(row?.reason, "no staff-level roles");

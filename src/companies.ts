@@ -156,7 +156,7 @@ export async function seen(
 
 // A board another company already carries means this name is that company:
 // recorded `alias` with the owner, so it is never read and never revived.
-// `dropped_at` and `reason` are James's and stay as the row has them.
+// `dropped_at` and `reason` are the operator's and stay as the row has them.
 export async function aliased(
   store: Store,
   name: string,

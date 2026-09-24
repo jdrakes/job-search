@@ -1,36 +1,31 @@
 // A thread becomes a contact. The counterpart is the party who is not
 // James, and identity is that address lowercased: nothing merges two
 // addresses automatically, so a recruiter who changed mailbox is two rows
-// James joins with `alias_of` rather than a guess made here. LinkedIn
-// InMail is the one exception, because it gives every recruiter the same
-// sender address; there the identity is synthesised from the display name
-// so that two people stay two rows. See `identityOf`.
+// James joins with `alias_of` rather than a guess made here.
 //
 // `now` is a parameter, never `new Date()` in here: `state` is the only
 // derived column that moves on its own, and reading the clock would make
 // the active boundary untestable and every test dated.
 //
 // Everything returned is the processor's. `dropped_at`, `reason`, `note`,
-// `contacted_at` and `alias_of` are James's: they are null here and are
+// `contacted_at` and `alias_of` are the operator's: they are null here and are
 // written by nobody but him, which is the shape a re-run must not erase.
 import type { CompanyObservation, Contact, ContactState, ContactThread } from "../schema.ts";
 import type { Capture, CaptureMessage, CaptureThread } from "./capture.ts";
 import { findWholeWord } from "../judge/whole-word.ts";
-import { hasReplyFromJames, isExcludedSender } from "./exclude.ts";
+import { hasReplyFromOperator, isExcludedSender } from "./exclude.ts";
 
-// Domains that name where somebody reads mail, or which relay carried it,
-// never who they work for. Free mail is a personal mailbox: the signature
-// names the agency or nothing does. `linkedin.com` is the InMail relay, and
-// reading it as a company files a recruiter who did not sign off under
-// "Linkedin" and then records Linkedin as a former employer the moment she
-// sends a signed one.
+// Domains that name where somebody reads mail, never who they work for.
+// Free mail is a personal mailbox: the signature names the agency or
+// nothing does. Reading one as a company files a recruiter who did not sign
+// off under her mail provider and then records that provider as a former
+// employer the moment she sends a signed one.
 const NON_COMPANY_DOMAINS = [
   "gmail.com",
   "outlook.com",
   "yahoo.com",
   "icloud.com",
   "hotmail.com",
-  "linkedin.com",
 ] as const;
 
 // Deliberately partial, and a hand-written list rather than a dependency:
@@ -50,10 +45,6 @@ const TWO_PART_SUFFIXES = [
   "com.br",
   "com.sg",
 ] as const;
-
-// The two addresses LinkedIn puts on a real recruiter's InMail, carved out
-// of the job-alert exclusion in exclude.ts and worth recording as a signal.
-const INMAIL_ADDRESSES = ["inmail-hit-reply@linkedin.com", "hit-reply@linkedin.com"] as const;
 
 // Deliberately generous. Too short and James writes cold to someone he is
 // mid-conversation with, which is the embarrassing failure; a stale row
@@ -107,37 +98,6 @@ function counterpartOf(thread: CaptureThread, account: string): string | null {
   return null;
 }
 
-// An InMail key carries this scheme and no `@`, so nothing downstream can
-// read it as a mailbox and try to send to it: the address the mail came
-// from reaches LinkedIn's relay, not the person, and ordinary mail to an
-// InMail contact cannot be sent at all. The real address is kept on the
-// row's `signals` beside the `linkedin-inmail` flag.
-const INMAIL_KEY_SCHEME = "linkedin-inmail:";
-
-function isInMail(address: string): boolean {
-  return (INMAIL_ADDRESSES as readonly string[]).includes(address);
-}
-
-// Who the thread is with, as a key. Ordinarily that is the reply address
-// itself. Every InMail arrives from one shared address, so there the key is
-// synthesised from the sender's display name: grouping on the address files
-// two recruiters as one row carrying the later one's name and the earlier
-// one's agency as a former employer, and `alias_of` cannot undo it, because
-// it merges and this needs splitting. Two InMail senders who display the
-// same name do still merge, which is as far as a display name goes.
-function identityOf(replyAddress: string, displayName: string | null): string | null {
-  if (!isInMail(replyAddress)) return replyAddress;
-  const slug = (displayName ?? "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  // An InMail with no display name names nobody, and the shared address is
-  // not a person. Filing it under that address would merge it with the next
-  // nameless one, which is the bug this function exists to prevent, so the
-  // thread yields no contact at all.
-  return slug === "" ? null : `${INMAIL_KEY_SCHEME}${slug}`;
-}
-
 // The sign-offs that introduce a signature block. A reply carries the
 // quoted chain below it, so the first sign-off in the body is the writer's
 // own and the lines under it are theirs.
@@ -187,7 +147,7 @@ function readsAsJobTitle(line: string): boolean {
 // shape rather than a list so "(she/her)" and "she / her / hers" both go.
 const PRONOUNS = /^\(?\s*(she|he|they|ze|xe)\s*\/\s*\w+(\s*\/\s*\w+)?\s*\)?$/i;
 
-// A link bar: "Website | LinkedIn | 973.809.0637". Two or more segments
+// A link bar: "Website | Blog | 212.555.0147". Two or more segments
 // divided by pipes or bullets is a navigation strip, never a firm's name.
 const LINK_BAR = /[|·•]/;
 
@@ -302,9 +262,8 @@ function companyFromDomain(
 interface ThreadFacts {
   readonly id: string;
   readonly subject: string | null;
-  // `key` is the identity rows group on; `replyAddress` is the mailbox the
-  // message came from. They differ only for InMail.
-  readonly key: string;
+  // The mailbox the message came from, which is also the identity rows
+  // group on.
   readonly replyAddress: string;
   readonly domain: string;
   readonly firstTime: number;
@@ -340,20 +299,16 @@ function threadFactsOf(thread: CaptureThread, account: string): ThreadFacts | nu
   const signedName = signatures.find((signature) => signature.name !== null);
   const signedCompany = signatures.find((signature) => signature.company !== null);
 
-  const key = identityOf(replyAddress, displayName?.sender_name ?? null);
-  if (key === null) return null;
-
   return {
     id: thread.id,
     subject: thread.subject ?? newestFirst[0]?.subject ?? null,
-    key,
     replyAddress,
     domain: domainOf(replyAddress),
     firstTime: Math.min(...times),
     lastTime: Math.max(...times),
     // The inclusion bar lives once, in exclude.ts: a thread with no message
     // James sent is a sender, not a relationship.
-    sent: hasReplyFromJames(thread, account),
+    sent: hasReplyFromOperator(thread, account),
     name: displayName?.sender_name ?? signedName?.name ?? null,
     signedCompany: signedCompany?.company ?? null,
   };
@@ -450,13 +405,6 @@ function signalsOf(
 ): string[] {
   const signals = ["replied-in-thread"];
   if (facts.length > 1) signals.push("repeat-correspondent");
-  if (isInMail(newest.replyAddress)) {
-    // The row's `email` is a synthesised key, so the address the mail came
-    // from is recorded here instead: the flag says this contact is reachable
-    // through InMail and not by ordinary mail, and the address says which
-    // relay carried it.
-    signals.push("linkedin-inmail", `reply-address:${newest.replyAddress}`);
-  }
   if (isEmployerDomain(newest.domain, employerDomain)) {
     signals.push("employer-domain");
   }
@@ -468,7 +416,7 @@ function contactThreadOf(fact: ThreadFacts): ContactThread {
 }
 
 function contactOf(
-  identity: string,
+  address: string,
   facts: readonly ThreadFacts[],
   now: Date,
   employerDomain?: string,
@@ -481,9 +429,7 @@ function contactOf(
   const named = [...facts].reverse().find((fact) => fact.name !== null);
 
   return {
-    // The column is `email` because the address is the identity for
-    // everyone but an InMail sender, whose key is synthetic.
-    email: identity,
+    email: address,
     name: named?.name ?? null,
     company: company.company,
     company_history: company.history,
@@ -512,20 +458,20 @@ export function contactsOf(
   for (const thread of capture.threads) {
     const facts = threadFactsOf(thread, capture.account);
     if (facts === null) continue;
-    const group = groups.get(facts.key);
-    if (group === undefined) groups.set(facts.key, [facts]);
+    const group = groups.get(facts.replyAddress);
+    if (group === undefined) groups.set(facts.replyAddress, [facts]);
     else group.push(facts);
   }
 
   const contacts: Contact[] = [];
-  for (const [identity, facts] of groups) {
+  for (const [address, facts] of groups) {
     // The inclusion bar: someone James never answered is a sender, not a
     // relationship.
     if (!facts.some((fact) => fact.sent)) continue;
     const ordered = [...facts].sort(
       (first, second) => first.lastTime - second.lastTime || first.id.localeCompare(second.id),
     );
-    contacts.push(contactOf(identity, ordered, now, employerDomain, domainAliases));
+    contacts.push(contactOf(address, ordered, now, employerDomain, domainAliases));
   }
   return contacts.sort((first, second) => first.email.localeCompare(second.email));
 }
