@@ -1,0 +1,21 @@
+{
+  "total": 18,
+  "jobPostings": [
+    {
+      "title": "Principal Software Engineer, Data & Streaming Platform (Hybrid)",
+      "externalPath": "/job/Springfield-Illinois-US/Principal-Software-Engineer--Data---Streaming-Platform--Hybrid-_4400101",
+      "timeType": "Full time",
+      "locationsText": "Springfield, Illinois, US",
+      "postedOn": "Posted 4 Days Ago",
+      "bulletFields": ["4400101"]
+    },
+    {
+      "title": "Staff Software Engineer - Scheduling Tools",
+      "externalPath": "/job/Limerick-Ireland/Staff-Software-Engineer---Scheduling-Tools_4400102",
+      "timeType": "Full time",
+      "locationsText": "Limerick, Ireland",
+      "postedOn": "Posted 14 Days Ago",
+      "bulletFields": ["4400102"]
+    }
+  ]
+}

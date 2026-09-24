@@ -1,0 +1,46 @@
+{
+  "jobs": [
+    {
+      "data": {
+        "slug": "6120",
+        "language": "en-us",
+        "client_code": "firstup",
+        "req_id": "6120",
+        "title": "Principal Engineering Manager, Agent Platform",
+        "description": "<strong>About First Up Consultants</strong><br><br>We build the tooling our consultants use on client work, and we sell some of it.<br> <br><strong>Compensation Range</strong><br><br>The base salary range for this job is USD $160,200.00 - USD $425,000.00 /Yr.<br><br>Where an individual sits in that range depends on what they have done before.",
+        "location_name": "US Remote",
+        "country": "United States",
+        "country_code": "US",
+        "location_type": "ANY",
+        "categories": [{ "name": "Engineering" }],
+        "department": "",
+        "salary_value": 0,
+        "salary_min_value": 0,
+        "salary_max_value": 0,
+        "employment_type": "FULL_TIME",
+        "qualifications": "<p style=\"margin: 0px;\">&nbsp;</p><p style=\"margin: 0px;\"><strong>Required Qualification:</strong></p><ul><li>Eleven years writing production software in whatever language the work needed<ul><li><span data-contrast=\"none\">OR a degree and the same work at a smaller scale</span></li></ul></li></ul>",
+        "hiring_organization": "First Up Consultants, Inc.",
+        "responsibilities": "<div><ul style=\"list-style-type: disc;\" role=\"list\"><li role=\"listitem\" data-leveltext=\"\" data-font=\"Symbol\" data-listid=\"10\" data-list-defn-props=\"{&quot;335552541&quot;:1,&quot;469769226&quot;:&quot;Symbol&quot;}\"><p style=\"margin: 0px;\"><span data-contrast=\"none\">Run a team of eight and the roadmap they work from.</span></p></li></ul></div>",
+        "posted_date": "2026-09-22T15:54:00+0000",
+        "apply_url": "https://careers-firstup.icims.com/jobs/6120/login",
+        "internal": false,
+        "external": false,
+        "searchable": true,
+        "ats_code": "icims",
+        "meta_data": {
+          "client_code": "firstup",
+          "canonical_url": "https://firstup.jibeapply.com/jobs/6120?lang=en-us"
+        },
+        "update_date": "2026-09-22T15:59:27+0000",
+        "create_date": "2026-09-22T15:59:27+0000",
+        "category": [" Engineering"],
+        "full_location": "United States",
+        "short_location": "United States",
+        "multipleLocations": false
+      }
+    }
+  ],
+  "totalCount": 77,
+  "count": 77,
+  "request_id": false
+}

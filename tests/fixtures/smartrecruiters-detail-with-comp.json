@@ -1,0 +1,68 @@
+{
+  "id": "700000000000101",
+  "name": "Principal Software Engineer - Service Catalogue",
+  "uuid": "c0000001-0000-4000-8000-000000000001",
+  "jobId": "f0000001-0000-4000-8000-000000000001",
+  "jobAdId": "d0000001-0000-4000-8000-000000000001",
+  "defaultJobAd": true,
+  "refNumber": "JB0090001",
+  "company": { "name": "Woodgrove", "identifier": "Woodgrove" },
+  "location": {
+    "city": "Springfield",
+    "region": "Illinois",
+    "country": "us",
+    "address": "40 Placeholder Way, Building 2",
+    "postalCode": "62701",
+    "remote": false,
+    "hybrid": true,
+    "hybridDescription": "Two days a week in the office",
+    "fullLocation": "Springfield, Illinois, United States"
+  },
+  "customField": [
+    {
+      "fieldId": "a00000000000000000000003",
+      "fieldLabel": "Work Site",
+      "valueId": "L_ZZZ001",
+      "valueLabel": "40 Placeholder Way, Springfield, Illinois, 62701, United States of America(L_ZZZ001)"
+    },
+    {
+      "fieldId": "COUNTRY",
+      "fieldLabel": "Country/Region",
+      "valueId": "us",
+      "valueLabel": "United States"
+    }
+  ],
+  "releasedDate": "2026-09-02T14:12:08.441Z",
+  "creator": { "name": "Talent Acquisition Team", "avatarUrl": "" },
+  "postingUrl": "https://jobs.smartrecruiters.com/Woodgrove/700000000000101-principal-software-engineer-service-catalogue",
+  "applyUrl": "https://jobs.smartrecruiters.com/Woodgrove/700000000000101-principal-software-engineer-service-catalogue?oga=true",
+  "referralUrl": "https://jobs.smartrecruiters.com/external-referrals/company/Woodgrove/publication/c0000001-0000-4000-8000-000000000001?dcr_ci=Woodgrove",
+  "jobAd": {
+    "sections": {
+      "companyDescription": {
+        "title": "Company Description",
+        "text": "<p>Woodgrove sells service catalogue software.&nbsp;</p>"
+      },
+      "jobDescription": {
+        "title": "Job Description",
+        "text": "<p>A principal engineer for the catalogue and workflow services. This is an individual contributor role with no reports and the last word on the group&#39;s technical direction.</p>"
+      },
+      "qualifications": {
+        "title": "Qualifications",
+        "text": "<ul><li>Twelve years or more building server side software, with at least three at a staff or principal level.</li></ul>"
+      },
+      "additionalInformation": {
+        "title": "Additional Information",
+        "text": "<p><strong>Pay</strong></p><p>The base salary range for this position is $214,000 \u2013 $286,000 USD a year. Every offer at this level carries a target annual bonus of fifteen per cent of base salary.</p><p>Relocation support of $5,000 - $12,000 is available to anyone moving closer to an office.</p><p>This role is hybrid and expects two days a week in the Springfield office. We do not have a remote option for this position.</p><p>You must be legally authorised to work in the United States. Woodgrove does not sponsor visas for this position.</p>"
+      }
+    }
+  },
+  "active": true,
+  "visibility": "PUBLIC",
+  "industry": { "id": "it_and_services", "label": "Information Technology And Services" },
+  "function": { "id": "engineering", "label": "Engineering" },
+  "department": { "id": 5510041, "label": "Engineering and Platform Operations" },
+  "experienceLevel": { "id": "not_applicable", "label": "Not Applicable" },
+  "typeOfEmployment": { "id": "permanent", "label": "Full-time" },
+  "language": { "code": "en", "label": "English", "labelNative": "English (US)" }
+}

@@ -1,0 +1,92 @@
+{
+  "name": "Fernbridge",
+  "jobs": [
+    {
+      "title": "Senior Product Designer",
+      "shortcode": "P8LKX2WVQR",
+      "code": "FERNBRIDGE-WEB-104",
+      "employment_type": "Full-time",
+      "telecommuting": true,
+      "department": null,
+      "url": "https://apply.workable.com/j/P8LKX2WVQR",
+      "shortlink": "https://apply.workable.com/j/P8LKX2WVQR",
+      "application_url": "https://apply.workable.com/j/P8LKX2WVQR/apply",
+      "published_on": "2026-09-15",
+      "created_at": "2026-09-15",
+      "country": "United States",
+      "city": "",
+      "state": "",
+      "education": "",
+      "experience": "",
+      "function": "",
+      "industry": "",
+      "locations": [
+        {
+          "country": "United States",
+          "countryCode": "US",
+          "city": "",
+          "region": null,
+          "hidden": false
+        }
+      ]
+    },
+    {
+      "title": "Account Executive",
+      "shortcode": "M3TZQ9DKBH",
+      "code": "FERNBRIDGE-WEB-099",
+      "employment_type": "Full-time",
+      "telecommuting": false,
+      "department": null,
+      "url": "https://apply.workable.com/j/M3TZQ9DKBH",
+      "shortlink": "https://apply.workable.com/j/M3TZQ9DKBH",
+      "application_url": "https://apply.workable.com/j/M3TZQ9DKBH/apply",
+      "published_on": "2026-09-15",
+      "created_at": "2026-09-15",
+      "country": "United States",
+      "city": "Dallas",
+      "state": "Texas",
+      "education": "",
+      "experience": "",
+      "function": "",
+      "industry": "",
+      "locations": [
+        {
+          "country": "United States",
+          "countryCode": "US",
+          "city": "Dallas",
+          "region": "Texas",
+          "hidden": false
+        }
+      ]
+    },
+    {
+      "title": "Backend Software Engineer",
+      "shortcode": "H7RGXN2VLD",
+      "code": "FERNBRIDGE-WEB-095",
+      "employment_type": "Full-time",
+      "telecommuting": false,
+      "department": null,
+      "url": "https://apply.workable.com/j/H7RGXN2VLD",
+      "shortlink": "https://apply.workable.com/j/H7RGXN2VLD",
+      "application_url": "https://apply.workable.com/j/H7RGXN2VLD/apply",
+      "published_on": "2026-09-15",
+      "created_at": "2026-09-15",
+      "country": "United States",
+      "city": "San Francisco",
+      "state": "California",
+      "education": "",
+      "experience": "",
+      "function": "",
+      "industry": "",
+      "locations": [
+        {
+          "country": "United States",
+          "countryCode": "US",
+          "city": "San Francisco",
+          "region": "California",
+          "hidden": false
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "id": 8341207,
+  "shortcode": "H7RGXN2VLD",
+  "title": "Backend Software Engineer",
+  "remote": false,
+  "location": {
+    "country": "United States",
+    "countryCode": "US",
+    "city": "San Francisco",
+    "region": "California"
+  },
+  "state": "published",
+  "code": "FERNBRIDGE-WEB-095",
+  "published": "2026-09-15T00:00:00.000Z",
+  "workplace": "on_site",
+  "salary_from": 165000,
+  "salary_to": 205000,
+  "salary_currency_iso_code": "USD",
+  "salary_frequency": "year",
+  "description": "<p>About the company</p><p></p><p>Our client builds fraud-detection tooling for online marketplaces.</p><p></p><p>The role</p><p></p><p>Fernbridge is recruiting for this opportunity on behalf of our client. The position sits with the client company, not with Fernbridge. Build backend services that score transactions in real time, owning the pipeline from event capture through to the decision returned to the marketplace.</p><p></p><p>What you'll do</p><p></p><p>- Build and operate real-time transaction scoring services.</p><p></p><p>- Scale the event pipeline as transaction volume grows.</p>",
+  "requirements": "<p>What we're looking for</p><p></p><p>- 2 to 4 years of backend or distributed systems engineering experience.</p><p></p><p>- Experience with event-driven pipelines or streaming data processing.</p><p></p><p>- A computer science degree and solid grounding in databases and distributed systems.</p>",
+  "benefits": "<p>Compensation and benefits</p><p></p><p>- Base salary: USD 165,000 to 205,000 per year.</p><p></p><p>- Equity: Competitive equity.</p><p></p><p>- Health, dental, and vision coverage.</p><p></p><p>Location and work model</p><p></p><p>- Five days per week onsite in San Francisco.</p>"
+}

@@ -1,0 +1,74 @@
+{
+  "page": 0,
+  "page_count": 20649,
+  "items_per_page": 20,
+  "took": 42,
+  "timed_out": false,
+  "total": 412979,
+  "results": [
+    {
+      "contents": "<p>We are hiring a nurse for the inpatient floor on a rotating shift.</p>",
+      "name": "LPN - Inpatient",
+      "type": "external",
+      "publication_date": "2026-03-06T00:50:37Z",
+      "short_name": "lpn-inpatient-d0df71",
+      "model_type": "jobs",
+      "id": 18113098,
+      "locations": [{ "name": "Riverbend, KS" }],
+      "categories": [],
+      "levels": [{ "name": "Mid Level", "short_name": "mid" }],
+      "tags": [],
+      "refs": {
+        "landing_page": "https://www.themuse.com/jobs/lamnahealthcare/lpn-inpatient-d0df71"
+      },
+      "company": {
+        "id": 15001024,
+        "short_name": "lamnahealthcare",
+        "name": "Lamna Healthcare"
+      }
+    },
+    {
+      "contents": "<div><p>You will hand-build and rework boards for the prototype line.</p></div>",
+      "name": "PCB Technician",
+      "type": "external",
+      "publication_date": "2026-06-01T12:00:00Z",
+      "short_name": "pcb-technician",
+      "model_type": "jobs",
+      "id": 21905519,
+      "locations": [{ "name": "Fairhaven, OR" }],
+      "categories": [],
+      "levels": [{ "name": "Mid Level", "short_name": "mid" }],
+      "tags": [],
+      "refs": {
+        "landing_page": "https://www.themuse.com/jobs/wingtiptoys/pcb-technician"
+      },
+      "company": {
+        "id": 15000123,
+        "short_name": "wingtiptoys",
+        "name": "  Wingtip Toys  "
+      }
+    },
+    {
+      "contents": "<p>You will set up displays and restock shelves across a handful of stores.</p>",
+      "name": "Retail Sales Merchandiser",
+      "type": "external",
+      "publication_date": "2026-06-08T10:11:03Z",
+      "short_name": "retail-sales-merchandiser-985080",
+      "model_type": "jobs",
+      "id": 19205939,
+      "locations": [{ "name": "Springfield, IL" }],
+      "categories": [],
+      "levels": [{ "name": "Senior Level", "short_name": "senior" }],
+      "tags": [],
+      "refs": {
+        "landing_page": "https://www.themuse.com/jobs/bestforyouorganics/retail-sales-merchandiser-985080"
+      },
+      "company": {
+        "id": 15000456,
+        "short_name": "bestforyouorganics",
+        "name": "Best For You Organics"
+      }
+    }
+  ],
+  "aggregations": {}
+}

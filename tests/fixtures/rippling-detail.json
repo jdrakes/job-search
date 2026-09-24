@@ -1,0 +1,32 @@
+{
+  "uuid": "3f61a8d2-9c47-4e15-8b02-6a1f4d7e9c58",
+  "name": "Assistant Program Coordinator ",
+  "description": {
+    "company": "<div><body><h1><b><strong style=\"white-space:pre-wrap;\">About Northgate Robotics:</strong></b></h1><p><span style=\"white-space:pre-wrap;\">Northgate Robotics builds warehouse automation systems.</span></p></body></div>",
+    "role": "<div><body><h2><b><strong style=\"white-space:pre-wrap;\">Role Overview:</strong></b></h2><p><span style=\"white-space:pre-wrap;\">An Assistant Program Coordinator to support the program lead with scheduling and vendor logistics.</span></p></body></div>"
+  },
+  "workLocations": ["Hybrid (Washington, DC, US)", "Remote (Washington, DC, US)"],
+  "department": {
+    "name": "General & Administrative",
+    "base_department": "General & Administrative",
+    "department_tree": ["General & Administrative"]
+  },
+  "employmentType": {
+    "label": "SALARIED_FT",
+    "id": "Salaried, full-time"
+  },
+  "createdOn": "2026-08-03T09:14:22.510000-07:00",
+  "url": "https://ats.rippling.com/northgate-careers/jobs/3f61a8d2-9c47-4e15-8b02-6a1f4d7e9c58",
+  "payRangeDetails": [
+    {
+      "location": "Hybrid (Washington, DC, US)",
+      "currency": "USD",
+      "frequency": "YEAR",
+      "rangeStart": 118000.0,
+      "rangeEnd": 142000.0,
+      "isRemote": false
+    }
+  ],
+  "companyName": "Northgate Robotics",
+  "unlistedFromSearch": false
+}

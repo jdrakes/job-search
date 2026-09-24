@@ -1,0 +1,109 @@
+{
+  "jobs": [
+    {
+      "absolute_url": "https://job-boards.greenhouse.io/contoso/jobs/4501200100",
+      "data_compliance": [
+        {
+          "type": "gdpr",
+          "requires_consent": false,
+          "requires_processing_consent": false,
+          "requires_retention_consent": false,
+          "retention_period": null,
+          "demographic_data_consent_applies": false
+        }
+      ],
+      "internal_job_id": 4500900100,
+      "location": { "name": "Remote, United States" },
+      "metadata": [
+        {
+          "id": 4502558214,
+          "name": "Business Unit",
+          "value": "Platform Engineering",
+          "value_type": "single_select"
+        }
+      ],
+      "id": 4501200100,
+      "updated_at": "2026-08-06T09:40:12-05:00",
+      "requisition_id": "JR900001",
+      "title": "Staff Software Engineer, Billing Platform",
+      "company_name": "Contoso",
+      "first_published": "2026-08-04T11:15:00-05:00",
+      "language": "en",
+      "application_deadline": null,
+      "content": "&lt;div class=&quot;content-intro&quot;&gt;&lt;p&gt;Contoso builds billing tools. An engineer to work on the invoicing services.&lt;/p&gt;&lt;/div&gt;&lt;p&gt;&lt;strong&gt;Pay and benefits&lt;/strong&gt;&lt;/p&gt;&lt;p&gt;The base salary range for this role is $148,000 &mdash; $197,000 USD. Every offer carries a target annual bonus of ten per cent of base salary.&lt;/p&gt;&lt;p&gt;Relocation support of $5,000 - $10,000 is there for anyone who chooses to move near an office, and nothing about the role requires it.&lt;/p&gt;&lt;p&gt;This role is remote anywhere in the United States. You must be authorised to work there, because Contoso does not sponsor visas for this position.&lt;/p&gt;",
+      "departments": [
+        {
+          "id": 4506127504,
+          "name": "Payments Platform",
+          "child_ids": [],
+          "parent_id": 4504405004
+        }
+      ],
+      "offices": [
+        {
+          "id": 4501203104,
+          "name": "Remote, United States",
+          "location": null,
+          "child_ids": [],
+          "parent_id": 4501035204
+        }
+      ],
+      "ai_disclaimer": null,
+      "include_ai_disclaimer": false,
+      "ai_opt_out_request_url": null
+    },
+    {
+      "absolute_url": "https://job-boards.greenhouse.io/contoso/jobs/4501200200",
+      "data_compliance": [
+        {
+          "type": "gdpr",
+          "requires_consent": false,
+          "requires_processing_consent": false,
+          "requires_retention_consent": false,
+          "retention_period": null,
+          "demographic_data_consent_applies": false
+        }
+      ],
+      "internal_job_id": 4500900200,
+      "location": { "name": "Remote, United Kingdom" },
+      "metadata": [
+        {
+          "id": 4502558214,
+          "name": "Business Unit",
+          "value": "Customer Operations",
+          "value_type": "single_select"
+        }
+      ],
+      "id": 4501200200,
+      "updated_at": "2026-07-29T15:02:44-05:00",
+      "requisition_id": "JR900002",
+      "title": "Support Operations Analyst",
+      "company_name": "Contoso",
+      "first_published": "2026-07-28T10:40:00-05:00",
+      "language": "en",
+      "application_deadline": null,
+      "content": "&lt;div class=&quot;content-intro&quot;&gt;&lt;p&gt;An analyst to keep the support queue honest.&lt;/p&gt;&lt;/div&gt;&lt;p&gt;&lt;strong&gt;Pay and benefits&lt;/strong&gt;&lt;/p&gt;&lt;p&gt;Salary is set against a published band for the role and is not stated here. The role carries a discretionary annual bonus.&lt;/p&gt;&lt;p&gt;This role is hybrid and expects two days a week in the London office.&lt;/p&gt;",
+      "departments": [
+        {
+          "id": 4506200804,
+          "name": "Customer Operations",
+          "child_ids": [],
+          "parent_id": 4502505004
+        }
+      ],
+      "offices": [
+        {
+          "id": 4508881304,
+          "name": "Remote, United Kingdom",
+          "location": null,
+          "child_ids": [],
+          "parent_id": 4501035204
+        }
+      ],
+      "ai_disclaimer": null,
+      "include_ai_disclaimer": false,
+      "ai_opt_out_request_url": null
+    }
+  ],
+  "meta": { "total": 2 }
+}

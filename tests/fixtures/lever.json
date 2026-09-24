@@ -1,0 +1,76 @@
+[
+  {
+    "additionalPlain": "About Litware\nLitware makes rostering software for small clinics.\nLitware is an equal opportunity employer.",
+    "additional": "<div><b>About Litware</b></div><div><a class=\"postings-link\" href=\"https://www.example.com\">Litware</a> makes rostering software for small clinics.</div>",
+    "categories": {
+      "commitment": "Full-time",
+      "department": "Partnerships",
+      "location": "Austin, Denver, Remote",
+      "team": "Bureau Partnerships",
+      "allLocations": ["Austin, Denver, Remote", "Denver, CO"]
+    },
+    "createdAt": 1786000000000,
+    "descriptionPlain": "",
+    "description": "<div>\n<div><em style=\"font-size: 15px;\">Litware makes rostering software for small clinics.</em></div>\n</div>",
+    "id": "b0000001-0000-4000-8000-000000000001",
+    "lists": [
+      {
+        "text": "What you would do",
+        "content": "<div>\n\n<li>Run the first conversation with an inbound bureau and decide whether it is worth an account executive&#39;s time.</li>\n</div>"
+      },
+      {
+        "text": "What we offer",
+        "content": "<div>\n\n<li>Base salary with a quarterly bonus tied to qualified meetings.</li>\n<li>A fully remote team inside the United States.</li>\n</div>"
+      }
+    ],
+    "salaryRange": {
+      "min": 88000,
+      "max": 121000,
+      "currency": "USD",
+      "interval": "per-year-salary"
+    },
+    "text": "Partnerships Development Representative",
+    "country": "US",
+    "workplaceType": "remote",
+    "opening": "",
+    "openingPlain": "",
+    "descriptionBody": "<div>\n<div><em style=\"font-size: 15px;\">Litware makes rostering software for small clinics.</em></div>\n</div>",
+    "descriptionBodyPlain": "Litware makes rostering software for small clinics.",
+    "hostedUrl": "https://jobs.lever.co/litware/b0000001-0000-4000-8000-000000000001",
+    "applyUrl": "https://jobs.lever.co/litware/b0000001-0000-4000-8000-000000000001/apply"
+  },
+  {
+    "additionalPlain": "About Litware\nLitware makes rostering software for small clinics.\nLitware is an equal opportunity employer.",
+    "additional": "<div><b>About Litware</b></div><div><a class=\"postings-link\" href=\"https://www.example.com\">Litware</a> makes rostering software for small clinics.</div>",
+    "categories": {
+      "commitment": "Full-time",
+      "department": "Analytics",
+      "location": "Remote (United States)",
+      "team": "Customer Reporting",
+      "allLocations": ["Remote (United States)"]
+    },
+    "createdAt": 1787200000000,
+    "descriptionPlain": "Litware makes rostering software for small clinics. This role owns the reporting that product and support both read.\n\nPay is not stated on this posting. Base salary is set against a published band and the role carries a discretionary annual bonus.\n\nThe team is remote within the United States. You must be authorised to work there, because Litware does not sponsor visas for this position.",
+    "description": "<div><em style=\"font-size: 15px;\">Litware makes rostering software for small clinics.</em></div>",
+    "id": "b0000002-0000-4000-8000-000000000002",
+    "lists": [
+      {
+        "text": "What you bring",
+        "content": "<div>\n\n<li>Four years or more in analytics, with SQL you write yourself.</li>\n</div>"
+      },
+      {
+        "text": "What we offer",
+        "content": "<div>\n\n<li>A discretionary annual bonus and a yearly review of base salary against the band.</li>\n</div>"
+      }
+    ],
+    "text": "Senior / Lead Analyst, Customer Reporting",
+    "country": "US",
+    "workplaceType": "remote",
+    "opening": "",
+    "openingPlain": "",
+    "descriptionBody": "<div><em style=\"font-size: 15px;\">Litware makes rostering software for small clinics.</em></div>",
+    "descriptionBodyPlain": "Litware makes rostering software for small clinics.",
+    "hostedUrl": "https://jobs.lever.co/litware/b0000002-0000-4000-8000-000000000002",
+    "applyUrl": "https://jobs.lever.co/litware/b0000002-0000-4000-8000-000000000002/apply"
+  }
+]

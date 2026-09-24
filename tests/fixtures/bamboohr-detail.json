@@ -1,0 +1,34 @@
+{
+  "meta": {},
+  "result": {
+    "jobOpening": {
+      "jobOpeningShareUrl": "https://bestforyou.bamboohr.com/careers/32",
+      "jobOpeningName": "Delivery Driver/Heavy Equipment Transporter",
+      "jobOpeningStatus": "Open",
+      "jobCategoryId": null,
+      "departmentId": "18682",
+      "departmentLabel": "Field Operations",
+      "employmentStatusLabel": "Full-Time Seasonal",
+      "employmentType": null,
+      "location": {
+        "city": null,
+        "state": null,
+        "postalCode": null,
+        "addressCountry": null
+      },
+      "atsLocation": {
+        "country": "United States",
+        "countryId": "1",
+        "state": "Wisconsin",
+        "city": "All"
+      },
+      "description": "<p><span style=\"font-weight: bold\">We are looking for a driver to move produce between our growers and the packhouse. The week runs Monday to Friday afternoon, and there is a per diem for any site more than thirty miles out.</span></p><p><span style=\"font-weight: bold\">Roles and Responsibilities</span></p><ul><li>Drive the truck, and load and unload it.</li><li>Keep the daily log and the pre-trip check up to date.</li></ul>",
+      "compensation": "$30.00 -$70.00",
+      "datePosted": "2025-01-02",
+      "minimumExperience": "Experienced",
+      "locationType": "1",
+      "seekPromoted": false,
+      "aiProcessingDisclosureEnabled": false
+    }
+  }
+}

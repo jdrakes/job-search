@@ -1,0 +1,101 @@
+[
+  {
+    "id": "0a1b2c3d4e5f01",
+    "friendly_id": "0a1b2c3d4e5f01-staff-application-security-engineer",
+    "name": "Staff Application Security Engineer",
+    "url": "https://consolidatedmessenger.breezy.hr/p/0a1b2c3d4e5f01-staff-application-security-engineer",
+    "published_date": "2026-07-30T12:40:43.951Z",
+    "type": { "id": "fullTime", "name": "Full-Time" },
+    "location": {
+      "country": { "id": "worldwide", "name": "Worldwide" },
+      "is_remote": true,
+      "primary": true,
+      "remote_details": { "value": "remote", "label": "Fully remote, no location restrictions" },
+      "name": "Worldwide",
+      "id": "cb7de451b81f"
+    },
+    "department": "Engineering",
+    "salary": "",
+    "company": {
+      "name": "Consolidated Messenger",
+      "logo_url": "https://gallery-cdn.breezy.hr/00000000-0000-4000-8000-000000000001/logo.png",
+      "friendly_id": "consolidatedmessenger",
+      "isMultipleLocationsEnabled": true
+    },
+    "locations": [
+      {
+        "country": { "id": "worldwide", "name": "Worldwide" },
+        "is_remote": true,
+        "primary": true,
+        "name": "Worldwide",
+        "id": "cb7de451b81f"
+      }
+    ]
+  },
+  {
+    "id": "1b2c3d4e5f6a02",
+    "friendly_id": "1b2c3d4e5f6a02-firmware-security-researcher",
+    "name": "Firmware Security Researcher",
+    "url": "https://consolidatedmessenger.breezy.hr/p/1b2c3d4e5f6a02-firmware-security-researcher",
+    "published_date": "2026-06-11T08:02:17.004Z",
+    "type": { "id": "fullTime", "name": "Full-Time" },
+    "location": {
+      "country": { "id": "gr", "name": "Greece" },
+      "is_remote": true,
+      "primary": true,
+      "remote_details": { "value": "remote", "label": "Fully remote within the country" },
+      "name": "Thessaloniki, GR",
+      "id": "d1e2f3a4b5c6"
+    },
+    "department": "Engineering",
+    "salary": "",
+    "company": {
+      "name": "Consolidated Messenger",
+      "friendly_id": "consolidatedmessenger",
+      "isMultipleLocationsEnabled": true
+    }
+  },
+  {
+    "id": "2c3d4e5f6a7b03",
+    "friendly_id": "2c3d4e5f6a7b03-inside-sales-specialist",
+    "name": "Inside Sales Specialist",
+    "url": "https://consolidatedmessenger.breezy.hr/p/2c3d4e5f6a7b03-inside-sales-specialist",
+    "published_date": "2026-05-02T16:20:09.512Z",
+    "type": { "id": "fullTime", "name": "Full-Time" },
+    "location": {
+      "country": { "id": "gr", "name": "Greece" },
+      "is_remote": false,
+      "primary": true,
+      "name": "Athens, GR",
+      "id": "e2f3a4b5c6d7"
+    },
+    "department": "Sales",
+    "salary": "",
+    "company": {
+      "name": "Consolidated Messenger",
+      "friendly_id": "consolidatedmessenger",
+      "isMultipleLocationsEnabled": true
+    }
+  },
+  {
+    "id": "3d4e5f6a7b8c04",
+    "friendly_id": "3d4e5f6a7b8c04-field-sales-representative",
+    "name": "Field Sales Representative",
+    "url": "https://consolidatedmessenger.breezy.hr/p/3d4e5f6a7b8c04-field-sales-representative",
+    "published_date": "2019-09-23T10:00:00.000Z",
+    "type": { "id": "fullTime", "name": "Full-Time" },
+    "location": {
+      "country": { "id": "pt", "name": "Portugal" },
+      "primary": true,
+      "name": "Lisbon, PT",
+      "id": "f3a4b5c6d7e8"
+    },
+    "department": "Sales",
+    "salary": "",
+    "company": {
+      "name": "Consolidated Messenger",
+      "friendly_id": "consolidatedmessenger",
+      "isMultipleLocationsEnabled": false
+    }
+  }
+]

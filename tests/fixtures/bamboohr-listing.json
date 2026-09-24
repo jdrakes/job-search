@@ -1,0 +1,47 @@
+{
+  "meta": {
+    "totalCount": 2
+  },
+  "result": [
+    {
+      "id": "32",
+      "jobOpeningName": "Delivery Driver/Heavy Equipment Transporter",
+      "departmentId": "18682",
+      "departmentLabel": "Field Operations",
+      "employmentStatusLabel": "Full-Time Seasonal",
+      "employmentType": null,
+      "location": {
+        "city": null,
+        "state": null
+      },
+      "atsLocation": {
+        "country": "United States",
+        "state": "Wisconsin",
+        "province": null,
+        "city": "All"
+      },
+      "isRemote": null,
+      "locationType": "1"
+    },
+    {
+      "id": "35",
+      "jobOpeningName": "Packhouse Line Lead",
+      "departmentId": "18682",
+      "departmentLabel": "Field Operations",
+      "employmentStatusLabel": "Full-Time Seasonal",
+      "employmentType": null,
+      "location": {
+        "city": null,
+        "state": null
+      },
+      "atsLocation": {
+        "country": "United States",
+        "state": "Wisconsin",
+        "province": null,
+        "city": "All"
+      },
+      "isRemote": null,
+      "locationType": "1"
+    }
+  ]
+}

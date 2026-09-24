@@ -1,0 +1,49 @@
+{
+  "offers": [
+    {
+      "id": 2752864,
+      "title": "Senior Data Scientist - Real-Time Predictions (m/f/x)",
+      "careers_url": "https://bellowscollege.recruitee.com/o/senior-data-scientist-real-time-predictions-mfx",
+      "location": "Remote job",
+      "city": "Wroclaw",
+      "state_name": "Dolnośląskie",
+      "country": "Poland",
+      "remote": true,
+      "hybrid": false,
+      "on_site": false,
+      "salary": { "max": 165000, "min": 130000, "period": "year", "currency": "USD" },
+      "published_at": "2026-09-21 07:41:46 UTC",
+      "description": "<p style=\"text-align:start;\"><em>(100% remote, anywhere in Europe)</em></p><p style=\"min-height: 1.7em;\"></p><p style=\"text-align:start;\">You will build the models that tell a tutor which student is about to fall behind.</p>"
+    },
+    {
+      "id": 2663303,
+      "title": "Backend Engineer",
+      "careers_url": "https://bellowscollege.recruitee.com/o/backend-engineer",
+      "location": "Remote job",
+      "city": "Wroclaw",
+      "state_name": "Dolnośląskie",
+      "country": "Poland",
+      "remote": true,
+      "hybrid": true,
+      "on_site": true,
+      "salary": { "max": null, "min": null, "period": null, "currency": null },
+      "published_at": "2026-09-01 09:02:11 UTC",
+      "description": "<p>You will own the service the timetable is built from, and the queue behind it.</p>"
+    },
+    {
+      "id": 2513139,
+      "title": "Junior Lab Technician",
+      "careers_url": "https://bellowscollege.recruitee.com/o/junior-lab-technician",
+      "location": "Wroclaw",
+      "city": "Wroclaw",
+      "state_name": "Dolnośląskie",
+      "country": "Poland",
+      "remote": false,
+      "hybrid": true,
+      "on_site": true,
+      "salary": { "max": null, "min": null, "period": "year", "currency": "EUR" },
+      "published_at": "2026-03-12 14:20:05 UTC",
+      "description": "<p>You will set up the teaching labs before a class and put them back afterwards.</p>"
+    }
+  ]
+}

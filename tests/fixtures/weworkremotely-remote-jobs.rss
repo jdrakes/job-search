@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:media="http://search.yahoo.com/mrss">
+  <channel>
+    <title>We Work Remotely: Remote jobs in design, programming, marketing and more</title>
+    <link>https://weworkremotely.com/remote-jobs.rss</link>
+    <description>We Work Remotely: Remote jobs in design, programming, marketing and more</description>
+    <language>en-US</language>
+    <ttl>60</ttl>
+    <item>
+      <media:content url="https://example.com/logos/0101/logo.gif" type="image/png"/>
+      <title>Proseware LLC: Head of Growth &amp; Operations</title>
+      <region>Anywhere in the World</region>
+      <country>🇩🇪 Germany, 🇬🇧 United Kingdom, and 🇺🇸 United States of America</country>
+      <state>Lemesos</state>
+      <skills></skills>
+      <category>Management and Finance</category>
+      <type>Full-Time</type>
+      <description>&lt;p&gt;&lt;strong&gt;Headquarters:&lt;/strong&gt; US&lt;/p&gt;
+
+&lt;p&gt;A commercial lead for a small API product. Fully remote in the countries listed above.&lt;/p&gt;
+</description>
+      <pubDate>Tue, 15 Sep 2026 18:26:24 +0000</pubDate>
+      <expires_at>Thu, 15 Oct 2026 18:26:24 +0000</expires_at>
+      <guid>https://weworkremotely.com/remote-jobs/proseware-llc-head-of-growth</guid>
+      <link>https://weworkremotely.com/remote-jobs/proseware-llc-head-of-growth</link>
+    </item>
+    <item>
+      <media:content url="https://example.com/logos/0202/logo.gif" type="image/png"/>
+      <title>Wingtip Toys: Video Editor (Social Content)</title>
+      <region>Anywhere in the World</region>
+      <country></country>
+      <state>Georgia</state>
+      <skills>Video Editing</skills>
+      <category>Sales and Marketing</category>
+      <type>Full-Time</type>
+      <description>&lt;p&gt;&lt;strong&gt;Headquarters:&lt;/strong&gt; Atlanta, Georgia&lt;/p&gt;
+
+&lt;p&gt;An editor for short videos of wooden toys. Work where you like.&lt;/p&gt;
+</description>
+      <pubDate>Tue, 15 Sep 2026 14:23:27 +0000</pubDate>
+      <expires_at>Thu, 15 Oct 2026 14:23:27 +0000</expires_at>
+      <guid>https://weworkremotely.com/remote-jobs/wingtip-toys-video-editor</guid>
+      <link>https://weworkremotely.com/remote-jobs/wingtip-toys-video-editor</link>
+    </item>
+    <item>
+      <title>Trey Research AB: Senior Commerce Developer</title>
+      <region>Anywhere in the World</region>
+      <country></country>
+      <state>Stockholm</state>
+      <skills>Ecommerce Web Development</skills>
+      <category>All Other Remote</category>
+      <type>Full-Time</type>
+      <description>&lt;p&gt;&lt;strong&gt;Headquarters:&lt;/strong&gt; Sweden&lt;/p&gt;
+
+&lt;p&gt;A contract role on a client's shop. Remote within three hours of Central European Time.&lt;/p&gt;
+</description>
+      <pubDate>Tue, 15 Sep 2026 09:40:25 +0000</pubDate>
+      <expires_at>Thu, 15 Oct 2026 09:40:25 +0000</expires_at>
+      <guid>https://weworkremotely.com/remote-jobs/trey-research-ab-commerce-developer</guid>
+      <link>https://weworkremotely.com/remote-jobs/trey-research-ab-commerce-developer</link>
+    </item>
+    <item>
+      <title>Trey Research AB: Senior QA Automation Engineer</title>
+      <region>Anywhere in the World</region>
+      <country></country>
+      <state>Stockholm</state>
+      <skills>Quality Assurance</skills>
+      <category>All Other Remote</category>
+      <type>Full-Time</type>
+      <description>&lt;p&gt;The same agency advertising a second contract, so the feed names it twice.&lt;/p&gt;
+</description>
+      <pubDate>Tue, 15 Sep 2026 09:37:48 +0000</pubDate>
+      <expires_at>Thu, 15 Oct 2026 09:37:48 +0000</expires_at>
+      <guid>https://weworkremotely.com/remote-jobs/trey-research-ab-qa-engineer</guid>
+      <link>https://weworkremotely.com/remote-jobs/trey-research-ab-qa-engineer</link>
+    </item>
+    <item>
+      <title>A. VanArsdel&amp; Co.: Product Owner (m/w/d) // remote möglich</title>
+      <region>Anywhere in the World</region>
+      <country></country>
+      <state></state>
+      <skills></skills>
+      <category>Product</category>
+      <type>Full-Time</type>
+      <description>&lt;p&gt;Zwei Tage im Büro, drei Tage remote innerhalb Deutschlands.&lt;/p&gt;
+</description>
+      <pubDate>Wed, 19 Aug 2026 20:37:05 +0000</pubDate>
+      <expires_at>Fri, 18 Sep 2026 20:37:05 +0000</expires_at>
+      <guid>https://weworkremotely.com/remote-jobs/a-vanarsdel-co-product-owner</guid>
+      <link>https://weworkremotely.com/remote-jobs/a-vanarsdel-co-product-owner</link>
+    </item>
+  </channel>
+</rss>

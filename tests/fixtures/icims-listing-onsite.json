@@ -1,0 +1,89 @@
+{
+  "jobs": [
+    {
+      "data": {
+        "slug": "480101",
+        "language": "en-us",
+        "req_id": "480101",
+        "title": "Riverbend 37 (Mill Rd) Market - Perishables Rep - Part time",
+        "description": "<p>Our Perishable Representative keeps the chilled cases stocked and rotated through a shift.</p>",
+        "location_name": "RVB37-Mill Rd",
+        "street_address": "1550 Mill Road",
+        "city": "Riverbend",
+        "state": "Kansas",
+        "country": "United States",
+        "country_code": "US",
+        "postal_code": "67001",
+        "location_type": "LAT_LNG",
+        "categories": [{ "name": "Store Operations" }],
+        "tags": ["USD $17.00/Hr."],
+        "brand": "MPPF",
+        "employment_type": "PART_TIME",
+        "hiring_organization": "MPPF",
+        "source": "MPPF",
+        "posted_date": "2026-09-21T21:40:00+0000",
+        "posting_expiry_date": "2026-09-23T04:00:00+0000",
+        "apply_url": "https://jobs-munsons.icims.com/jobs/480101/login",
+        "internal": false,
+        "external": false,
+        "searchable": true,
+        "ats_code": "icims",
+        "meta_data": {
+          "client_code": "munsons",
+          "canonical_url": "https://careers.example.org/jobs/480101?lang=en-us"
+        },
+        "update_date": "2026-09-22T17:12:25+0000",
+        "create_date": "2026-09-21T21:46:13+0000",
+        "category": [" Store Operations"],
+        "responsibilities": "<ul><li>Pull and face the chilled cases before the store opens.</li><li>Check dates and pull anything short.</li></ul>",
+        "full_location": "Riverbend, Kansas",
+        "short_location": "Riverbend, Kansas",
+        "multipleLocations": false
+      }
+    },
+    {
+      "data": {
+        "slug": "480102",
+        "language": "en-us",
+        "req_id": "480102",
+        "title": "Fairhaven 12 - Grocery Night Stocker - Full time",
+        "description": "<p>Our Night Stocker works the aisles after close and leaves them full.</p>",
+        "location_name": "FRH12-Center St",
+        "street_address": "9 Center Street",
+        "city": "Fairhaven",
+        "state": "Oregon",
+        "country": "United States",
+        "country_code": "US",
+        "postal_code": "97001",
+        "location_type": "LAT_LNG",
+        "categories": [{ "name": "Store Operations" }],
+        "tags": ["USD $19.50/Hr."],
+        "brand": "MPPF",
+        "employment_type": "FULL_TIME",
+        "hiring_organization": "MPPF",
+        "source": "MPPF",
+        "posted_date": "2026-09-19T04:15:00+0000",
+        "posting_expiry_date": "2026-09-30T04:00:00+0000",
+        "apply_url": "https://jobs-munsons.icims.com/jobs/480102/login",
+        "internal": false,
+        "external": false,
+        "searchable": true,
+        "ats_code": "icims",
+        "meta_data": {
+          "client_code": "munsons",
+          "canonical_url": "https://munsons.jibeapply.com/jobs/480102?lang=en-us"
+        },
+        "update_date": "2026-09-19T04:20:11+0000",
+        "create_date": "2026-09-19T04:20:11+0000",
+        "category": [" Store Operations"],
+        "responsibilities": "<ul><li>Break down pallets and stock to the planogram.</li></ul>",
+        "full_location": "Fairhaven, Oregon",
+        "short_location": "Fairhaven, Oregon",
+        "multipleLocations": false
+      }
+    }
+  ],
+  "totalCount": 1047,
+  "count": 2,
+  "request_id": false
+}

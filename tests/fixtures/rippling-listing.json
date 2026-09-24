@@ -1,0 +1,67 @@
+[
+  {
+    "uuid": "3f61a8d2-9c47-4e15-8b02-6a1f4d7e9c58",
+    "name": "Assistant Program Coordinator ",
+    "department": {
+      "id": "General & Administrative",
+      "label": "General & Administrative"
+    },
+    "url": "https://ats.rippling.com/northgate-careers/jobs/3f61a8d2-9c47-4e15-8b02-6a1f4d7e9c58",
+    "workLocation": {
+      "label": "Remote (Washington, District of Columbia, US)",
+      "id": "Remote (Washington, District of Columbia, US)"
+    }
+  },
+  {
+    "uuid": "7d2e5a91-3f68-4c0a-b917-2e84f6a1d3c7",
+    "name": "Electrical Engineer",
+    "department": {
+      "id": "Hardware Engineering",
+      "label": "Hardware Engineering"
+    },
+    "url": "https://ats.rippling.com/northgate-careers/jobs/7d2e5a91-3f68-4c0a-b917-2e84f6a1d3c7",
+    "workLocation": {
+      "label": "Boulder, CO",
+      "id": "Boulder, CO"
+    }
+  },
+  {
+    "uuid": "7d2e5a91-3f68-4c0a-b917-2e84f6a1d3c7",
+    "name": "Electrical Engineer",
+    "department": {
+      "id": "Hardware Engineering",
+      "label": "Hardware Engineering"
+    },
+    "url": "https://ats.rippling.com/northgate-careers/jobs/7d2e5a91-3f68-4c0a-b917-2e84f6a1d3c7",
+    "workLocation": {
+      "label": "Hybrid (Boulder, Colorado, US)",
+      "id": "Hybrid (Boulder, Colorado, US)"
+    }
+  },
+  {
+    "uuid": "7d2e5a91-3f68-4c0a-b917-2e84f6a1d3c7",
+    "name": "Electrical Engineer",
+    "department": {
+      "id": "Hardware Engineering",
+      "label": "Hardware Engineering"
+    },
+    "url": "https://ats.rippling.com/northgate-careers/jobs/7d2e5a91-3f68-4c0a-b917-2e84f6a1d3c7",
+    "workLocation": {
+      "label": "Remote (Austin, TX, US)",
+      "id": "Remote (Austin, TX, US)"
+    }
+  },
+  {
+    "uuid": "b4c8f102-6e39-4a75-9d1c-8f52a70b4e63",
+    "name": "Field Systems Test Engineer",
+    "department": {
+      "id": "Hardware Engineering",
+      "label": "Hardware Engineering"
+    },
+    "url": "https://ats.rippling.com/northgate-careers/jobs/b4c8f102-6e39-4a75-9d1c-8f52a70b4e63",
+    "workLocation": {
+      "label": "Reno, NV",
+      "id": "Reno, NV"
+    }
+  }
+]

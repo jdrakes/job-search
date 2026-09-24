@@ -1,0 +1,32 @@
+{
+  "@context": "http://schema.org",
+  "@type": "JobPosting",
+  "datePosted": "2026-06-19",
+  "description": "<h1>Senior Scientist I, Assay Development</h1><div> </div><div><strong>Headquarters Location:</strong> Fairhaven, OR<br /><strong>Candidate Location</strong>: Hybrid<br /><strong>Travel Required</strong>: 5%<br /><strong>Reports To</strong>: Executive Director<br /><strong>Department</strong>: Assay Development<br /><strong>Position Type</strong>: Full-time, Exempt</div><div> </div><div><strong>About Lamna Healthcare:</strong><br />We make the assays that hospital labs run, and we are slowly making them cheaper to run.</div><div> </div><div><strong>Who You Are and What You&rsquo;ll Do:</strong><br />You will own an assay from the bench through to the transfer pack the manufacturing site works from.</div>",
+  "hiringOrganization": "Lamna Healthcare Company",
+  "employmentType": "Full-Time",
+  "industry": "Diagnostics",
+  "identifier": "oyX6Afwc",
+  "jobLocation": [
+    {
+      "@type": "Place",
+      "address": {
+        "@type": "PostalAddress",
+        "addressLocality": "Fairhaven",
+        "addressRegion": "Oregon",
+        "addressCountry": "United States"
+      }
+    }
+  ],
+  "title": "Senior Scientist I, Assay Development",
+  "baseSalary": {
+    "@type": "MonetaryAmount",
+    "currency": "USD",
+    "value": {
+      "@type": "QuantitativeValue",
+      "minValue": "155000",
+      "maxValue": "175000",
+      "unitText": "Annually"
+    }
+  }
+}

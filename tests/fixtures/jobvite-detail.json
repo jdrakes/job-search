@@ -1,0 +1,31 @@
+{
+  "@context": "http://schema.org",
+  "@type": "JobPosting",
+  "datePosted": "2026-08-18",
+  "description": "<div><span style=\"text-decoration: underline;\"><strong>Client Relations Manager &ndash; Springfield, IL</strong></span></div><div><span>You will run the team that looks after the agencies who resell our trips.</span></div><div> </div><div><strong>What You&rsquo;ll Do:</strong></div><ul><li><span>Lead and coach a team of eight to twelve account managers.</span></li><li><span>Sit in on the renewals that matter and take the hard ones yourself.</span></li></ul><div><strong>What We Pay:</strong></div><div><span>$80k - $110k base + $40k VC, depending on where you land against the bar.</span></div>",
+  "hiringOrganization": {
+    "@type": "Organization",
+    "name": "Margie's Travel",
+    "logo": "https://app.jobvite.com/logo/margiestravel_0000000000001.png"
+  },
+  "employmentType": "Full-Time",
+  "industry": "Account Management",
+  "identifier": "oaB1CfwD",
+  "jobLocation": [
+    {
+      "@type": "Place",
+      "address": {
+        "@type": "PostalAddress",
+        "addressLocality": "Springfield",
+        "addressRegion": "Illinois",
+        "addressCountry": "United States"
+      }
+    }
+  ],
+  "title": "Client Relations Manager",
+  "baseSalary": {
+    "@type": "MonetaryAmount",
+    "currency": "",
+    "value": { "@type": "QuantitativeValue", "minValue": "", "maxValue": "", "unitText": "" }
+  }
+}

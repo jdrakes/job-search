@@ -1,0 +1,103 @@
+{
+  "offset": 0,
+  "limit": 100,
+  "totalFound": 3,
+  "content": [
+    {
+      "id": "700000000000101",
+      "name": "Principal Software Engineer - Service Catalogue",
+      "uuid": "c0000001-0000-4000-8000-000000000001",
+      "jobAdId": "d0000001-0000-4000-8000-000000000001",
+      "defaultJobAd": true,
+      "refNumber": "JB0090001",
+      "company": { "identifier": "Woodgrove", "name": "Woodgrove" },
+      "releasedDate": "2026-09-02T14:12:08.441Z",
+      "location": {
+        "city": "Springfield",
+        "region": "Illinois",
+        "country": "us",
+        "address": "40 Placeholder Way, Building 2",
+        "postalCode": "62701",
+        "remote": false,
+        "hybrid": true,
+        "hybridDescription": "Two days a week in the office",
+        "fullLocation": "Springfield, Illinois, United States"
+      },
+      "industry": { "id": "it_and_services", "label": "Information Technology And Services" },
+      "department": { "id": "5510041", "label": "Engineering and Platform Operations" },
+      "function": { "id": "engineering", "label": "Engineering" },
+      "typeOfEmployment": { "id": "permanent", "label": "Full-time" },
+      "experienceLevel": { "id": "not_applicable", "label": "Not Applicable" },
+      "customField": [
+        {
+          "fieldId": "a00000000000000000000003",
+          "fieldLabel": "Work Site",
+          "valueId": "L_ZZZ001",
+          "valueLabel": "40 Placeholder Way, Springfield, Illinois(L_ZZZ001)"
+        }
+      ],
+      "visibility": "PUBLIC",
+      "ref": "https://api.smartrecruiters.com/v1/companies/Woodgrove/postings/700000000000101",
+      "creator": { "name": "Talent Acquisition Team" },
+      "language": { "code": "en", "label": "English", "labelNative": "English (US)" }
+    },
+    {
+      "id": "700000000000202",
+      "name": "Director, Data & Analytics Partnerships",
+      "uuid": "c0000002-0000-4000-8000-000000000002",
+      "jobAdId": "d0000002-0000-4000-8000-000000000002",
+      "defaultJobAd": true,
+      "refNumber": "JB0090002",
+      "company": { "identifier": "Woodgrove", "name": "Woodgrove" },
+      "releasedDate": "2026-09-03T08:44:19.207Z",
+      "location": {
+        "city": "Springfield",
+        "region": "ILLINOIS",
+        "country": "us",
+        "address": "40 Placeholder Way",
+        "postalCode": "62701",
+        "remote": true,
+        "hybrid": false,
+        "fullLocation": "Springfield, ILLINOIS, United States"
+      },
+      "industry": { "id": "it_and_services", "label": "Information Technology And Services" },
+      "department": { "id": "5510088", "label": "Revenue and Partner Operations" },
+      "function": { "id": "sales", "label": "Sales" },
+      "typeOfEmployment": { "id": "permanent", "label": "Full-time" },
+      "experienceLevel": { "id": "not_applicable", "label": "Not Applicable" },
+      "customField": [],
+      "visibility": "PUBLIC",
+      "ref": "https://api.smartrecruiters.com/v1/companies/Woodgrove/postings/700000000000202",
+      "language": { "code": "en", "label": "English", "labelNative": "English (US)" }
+    },
+    {
+      "id": "700000000000303",
+      "name": "Senior Product Manager, Integrations",
+      "uuid": "c0000003-0000-4000-8000-000000000003",
+      "jobAdId": "d0000003-0000-4000-8000-000000000003",
+      "defaultJobAd": true,
+      "refNumber": "JB0090003",
+      "company": { "identifier": "Woodgrove", "name": "Woodgrove" },
+      "releasedDate": "2026-09-01T17:03:52.618Z",
+      "location": {
+        "city": "Springfield",
+        "region": "Illinois",
+        "country": "us",
+        "address": "40 Placeholder Way, Building 2",
+        "postalCode": "62701",
+        "remote": false,
+        "hybrid": false,
+        "fullLocation": "Springfield, Illinois, United States"
+      },
+      "industry": { "id": "it_and_services", "label": "Information Technology And Services" },
+      "department": { "id": "5510055", "label": "Product Management" },
+      "function": { "id": "product_management", "label": "Product Management" },
+      "typeOfEmployment": { "id": "permanent", "label": "Full-time" },
+      "experienceLevel": { "id": "not_applicable", "label": "Not Applicable" },
+      "customField": [],
+      "visibility": "PUBLIC",
+      "ref": "https://api.smartrecruiters.com/v1/companies/Woodgrove/postings/700000000000303",
+      "language": { "code": "en", "label": "English", "labelNative": "English (US)" }
+    }
+  ]
+}

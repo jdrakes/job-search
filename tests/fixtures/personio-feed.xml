@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Personio's public board feed, written from its XML schema and never
+     captured. Every id, office, date and sentence here is invented, and
+     Alpine Ski House is not a real employer. "workzag-jobs" is the feed's
+     own root element, the vendor's earlier product name. One position per
+     shape the reader has to survive: five <jobDescription> sections whose
+     own <name> tags must never be read as the position's title, a direct
+     <office> child stated before an <additionalOffices> list that must not
+     win, CDATA-wrapped values carrying inline style attributes htmlToText
+     has to strip, a single-section position, and a body stating a dollar
+     range for compInText. -->
+<workzag-jobs>
+
+<position>
+    <id>3350101</id>
+    <subcompany>Alpine Ski House</subcompany>
+    <office>Munich</office>
+    <additionalOffices>
+        <office>Berlin</office>
+        <office>Hamburg</office>
+    </additionalOffices>
+    <department>Commercial</department>
+    <recruitingCategory>HQ</recruitingCategory>
+    <name>Junior Sales Manager (m/f/x)</name>
+    <jobDescriptions>
+        <jobDescription>
+            <name>Our Mission</name>
+            <value>
+                <![CDATA[<span style="font-size:11pt;font-family:Arial, sans-serif;color:#000000;background-color:transparent;font-weight:400;font-style:normal;text-decoration:none;">We rent and service ski equipment for the resorts along one valley.</span><br><br><span>The shops are busy for four months of the year and quiet for the rest, which shapes everything about how we hire.</span>]]>
+            </value>
+        </jobDescription>
+        <jobDescription>
+            <name>About the Role</name>
+            <value>
+                <![CDATA[<span>You are the first person a resort talks to when it wants a rental contract.</span>]]>
+            </value>
+        </jobDescription>
+        <jobDescription>
+            <name>Your Day to Day</name>
+            <value>
+                <![CDATA[<ul><li>Keep a written pipeline of resorts you have called and what they said.</li><li>Hand over a signed contract to the shop that will service it.</li></ul>]]>
+            </value>
+        </jobDescription>
+        <jobDescription>
+            <name>What You Bring</name>
+            <value>
+                <![CDATA[<span>German and English good enough to negotiate in both.</span>]]>
+            </value>
+        </jobDescription>
+        <jobDescription>
+            <name>What We Offer</name>
+            <value>
+                <![CDATA[<span>A seasonal bonus on the contracts you sign, and a ski pass.</span>]]>
+            </value>
+        </jobDescription>
+    </jobDescriptions>
+    <createdAt>2026-09-04T09:12:44+00:00</createdAt>
+</position>
+
+<position>
+    <id>3350102</id>
+    <subcompany>Alpine Ski House</subcompany>
+    <office>Munich</office>
+    <department>Finance</department>
+    <recruitingCategory>HQ</recruitingCategory>
+    <name>(Senior) Financial Accountant (f/m/d)</name>
+    <jobDescriptions>
+        <jobDescription>
+            <name>Our Mission</name>
+            <value>
+                <![CDATA[<span>You will close the books for a business whose revenue arrives in four months of the year.</span><br><br><span>This role pays $85,000 - $105,000 per year.</span>]]>
+            </value>
+        </jobDescription>
+    </jobDescriptions>
+    <createdAt>2026-07-21T15:30:02+00:00</createdAt>
+</position>
+
+<position>
+    <id>3350103</id>
+    <subcompany>Alpine Ski House</subcompany>
+    <office>London</office>
+    <department>Operations</department>
+    <recruitingCategory>Shop</recruitingCategory>
+    <name>Workshop Technician (f/m/d)</name>
+    <jobDescriptions>
+        <jobDescription>
+            <name>Our Mission</name>
+            <value>
+                <![CDATA[<span>You will tune and repair rental skis in the back of a shop that never quite empties.</span>]]>
+            </value>
+        </jobDescription>
+    </jobDescriptions>
+    <createdAt>2026-08-10T07:02:19+00:00</createdAt>
+</position>
+
+</workzag-jobs>

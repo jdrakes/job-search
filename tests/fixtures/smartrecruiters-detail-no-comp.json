@@ -1,0 +1,66 @@
+{
+  "id": "700000000000202",
+  "name": "Director, Data & Analytics Partnerships",
+  "uuid": "c0000002-0000-4000-8000-000000000002",
+  "jobId": "f0000002-0000-4000-8000-000000000002",
+  "jobAdId": "d0000002-0000-4000-8000-000000000002",
+  "defaultJobAd": true,
+  "refNumber": "JB0090002",
+  "company": { "name": "Woodgrove", "identifier": "Woodgrove" },
+  "location": {
+    "city": "Springfield",
+    "region": "ILLINOIS",
+    "country": "us",
+    "address": "40 Placeholder Way",
+    "postalCode": "62701",
+    "remote": true,
+    "hybrid": false,
+    "fullLocation": "Springfield, ILLINOIS, United States"
+  },
+  "customField": [
+    {
+      "fieldId": "a00000000000000000000003",
+      "fieldLabel": "Work Site",
+      "valueId": "L_RMTE_MW",
+      "valueLabel": "Remote, IL, USA(L_RMTE_MW)"
+    },
+    {
+      "fieldId": "COUNTRY",
+      "fieldLabel": "Country/Region",
+      "valueId": "us",
+      "valueLabel": "United States"
+    }
+  ],
+  "releasedDate": "2026-09-03T08:44:19.207Z",
+  "creator": { "name": "", "avatarUrl": "" },
+  "postingUrl": "https://jobs.smartrecruiters.com/Woodgrove/700000000000202-director-data-analytics-partnerships",
+  "applyUrl": "https://jobs.smartrecruiters.com/Woodgrove/700000000000202-director-data-analytics-partnerships?oga=true",
+  "referralUrl": "https://jobs.smartrecruiters.com/external-referrals/company/Woodgrove/publication/c0000002-0000-4000-8000-000000000002?dcr_ci=Woodgrove",
+  "jobAd": {
+    "sections": {
+      "companyDescription": {
+        "title": "Company Description",
+        "text": "<p>Woodgrove sells service catalogue software.&nbsp;</p>"
+      },
+      "jobDescription": {
+        "title": "Job Description",
+        "text": "<p>A director to own the analytics that describe partner delivered work, leading a team of four analysts and one data engineer.</p>"
+      },
+      "qualifications": {
+        "title": "Qualifications",
+        "text": "<ul><li>Ten years or more in analytics, data or revenue operations, with at least three leading a team.</li><li>SQL you write yourself, and enough modelling practice to review someone else&#39;s.</li></ul>"
+      },
+      "additionalInformation": {
+        "title": "Additional Information",
+        "text": "<p><strong>Pay</strong></p><p>Pay is not stated on this posting. Base salary is set against a published band for the level, and the role carries a target annual bonus.</p><p>This role is fully remote within the United States and there is no expectation of office attendance.</p><p>You must be legally authorised to work in the United States. Woodgrove does not sponsor visas for this position.</p>"
+      }
+    }
+  },
+  "active": true,
+  "visibility": "PUBLIC",
+  "industry": { "id": "it_and_services", "label": "Information Technology And Services" },
+  "function": { "id": "sales", "label": "Sales" },
+  "experienceLevel": { "id": "not_applicable", "label": "Not Applicable" },
+  "typeOfEmployment": { "id": "permanent", "label": "Full-time" },
+  "language": { "code": "en", "label": "English", "labelNative": "English (US)" }
+}
