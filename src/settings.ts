@@ -14,6 +14,7 @@ export interface Settings {
   readonly userAgent?: string;
   readonly discoverySources?: readonly string[];
   readonly extraSourcePath?: string;
+  readonly extraDetailPath?: string;
 }
 
 // `dir` defaults to `settings/` at the repo root; a caller (a test) passes
@@ -57,6 +58,7 @@ function parseSettings(value: unknown, path: string): Settings {
     userAgent?: string;
     discoverySources?: readonly string[];
     extraSourcePath?: string;
+    extraDetailPath?: string;
   } = {};
 
   if ("userAgent" in record) {
@@ -79,6 +81,13 @@ function parseSettings(value: unknown, path: string): Settings {
       throw new Error(`settings: ${path} field "extraSourcePath" must be a string`);
     }
     settings.extraSourcePath = record.extraSourcePath;
+  }
+
+  if ("extraDetailPath" in record) {
+    if (typeof record.extraDetailPath !== "string") {
+      throw new Error(`settings: ${path} field "extraDetailPath" must be a string`);
+    }
+    settings.extraDetailPath = record.extraDetailPath;
   }
 
   return settings;
