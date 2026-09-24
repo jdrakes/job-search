@@ -276,10 +276,20 @@ function properNoun(term: string): string {
   return term.charAt(0).toUpperCase() + term.slice(1);
 }
 
+// A web address is not a mention: "visit www.thunderbird.net" read as a
+// .NET requirement. Blanked to spaces of its own length, so an index into
+// the result is an index into the sentence.
+const WEB_ADDRESS = /(?:https?:\/\/|\bwww\.)\S+/gi;
+
+function withoutWebAddresses(sentence: string): string {
+  return sentence.replace(WEB_ADDRESS, (address) => " ".repeat(address.length));
+}
+
 function findLanguageMention(sentence: string, term: string): number | null {
+  const text = withoutWebAddresses(sentence);
   return CASE_SENSITIVE_TERMS.has(term)
-    ? findWholeWord(sentence, properNoun(term), true)
-    : findWholeWord(sentence, term);
+    ? findWholeWord(text, properNoun(term), true)
+    : findWholeWord(text, term);
 }
 
 // Capitalized "Go" is still an English verb at the start of a clause or list

@@ -458,6 +458,30 @@ test("excluded words: keeps marketing as a team name after a dash without leadin
   assert.equal(result.kept, true);
 });
 
+test("excluded words: keeps a team-name word inside a parenthesis after the role part", () => {
+  const result = judgeListing(
+    posting({ title: "Staff Software Engineer (Customer & Cloud Solutions)" }),
+    criteria(),
+  );
+  assert.equal(reasonFor(result.reasons, "excluded_words").verdict, "in");
+  assert.equal(result.kept, true);
+});
+
+test("excluded words: drops a non-team excluded word inside a parenthesis", () => {
+  const result = judgeListing(
+    posting({ title: "Staff Backend Engineer (Developer Experience)" }),
+    criteria(),
+  );
+  assert.equal(reasonFor(result.reasons, "excluded_words").verdict, "out");
+});
+
+// A leading "(Remote)" is a tag on the whole title, not the start of a
+// suffix: the role part is the title entire, as before.
+test("excluded words: a title opening with a parenthesis keeps its whole role part", () => {
+  const result = judgeListing(posting({ title: "(Remote) Staff Customer Engineer" }), criteria());
+  assert.equal(reasonFor(result.reasons, "excluded_words").verdict, "out");
+});
+
 test("excluded words: drops a non-team excluded word even after the role part", () => {
   const result = judgeListing(
     posting({ title: "Staff Backend Engineer, Developer Experience" }),

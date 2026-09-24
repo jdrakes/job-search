@@ -681,6 +681,24 @@ test("missing languages: 'ASP.Zorp Core' requires .Zorp", () => {
   assert.equal(missingLanguagesVerdict("Deep experience building ASP.Zorp Core services."), "out");
 });
 
+// A web address is not a language: "www.zorpco.zorp" in a closing "visit
+// us at" line read as a .Zorp requirement.
+test("missing languages: a web address ending in the language's name is not a mention", () => {
+  assert.equal(
+    missingLanguagesVerdict(
+      "To learn more, visit www.zorpco.zorp and https://docs.example.zorp/start.",
+    ),
+    "in",
+  );
+});
+
+test("missing languages: a mention beside a web address still requires the language", () => {
+  assert.equal(
+    missingLanguagesVerdict("Five years of .Zorp required; apply at www.example.com."),
+    "out",
+  );
+});
+
 test("missing languages: ZorpSuite is not .Zorp", () => {
   assert.equal(missingLanguagesVerdict("Experience administering ZorpSuite for finance."), "in");
 });
