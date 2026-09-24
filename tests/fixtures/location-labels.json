@@ -1,0 +1,153 @@
+[
+  {
+    "location": "Santa Clara, California, United States",
+    "verdict": "in",
+    "note": "full city, state and country spelled out"
+  },
+  {
+    "location": "USA - Remote",
+    "verdict": "in",
+    "note": "country abbreviation before the word remote"
+  },
+  {
+    "location": "Columbus,Ohio,United States of America",
+    "verdict": "in",
+    "note": "unspaced commas, full country name"
+  },
+  {
+    "location": "Boston, DC, Remote",
+    "verdict": "in",
+    "note": "names no country at all"
+  },
+  {
+    "location": "Remote (USA)",
+    "verdict": "in",
+    "note": "country abbreviation inside parentheses after remote"
+  },
+  {
+    "location": "Austin, TEXAS, United States",
+    "verdict": "in",
+    "note": "shouted state name"
+  },
+  { "location": "Galway, Ireland", "verdict": "out", "note": "foreign" },
+  { "location": "Dublin, Ireland", "verdict": "out", "note": "foreign" },
+  {
+    "location": "Milpitas, California, US",
+    "verdict": "in",
+    "note": "city, full state name, two-letter country code"
+  },
+  {
+    "location": "US, VA, Arlington",
+    "verdict": "in",
+    "note": "country then state abbreviation then city, reversed order"
+  },
+  {
+    "location": "Arlington, Virginia, USA",
+    "verdict": "in",
+    "note": "city, full state name, three-letter country abbreviation"
+  },
+  {
+    "location": "San Francisco, CA",
+    "verdict": "in",
+    "note": "state abbreviation only"
+  },
+  {
+    "location": "Remote US",
+    "verdict": "in",
+    "note": "the word remote followed by the country abbreviation, no punctuation"
+  },
+  {
+    "location": "Remote UK",
+    "verdict": "out",
+    "note": "the word remote followed by a foreign country abbreviation"
+  },
+  {
+    "location": "Seoul",
+    "verdict": "in",
+    "note": "a foreign city naming no country, kept by the design's default"
+  },
+  {
+    "location": "Bangkok",
+    "verdict": "in",
+    "note": "the same default, another foreign city naming no country"
+  },
+  {
+    "location": "Black Bess,",
+    "verdict": "in",
+    "note": "a trailing comma with no state or country, names nothing"
+  },
+  { "location": "Remote - Americas", "verdict": "in", "note": "the Americas include the US" },
+  { "location": "NAMER", "verdict": "in", "note": "North America, includes the US" },
+  { "location": "AMER - Remote", "verdict": "in", "note": "includes the US" },
+  { "location": "Remote - North America", "verdict": "in", "note": "includes the US" },
+  { "location": "Remote US & Canada", "verdict": "in", "note": "names the US as well as Canada" },
+  { "location": "Remote - Canada", "verdict": "out", "note": "names only Canada" },
+  {
+    "location": "Bengaluru, India",
+    "verdict": "out",
+    "note": "foreign"
+  },
+  { "location": "Remote - European Union", "verdict": "out", "note": "no US" },
+  {
+    "location": "Remote - EMEA",
+    "verdict": "out",
+    "note": "foreign"
+  },
+  { "location": "Remote - LATAM", "verdict": "out", "note": "Latin America excludes the US" },
+  { "location": "Remote - South America", "verdict": "out", "note": "excludes the US" },
+  {
+    "location": "Manila, Philippines",
+    "verdict": "out",
+    "note": "foreign"
+  },
+  {
+    "location": "Almaty, Kazakhstan",
+    "verdict": "out",
+    "note": "foreign"
+  },
+  {
+    "location": "Bucharest, Romania",
+    "verdict": "out",
+    "note": "foreign"
+  },
+  { "location": "Sao Paulo, Brazil", "verdict": "out", "note": "foreign" },
+  {
+    "location": "Berlin, Germany",
+    "verdict": "out",
+    "note": "foreign"
+  },
+  { "location": "London, United Kingdom", "verdict": "out", "note": "foreign" },
+  { "location": "Toronto, Ontario, Canada", "verdict": "out", "note": "foreign" },
+  {
+    "location": "Mexico, MO",
+    "verdict": "in",
+    "note": "a US town sharing a country's name; the state abbreviation rescues it"
+  },
+  {
+    "location": "Albuquerque, New Mexico",
+    "verdict": "in",
+    "note": "the state name contains the country's"
+  },
+  {
+    "location": "Lebanon, New Hampshire",
+    "verdict": "in",
+    "note": "a US town sharing a country's name"
+  },
+  { "location": "Peru, IN", "verdict": "in", "note": "a US town sharing a country's name" },
+  { "location": "Panama City, FL", "verdict": "in", "note": "a US city sharing a country's name" },
+  {
+    "location": "Remote - New England",
+    "verdict": "in",
+    "note": "a US region with England inside it"
+  },
+  {
+    "location": "Tbilisi, Georgia",
+    "verdict": "in",
+    "note": "kept on purpose: a US state shares the country's name exactly, so Georgia is off the country list"
+  },
+  {
+    "location": "Dublin, OH",
+    "verdict": "in",
+    "note": "a US city sharing a foreign capital's name; cities are not on the country list"
+  }
+]
