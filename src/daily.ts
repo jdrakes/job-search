@@ -1,5 +1,4 @@
-// Entry point for the scheduled run; `scripts/daily.sh` runs it once each
-// weekday. Each phase is wrapped in `phase` so the log carries its wall
+// Entry point for the scheduled run, once each weekday. Each phase is wrapped in `phase` so the log carries its wall
 // clock and its HTTP and store request counts.
 import { dirname, resolve } from "node:path";
 import process from "node:process";

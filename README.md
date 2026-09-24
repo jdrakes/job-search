@@ -167,27 +167,22 @@ line is enough.
 30 6 * * 1-5 cd /path/to/job-search && node --env-file=.env src/daily.ts >> run.log 2>&1
 ```
 
-That line is the whole of it, and for most people it is the right answer.
+That line is the whole of it. There is nothing else to install and no wrapper
+to configure.
 
-`scripts/daily.sh` is a wrapper for launchd on macOS, and it is worth
-understanding before you copy it, because most of what it does you do not
-need. It finds node without a login shell, which launchd requires and cron
-mostly does not. It refuses to start when the store is unreachable, rather
-than failing on the first read. And it runs from a second clone of this
-repository that it makes for itself, updating that clone from the remote
-before each run.
+Two things a scheduler tends to need, whatever you use:
 
-That last part exists for one situation: a repository somebody is working in
-while the run fires. Pulling at 06:30 in a checkout that has a branch open
-switches whoever is working on it onto main mid-edit. A second clone takes
-the pull instead. If you have one checkout and nobody editing it at dawn, you
-do not want any of this; the cron line above runs the same code with none of
-the machinery.
+- **node on the path.** launchd and systemd do not run a login shell, so a
+  node installed by a version manager will not be found. Give the scheduler an
+  absolute path to the binary.
+- **a store that is up.** The run reads `JOB_SEARCH_DB_URL` on its first
+  statement and throws there if nothing answers. If your Postgres is a
+  container that may be down, check it before starting, so a failed morning
+  says why in one line instead of a stack trace.
 
-Its paths, container name and clone layout are environment variables with
-defaults, so set those if you do use it. Note that the second clone has no
-`settings/` of its own, since that directory is gitignored, so the script
-links it from your working checkout.
+Both are your machine's business rather than this tool's, which is why there
+is no script here that does them. Whatever you write will be shorter than one
+written to suit somebody else's paths.
 
 ## One store or two
 
