@@ -413,3 +413,60 @@ export function foreignPlace(text: string): string | null {
 export function unitedStatesPlace(text: string): string | null {
   return firstMatch(text, UNITED_STATES_PATTERNS);
 }
+
+// Cities boards write without a state. Left out on purpose: names shared
+// with a foreign place a board writes (San Jose, Santa Clara, Phoenix,
+// Richmond, Cambridge, Birmingham, Durham, Vancouver, London, Portland).
+// "New York" is already a state name.
+const US_CITY_NAMES = [
+  "San Francisco",
+  "Bay Area",
+  "Silicon Valley",
+  "Los Angeles",
+  "San Diego",
+  "Palo Alto",
+  "Mountain View",
+  "Menlo Park",
+  "Sunnyvale",
+  "Redwood City",
+  "Oakland",
+  "NYC",
+  "Brooklyn",
+  "Manhattan",
+  "Seattle",
+  "Bellevue",
+  "Boston",
+  "Chicago",
+  "Austin",
+  "Dallas",
+  "Houston",
+  "Denver",
+  "Atlanta",
+  "Miami",
+  "Philadelphia",
+  "Pittsburgh",
+  "Salt Lake City",
+  "Minneapolis",
+  "Detroit",
+  "Raleigh",
+  "Nashville",
+] as const;
+
+const US_CITY_PATTERNS: readonly (readonly [string, RegExp])[] = US_CITY_NAMES.map(
+  (term) => [term, patternFor(term)] as const,
+);
+
+// A city rescues only inside a part of the location that names no foreign
+// place: "San Francisco de Heredia, Costa Rica" and "Vacoas-Phoenix,
+// Mauritius" both name a city alongside the foreign place they sit in, so
+// neither part is read for a city. Not folded into `UNITED_STATES_TERMS`:
+// this list is checked per part, not against the whole location.
+export function unitedStatesCity(location: string): string | null {
+  const parts = location.split(/;|\||\s+or\s+/i);
+  for (const part of parts) {
+    if (foreignPlace(part) !== null) continue;
+    const city = firstMatch(part, US_CITY_PATTERNS);
+    if (city !== null) return city;
+  }
+  return null;
+}

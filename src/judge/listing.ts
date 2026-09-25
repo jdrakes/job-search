@@ -4,7 +4,7 @@
 // it falls: the reasons are what a run stores and what James reads.
 import { boardKey } from "../companies.ts";
 import type { Company, Criteria, Posting } from "../schema.ts";
-import { foreignPlace, unitedStatesPlace } from "./countries.ts";
+import { foreignPlace, unitedStatesCity, unitedStatesPlace } from "./countries.ts";
 import { findWholeWord, wholeWordPattern } from "./whole-word.ts";
 
 export interface Reason {
@@ -193,7 +193,7 @@ function judgeCountry(location: string | null, criteria: Criteria): Reason {
     return { criterion: "country", verdict: "in", detail: "posting names no location" };
   }
   const excluded = matchesAny(location, criteria.excluded_locations);
-  if (excluded !== null && unitedStatesPlace(location) === null) {
+  if (excluded !== null && (unitedStatesPlace(location) ?? unitedStatesCity(location)) === null) {
     return {
       criterion: "country",
       verdict: "out",
@@ -208,7 +208,7 @@ function judgeCountry(location: string | null, criteria: Criteria): Reason {
       detail: `location "${location}" names no country other than the United States`,
     };
   }
-  const domestic = unitedStatesPlace(location);
+  const domestic = unitedStatesPlace(location) ?? unitedStatesCity(location);
   if (domestic !== null) {
     return {
       criterion: "country",

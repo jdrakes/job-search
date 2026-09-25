@@ -717,6 +717,46 @@ test("country: a location matching excluded_locations stays in when also a US st
   assert.equal(reasonFor(reasons, "country").verdict, "in");
 });
 
+test("country: a location matching excluded_locations stays in when a US city sits in a part naming no foreign place", () => {
+  const { reasons } = judgeListing(
+    posting({ title: "Staff Backend Engineer", location: "San Francisco HQ; Toronto Hub" }),
+    criteria({ excluded_locations: ["Toronto"] }),
+  );
+  assert.equal(reasonFor(reasons, "country").verdict, "in");
+});
+
+test("country: a US city in one part rescues a label naming a foreign place in another part", () => {
+  const { reasons } = judgeListing(
+    posting({ title: "Staff Backend Engineer", location: "Seattle; Vancouver, BC, Canada" }),
+    criteria(),
+  );
+  assert.equal(reasonFor(reasons, "country").verdict, "in");
+});
+
+test("country: a city sharing its name with a US city stays out when its own part names a foreign place", () => {
+  const { reasons } = judgeListing(
+    posting({ title: "Staff Backend Engineer", location: "San Francisco de Heredia, Costa Rica" }),
+    criteria(),
+  );
+  assert.equal(reasonFor(reasons, "country").verdict, "out");
+});
+
+test("country: a US city name inside a Mexican city name stays out", () => {
+  const { reasons } = judgeListing(
+    posting({ title: "Staff Backend Engineer", location: "San Francisco Coacalco, Mexico" }),
+    criteria(),
+  );
+  assert.equal(reasonFor(reasons, "country").verdict, "out");
+});
+
+test("country: Phoenix is left out of the US city list, so a Mauritian town keeps its verdict", () => {
+  const { reasons } = judgeListing(
+    posting({ title: "Staff Backend Engineer", location: "Vacoas-Phoenix, Mauritius" }),
+    criteria(),
+  );
+  assert.equal(reasonFor(reasons, "country").verdict, "out");
+});
+
 test("age: a posting with no max age is in", () => {
   const { reasons } = judgeListing(
     posting({ title: "Staff Backend Engineer", posted_at: "2026-09-01T00:00:00Z" }),
