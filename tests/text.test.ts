@@ -866,6 +866,104 @@ test("missing languages: 'Go-based' still requires the language", () => {
   );
 });
 
+// Breaks if an open cue counts without "language" or "languages" within
+// four words after it.
+test("missing languages: 'or similar 3D media' is not a language alternative", () => {
+  assert.equal(
+    missingLanguagesVerdict("5+ years in game development or similar 3D media using Delphi"),
+    "out",
+  );
+});
+
+test("missing languages: 'or similar frameworks' is not a language alternative", () => {
+  assert.equal(
+    missingLanguagesVerdict("Hands-on expertise in Delphi, with Embassy or similar frameworks"),
+    "out",
+  );
+});
+
+test("missing languages: 'one or more years' is not a language alternative", () => {
+  assert.equal(missingLanguagesVerdict("Requires one or more years of Delphi experience."), "out");
+});
+
+test("missing languages: 'any of our backend services' is not a language alternative", () => {
+  assert.equal(
+    missingLanguagesVerdict("Delphi is required for any of our backend services."),
+    "out",
+  );
+});
+
+// Breaks if a family word anywhere in the sentence cancels the open cue,
+// rather than only one directly before "language".
+test("missing languages: 'distributed systems' is not a systems language", () => {
+  assert.equal(
+    missingLanguagesVerdict(
+      "Delphi or a similar language, with strong distributed systems fundamentals",
+    ),
+    "in",
+  );
+});
+
+// Breaks if "ideally" welcomes a language named before it.
+test("missing languages: 'ideally' does not welcome a language named before it", () => {
+  assert.equal(
+    missingLanguagesVerdict("You are highly proficient in Delphi and ideally also Python."),
+    "out",
+  );
+});
+
+test("missing languages: 'ideally' welcomes a language named after it", () => {
+  assert.equal(missingLanguagesVerdict("You know Python and ideally also Delphi."), "in");
+});
+
+// Breaks if "sometimes" is a welcome signal again.
+test("missing languages: 'sometimes' is not a welcome signal", () => {
+  assert.equal(
+    missingLanguagesVerdict(
+      "Deep Delphi expertise required, and you will sometimes pair with other teams.",
+    ),
+    "out",
+  );
+});
+
+// Breaks if a stack sentence is skipped although it asks for fluency.
+test("missing languages: a stack sentence inside a fluency requirement is not skipped", () => {
+  assert.equal(
+    missingLanguagesVerdict(
+      "Fluency in a systems language (we use Delphi) and comfort owning services end to end.",
+    ),
+    "out",
+  );
+});
+
+// Breaks if the Go-compound skip reads any "Go to" as "Go To Market".
+test("missing languages: 'Go to build services' still requires the language", () => {
+  assert.equal(
+    missingLanguagesVerdict("Experience with Go to build backend services for years", GO_MISSING),
+    "out",
+  );
+});
+
+test("missing languages: 'Go To Market' with spaces is not the language", () => {
+  assert.equal(
+    missingLanguagesVerdict("Partner with our Go To Market team on pricing", GO_MISSING),
+    "in",
+  );
+});
+
+// Breaks if "Go To Market" with spaces is read as the language; unlike the
+// sentence above, this one carries a programming cue, so the English-word
+// rule does not skip it first.
+test("missing languages: 'Go To Market' beside a programming cue is not the language", () => {
+  assert.equal(
+    missingLanguagesVerdict(
+      "Our Go To Market engineering team ships pricing software.",
+      GO_MISSING,
+    ),
+    "in",
+  );
+});
+
 // The listing criterion only opens the door for a below-floor base on an
 // assumed rate; this criterion settles it from the text, and a stated rate
 // always wins over the assumed one.

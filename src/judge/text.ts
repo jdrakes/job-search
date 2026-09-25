@@ -358,10 +358,8 @@ const WELCOME_SIGNALS = [
   "exposure",
   "helpful",
   "desirable",
-  "ideally",
   "willingness to",
   "willing to learn",
-  "sometimes",
   "don't need",
   "do not need",
   "don't write",
@@ -387,10 +385,11 @@ function withoutWebAddresses(sentence: string): string {
   return sentence.replace(WEB_ADDRESS, (address) => " ".repeat(address.length));
 }
 
-// "Go-To-Market" and "Go-Live" are not the language; "Go-based" and
-// "Go-native" still are, so only this pair of suffixes is skipped, and the
-// rest of the sentence is still searched for a real mention.
-const GO_COMPOUND_SKIP = /^-(?:to|live)\b/i;
+// "Go-To-Market", "Go To Market" and "Go-Live" are not the language;
+// "Go-based", "Go-native" and "Go to build services" still are, so only
+// these suffixes are skipped, and the rest of the sentence is still
+// searched for a real mention.
+const GO_COMPOUND_SKIP = /^(?:-(?:to|live)\b|\s+to\s+market\b)/i;
 
 function findLanguageMention(sentence: string, term: string): number | null {
   const text = withoutWebAddresses(sentence);
@@ -509,7 +508,9 @@ function acceptedLanguage(sentence: string, criteria: Criteria): string | null {
 // A clause that names no accepted language still welcomes the one it names,
 // because it is asking for any language from an open-ended family rather
 // than this one specifically ("Delphi or another object-oriented
-// language"). The exception is a family narrow enough that James's
+// language"). A cue counts only when "language" or "languages" follows it
+// within four words, so "or similar frameworks" and "one or more years" do
+// not welcome. The exception is a family narrow enough that James's
 // languages are still excluded from it ("or another type-safe language");
 // those cues fall through to the closed rule below instead.
 const OPEN_ALTERNATIVES_CUES = [
@@ -524,17 +525,26 @@ const OPEN_ALTERNATIVES_CUES = [
   "any of",
 ] as const;
 
-// A family word narrow enough that an open cue beside it still names a
-// requirement, not an open door.
-const LANGUAGE_FAMILY_WORDS = [
-  "jvm",
-  "compiled",
-  "systems",
-  "low-level",
-  "type-safe",
-  "statically typed",
-  "strongly typed",
-] as const;
+function opensLanguageAlternatives(sentence: string): boolean {
+  return OPEN_ALTERNATIVES_CUES.some((cue) =>
+    new RegExp(`${wholeWordPattern(cue)}\\s+(?:[^\\s,;:()]+\\s+){0,3}languages?\\b`, "i").test(
+      sentence,
+    ),
+  );
+}
+
+// A family narrow enough that an open cue beside it still names a
+// requirement, not an open door. The family word must name the language
+// itself: "distributed systems fundamentals" is not a systems language.
+const LANGUAGE_FAMILY =
+  /\b(?:jvm|compiled|systems|low-level|type-safe|statically typed|strongly typed)\s+(?:programming\s+)?languages?\b/i;
+
+// "ideally" welcomes only what comes after it: "ideally also Delphi"
+// welcomes Delphi, "proficient in Delphi and ideally also Python" does not.
+function ideallyBefore(sentence: string, mentionIndex: number): boolean {
+  const ideally = matchesAny(sentence, ["ideally"]);
+  return ideally !== null && ideally.index < mentionIndex;
+}
 
 // A clause that offers a choice of languages rather than naming one
 // ("languages like Python or Kotlin", "such as COBOL, Delphi, or Python").
@@ -587,6 +597,12 @@ const STACK_SENTENCE_CUES = [
   "we work in",
 ] as const;
 
+// Words that make a stack sentence a requirement too ("Fluency in a systems
+// language (we use Delphi)"). Kept apart from `REQUIREMENT_SIGNALS`, which
+// also ends a stack listing, where "strong" or "deep" in a listed item
+// would end it too early.
+const STACK_SENTENCE_REQUIREMENT_WORDS = ["fluency", "fluent", "strong", "depth", "deep"] as const;
+
 // What ends a stack listing: the posting has gone back to asking for
 // something. A heading has to govern the clauses under it because
 // `splitSentences` splits "Technologies We Use" from "Java, Kotlin, Ruby".
@@ -621,20 +637,18 @@ function judgeMissingLanguages(body: string, criteria: Criteria): Reason {
     if (inStackListing) continue;
     if (
       matchesAny(sentence, STACK_SENTENCE_CUES) !== null &&
-      matchesAny(sentence, REQUIREMENT_SIGNALS) === null
+      matchesAny(sentence, REQUIREMENT_SIGNALS) === null &&
+      matchesAny(sentence, STACK_SENTENCE_REQUIREMENT_WORDS) === null
     ) {
       continue;
     }
     for (const term of criteria.missing_languages) {
-      if (findLanguageMention(sentence, term) === null) continue;
+      const mentionIndex = findLanguageMention(sentence, term);
+      if (mentionIndex === null) continue;
       if (ENGLISH_WORD_TERMS.has(term) && matchesAny(sentence, PROGRAMMING_CUES) === null) continue;
       if (matchesAny(sentence, WELCOME_SIGNALS) !== null) continue;
-      if (
-        matchesAny(sentence, OPEN_ALTERNATIVES_CUES) !== null &&
-        matchesAny(sentence, LANGUAGE_FAMILY_WORDS) === null
-      ) {
-        continue;
-      }
+      if (ideallyBefore(sentence, mentionIndex)) continue;
+      if (opensLanguageAlternatives(sentence) && !LANGUAGE_FAMILY.test(sentence)) continue;
       if (
         matchesAny(sentence, ALTERNATIVES_CUES) !== null &&
         acceptedLanguage(sentence, criteria) !== null
