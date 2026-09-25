@@ -86,15 +86,20 @@ const LOCATION_LABEL_REMOTE_AFFIRMATION = /^location:.*\bremote\b/i;
 // worse on both remote roles lost and on-site roles admitted.
 const ROLE_REMOTE_AFFIRMATIONS: readonly RegExp[] = [
   /\b(?:fully|entirely|completely|100%)[\s-]remote(?:ly)?\b/i,
-  /\bremote[\s-](?:eligible|first|friendly)\b/i,
+  /\bremote\s*[-–]?\s*(?:eligible|first|friendly)\b/i,
   /\bremote (?:role|position|job|opportunity|work environment)\b/i,
   /\b(?:is|are|be)(?: an?)? remote\b/i,
   /\bopen to remote\b/i,
   /\bwork(?:s|ing)? remotely\b/i,
-  /\bor remote\b/i,
+  /\bor remote(?:ly)?\b/i,
   /\bbased remotely\b/i,
   /\ball[\s-]remote\b/i,
+  /\bfull[\s-]remote\b/i,
 ];
+
+// A "Posting Type" line naming both hybrid and remote states remote as one
+// of the role's own working arrangements, not a perk.
+const HYBRID_REMOTE_LINE = /^(?:hybrid\s*\/\s*remote|remote\s*\/\s*hybrid)$/i;
 
 // The recruiter's own tag: a posting tagged remote is remote, whatever else
 // its prose says.
@@ -111,9 +116,49 @@ function affirmsRemoteRole(sentence: string): boolean {
   if (matchesAny(sentence, PERK_SIGNALS) !== null) return false;
   return (
     LOCATION_LINE_REMOTE_AFFIRMATION.test(stripped) ||
-    LOCATION_LABEL_REMOTE_AFFIRMATION.test(stripped)
+    LOCATION_LABEL_REMOTE_AFFIRMATION.test(stripped) ||
+    HYBRID_REMOTE_LINE.test(stripped)
   );
 }
+
+// A clause conditioned on something else is not itself stating the
+// requirement: "if this position is listed as onsite" describes a category
+// of postings, not this one.
+const CONDITIONAL_SIGNALS = [
+  "if",
+  "unless",
+  "for remote roles",
+  "roles that are based in",
+] as const;
+
+// The company saying it leaves in-office days up to the team is not a
+// requirement that any days are in office.
+const OFFICE_NEGATIONS = [
+  "don't prescribe",
+  "do not prescribe",
+  "don't require",
+  "do not require",
+] as const;
+
+// An onsite interview or an onsite implementation at a customer's site is
+// not this role's own office requirement.
+const OFF_TOPIC_PHRASES = [
+  "onsite interview",
+  "on-site interview",
+  "onsite interviews",
+  "on-site interviews",
+  "onsite implementation",
+  "onsite implementations",
+  "on-site implementation",
+  "on-site implementations",
+] as const;
+
+const OFF_TOPIC_TRAVEL = /\btravel\b[^.]{0,40}\bon[\s-]?site\b/i;
+
+// "remote, or required in office" names remote as one category among
+// several, not a stated requirement; the comma is required so "not a
+// remote or hybrid role" still states one.
+const REMOTE_CATEGORY_LIST = /\bremote, or\b/i;
 
 // The office requirement this clause states, or null: a clause that says the
 // role is remote is answering the question, and a perks clause is not a
@@ -121,6 +166,12 @@ function affirmsRemoteRole(sentence: string): boolean {
 function officeRequirement(sentence: string): string | null {
   if (affirmsRemoteRole(sentence)) return null;
   if (matchesAny(sentence, PERK_SIGNALS) !== null) return null;
+  const folded = foldApostrophes(sentence);
+  if (matchesAny(sentence, CONDITIONAL_SIGNALS) !== null) return null;
+  if (matchesAny(sentence, OFFICE_NEGATIONS) !== null) return null;
+  if (matchesAny(sentence, OFF_TOPIC_PHRASES) !== null) return null;
+  if (OFF_TOPIC_TRAVEL.test(folded)) return null;
+  if (REMOTE_CATEGORY_LIST.test(folded)) return null;
   const phrase = matchesAny(sentence, OFFICE_ATTENDANCE_PHRASES);
   if (phrase !== null) return phrase.term;
   for (const pattern of OFFICE_DAYS_PATTERNS) {

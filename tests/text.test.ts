@@ -1209,3 +1209,54 @@ test("remote: 'an option to work fully remotely' affirms", () => {
   assert.match(remote.detail, /body affirms remote/);
   assert.match(remote.detail, /work fully remotely/);
 });
+
+test("remote: 'or remotely in the United States' affirms", () => {
+  const remote = remoteVerdict(
+    "This role can be held from one of our US hubs or remotely in the United States.",
+  );
+  assert.equal(remote.verdict, "in");
+});
+
+test("remote: 'Remote - Eligible' with a space and dash affirms", () => {
+  const remote = remoteVerdict("Staff Engineer, Platform (Remote - Eligible)");
+  assert.equal(remote.verdict, "in");
+});
+
+test("remote: 'partial or full remote work' affirms", () => {
+  const remote = remoteVerdict("You'll have the flexibility for partial or full remote work.");
+  assert.equal(remote.verdict, "in");
+});
+
+test("remote: a 'Posting Type' line of 'Hybrid/Remote' affirms", () => {
+  const remote = remoteVerdict("Posting Type\nHybrid/Remote");
+  assert.equal(remote.verdict, "in");
+});
+
+test("remote: a conditional or off-topic office sentence is not a requirement", () => {
+  const notOffice = [
+    "If this position is listed as onsite, work happens at an office.",
+    "Roles that are based in an office are onsite Tuesday through Thursday.",
+    "For remote roles, you may be asked to attend an on-site interview.",
+    "We don’t prescribe specific in-office days.",
+    "Travel occasionally to support onsite implementations.",
+    "Work styles (flexible, remote, or required in office) are categories we assign to employees.",
+  ];
+  for (const body of notOffice) {
+    const remote = remoteVerdict(body);
+    assert.doesNotMatch(remote.detail, /^body requires office attendance/, body);
+  }
+});
+
+test("remote: a real office requirement still stays out", () => {
+  const stillOut = [
+    "This role requires working in-office three days a week.",
+    "You must be onsite in our Denver office five days a week, with up to 20% travel.",
+    "This is not a remote or hybrid role; you will work on-site.",
+    "Must be based within commuting distance and able to work on-site two days per week.",
+  ];
+  for (const body of stillOut) {
+    const remote = remoteVerdict(body);
+    assert.equal(remote.verdict, "out", body);
+    assert.match(remote.detail, /^body requires office attendance/, body);
+  }
+});
