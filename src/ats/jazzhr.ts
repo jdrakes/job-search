@@ -178,7 +178,7 @@ export function parseJazzhrDetail(html: string, id: string): Listing {
     // sees the page it fetched, not the board id needed to reconstruct it.
     url: null,
     // Not read on the detail - the listing's map-marker cell is the only
-    // structured location source.
+    // structured location source (Intent table, Task 6).
     location: null,
     compLow: comp?.compLow ?? null,
     compHigh: comp?.compHigh ?? null,
