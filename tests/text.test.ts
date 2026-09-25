@@ -784,6 +784,88 @@ test("missing languages: 'our search tier is 99.8% Delphi!' requires the languag
   assert.equal(missingLanguagesVerdict("Our search tier is 99.8% Delphi!"), "out");
 });
 
+test("missing languages: a closed cue plus an accepted language welcomes it", () => {
+  assert.equal(
+    missingLanguagesVerdict(
+      "Strong ability in at least one language (Delphi, Python, Cobol, etc.)",
+    ),
+    "in",
+  );
+});
+
+test("missing languages: 'or another object-oriented language' is an open alternative", () => {
+  assert.equal(
+    missingLanguagesVerdict("Delphi, Cobol, or another object-oriented language."),
+    "in",
+  );
+});
+
+test("missing languages: 'or a similar language' is an open alternative", () => {
+  assert.equal(missingLanguagesVerdict("Delphi or a similar language."), "in");
+});
+
+test("missing languages: 'helpful' welcomes the language", () => {
+  assert.equal(
+    missingLanguagesVerdict("Delphi experience is helpful, but fundamentals matter more."),
+    "in",
+  );
+});
+
+test("missing languages: 'willingness to' welcomes the language", () => {
+  assert.equal(
+    missingLanguagesVerdict("Proficient in Delphi, or willingness to ramp up quickly in it."),
+    "in",
+  );
+});
+
+test("missing languages: a stack sentence with no heading is skipped", () => {
+  assert.equal(missingLanguagesVerdict("We also use Delphi and Cobol for native modules."), "in");
+});
+
+test("missing languages: a curly apostrophe still folds to a welcome signal", () => {
+  assert.equal(missingLanguagesVerdict("You don’t need Delphi experience to start."), "in");
+});
+
+test("missing languages: 'or any other JVM language' is a family, not an open door", () => {
+  assert.equal(missingLanguagesVerdict("Cobol, Delphi, or any other JVM language."), "out");
+});
+
+// "type-safe" is a hyphenated compound; `findWholeWord` bounds it on its
+// letters at each edge, with no special-casing needed.
+test("missing languages: 'or another type-safe language' is a family, not an open door", () => {
+  assert.equal(missingLanguagesVerdict("Delphi or another type-safe language."), "out");
+});
+
+// "low-level" is a hyphenated compound too, same boundary behaviour.
+test("missing languages: 'or other low-level languages' is a family, not an open door", () => {
+  assert.equal(missingLanguagesVerdict("Delphi or other low-level languages."), "out");
+});
+
+test("missing languages: 'either' is not an alternatives cue", () => {
+  assert.equal(missingLanguagesVerdict("Experience with either Delphi or Cobol."), "out");
+});
+
+test("missing languages: a stack sentence that also states a requirement is not skipped", () => {
+  assert.equal(
+    missingLanguagesVerdict("We currently use Delphi, and you must have 5+ years of it."),
+    "out",
+  );
+});
+
+test("missing languages: 'Go-To-Market' is not the language", () => {
+  assert.equal(
+    missingLanguagesVerdict("Our Go-To-Market team partners with engineering.", GO_MISSING),
+    "in",
+  );
+});
+
+test("missing languages: 'Go-based' still requires the language", () => {
+  assert.equal(
+    missingLanguagesVerdict("Build Go-based services; 5+ years of Go required.", GO_MISSING),
+    "out",
+  );
+});
+
 // The listing criterion only opens the door for a below-floor base on an
 // assumed rate; this criterion settles it from the text, and a stated rate
 // always wins over the assumed one.

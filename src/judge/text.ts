@@ -5,12 +5,20 @@ import { foreignPlace, unitedStatesPlace } from "./countries.ts";
 import type { Reason } from "./listing.ts";
 import { findWholeWord, wholeWordPattern } from "./whole-word.ts";
 
+// A posting's body carries either apostrophe; the signal lists are written
+// with the straight one, so the text is folded before it is checked against
+// them.
+function foldApostrophes(text: string): string {
+  return text.replace(/’/g, "'");
+}
+
 function matchesAny(
   text: string,
   terms: readonly string[],
 ): { readonly term: string; readonly index: number } | null {
+  const folded = foldApostrophes(text);
   for (const term of terms) {
-    const index = findWholeWord(text, term);
+    const index = findWholeWord(folded, term);
     if (index !== null) return { term, index };
   }
   return null;
@@ -265,6 +273,17 @@ const WELCOME_SIGNALS = [
   "preferred",
   "familiarity",
   "exposure",
+  "helpful",
+  "desirable",
+  "ideally",
+  "willingness to",
+  "willing to learn",
+  "sometimes",
+  "don't need",
+  "do not need",
+  "don't write",
+  "not necessary",
+  "not needed",
 ] as const;
 
 // "go"/"golang" match only capitalized: "go" is an ordinary English word,
@@ -285,8 +304,22 @@ function withoutWebAddresses(sentence: string): string {
   return sentence.replace(WEB_ADDRESS, (address) => " ".repeat(address.length));
 }
 
+// "Go-To-Market" and "Go-Live" are not the language; "Go-based" and
+// "Go-native" still are, so only this pair of suffixes is skipped, and the
+// rest of the sentence is still searched for a real mention.
+const GO_COMPOUND_SKIP = /^-(?:to|live)\b/i;
+
 function findLanguageMention(sentence: string, term: string): number | null {
   const text = withoutWebAddresses(sentence);
+  if (term === "go") {
+    const pattern = new RegExp(wholeWordPattern(properNoun(term)), "g");
+    for (const match of text.matchAll(pattern)) {
+      const after = text.slice(match.index + match[0].length);
+      if (GO_COMPOUND_SKIP.test(after)) continue;
+      return match.index;
+    }
+    return null;
+  }
   return CASE_SENSITIVE_TERMS.has(term)
     ? findWholeWord(text, properNoun(term), true)
     : findWholeWord(text, term);
@@ -390,22 +423,52 @@ function acceptedLanguage(sentence: string, criteria: Criteria): string | null {
   return null;
 }
 
+// A clause that names no accepted language still welcomes the one it names,
+// because it is asking for any language from an open-ended family rather
+// than this one specifically ("Delphi or another object-oriented
+// language"). The exception is a family narrow enough that James's
+// languages are still excluded from it ("or another type-safe language");
+// those cues fall through to the closed rule below instead.
+const OPEN_ALTERNATIVES_CUES = [
+  "or similar",
+  "or a similar",
+  "or another",
+  "or other",
+  "or any other",
+  "or a comparable",
+  "or comparable",
+  "one or more",
+  "any of",
+] as const;
+
+// A family word narrow enough that an open cue beside it still names a
+// requirement, not an open door.
+const LANGUAGE_FAMILY_WORDS = [
+  "jvm",
+  "compiled",
+  "systems",
+  "low-level",
+  "type-safe",
+  "statically typed",
+  "strongly typed",
+] as const;
+
 // A clause that offers a choice of languages rather than naming one
-// ("languages like Python or Kotlin", "Python/C/C++/Rust or similar"). A
-// bare "or" is a cue on its own; what it gets wrong is glued bullet blobs,
-// which `splitSentences`'s newline boundary separates.
+// ("languages like Python or Kotlin", "such as COBOL, Delphi, or Python").
+// These welcome only when the choice includes a language he has
+// (`acceptedLanguage`); a bare "or" is a cue on its own, what it gets wrong
+// is glued bullet blobs, which `splitSentences`'s newline boundary
+// separates.
 const ALTERNATIVES_CUES = [
   "and/or",
-  "any of",
+  "at least one",
+  "at least two",
   "e.g",
+  "etc",
   "like",
   "one of",
-  "one or more",
   "or",
-  "or another",
   "or equivalent",
-  "or other",
-  "or similar",
   "such as",
 ] as const;
 
@@ -425,6 +488,20 @@ const STACK_LISTING_CUES = [
   "technology stack",
   "tools we use",
   "what we use",
+] as const;
+
+// A single sentence, with no heading, that names what the team already
+// runs on rather than what it asks a candidate to bring ("We also use
+// Delphi and Cobol for native modules"). Unlike `STACK_LISTING_CUES` this
+// governs only the sentence it is in, not the clauses after it, since there
+// is no heading to mark where the listing ends.
+const STACK_SENTENCE_CUES = [
+  "we use",
+  "we also use",
+  "currently uses",
+  "currently use",
+  "we work primarily in",
+  "we work in",
 ] as const;
 
 // What ends a stack listing: the posting has gone back to asking for
@@ -459,10 +536,22 @@ function judgeMissingLanguages(body: string, criteria: Criteria): Reason {
       inStackListing = false;
     }
     if (inStackListing) continue;
+    if (
+      matchesAny(sentence, STACK_SENTENCE_CUES) !== null &&
+      matchesAny(sentence, REQUIREMENT_SIGNALS) === null
+    ) {
+      continue;
+    }
     for (const term of criteria.missing_languages) {
       if (findLanguageMention(sentence, term) === null) continue;
       if (ENGLISH_WORD_TERMS.has(term) && matchesAny(sentence, PROGRAMMING_CUES) === null) continue;
       if (matchesAny(sentence, WELCOME_SIGNALS) !== null) continue;
+      if (
+        matchesAny(sentence, OPEN_ALTERNATIVES_CUES) !== null &&
+        matchesAny(sentence, LANGUAGE_FAMILY_WORDS) === null
+      ) {
+        continue;
+      }
       if (
         matchesAny(sentence, ALTERNATIVES_CUES) !== null &&
         acceptedLanguage(sentence, criteria) !== null
