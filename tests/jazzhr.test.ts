@@ -168,7 +168,7 @@ test('JazzHR detail: the plain, board-less <title> shape ("{title} - Career Page
   // A second real shape (fincherarchitects.applytojob.com/apply/lx8yF2DdCg/...,
   // fetched live 2026-09-22): this tenant's own detail pages state the
   // suffix both ways, not always with the board name. Built inline rather
-  // than as a second fixture file (Task 6 names only one detail fixture).
+  // than as a second fixture file, so the fixtures directory keeps one JazzHR detail page.
   const html =
     "<html><head><title>Customer Account Specialist (PHILIPPINES Hybrid) - Career Page</title></head>" +
     "<body><div class='col col-xs-7 description' id=\"job-description\">Some body text." +

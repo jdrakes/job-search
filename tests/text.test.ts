@@ -1308,9 +1308,9 @@ test("remote: 'an option to work fully remotely' affirms", () => {
   assert.match(remote.detail, /work fully remotely/);
 });
 
-test("remote: 'or remotely in the United States' affirms", () => {
+test("remote: 'or remotely from anywhere in the US' affirms", () => {
   const remote = remoteVerdict(
-    "This role can be held from one of our US hubs or remotely in the United States.",
+    "You can work from a company office or remotely from anywhere in the US.",
   );
   assert.equal(remote.verdict, "in");
 });

@@ -100,8 +100,8 @@ test("iCIMS: 0-valued salary fields never produce structured comp", () => {
 
   const listing = parseIcimsListing(fixtureRemote())[0];
   // iCIMS has no structured comp; its comp comes entirely from prose.
-  // The fixture's body contains "USD $160,200.00 - USD $425,000.00",
-  // which compInText now parses (Task 1: pay parser reads two more range shapes).
+  // The fixture's prose states the range as "USD $160,200.00 - USD $425,000.00"
+  // (a currency word before each dollar sign), which compInText reads.
   assert.equal(listing.compLow, 160_200);
   assert.equal(listing.compHigh, 425_000);
 });
