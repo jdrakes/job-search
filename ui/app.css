@@ -520,8 +520,16 @@ textarea:focus-visible {
   white-space: nowrap;
 }
 
-.top .sign-out {
+.top-actions {
   grid-area: out;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.top-actions .refresh,
+.top-actions .sign-out {
   flex: none;
   white-space: nowrap;
 }
