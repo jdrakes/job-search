@@ -139,8 +139,8 @@ function judgeRole(title: string, criteria: Criteria): Reason {
   return { criterion: "role", verdict: "out", detail: "title carries no role word" };
 }
 
-// Everything before the first comma, en dash, hyphen-with-spaces or
-// parenthesis after a space, the marker that starts a team, level or
+// Everything before the first comma, colon, en dash, em dash, hyphen-with-spaces,
+// pipe, or parenthesis after a space, the marker that starts a team, level or
 // location suffix: "Staff Software Engineer (Agentic AI & Cloud Solutions)"
 // names its team in the parenthesis. The space keeps a leading "(Remote)"
 // tag from ending the role part before it starts. A title with none is the
@@ -148,9 +148,12 @@ function judgeRole(title: string, criteria: Criteria): Reason {
 function roleEnd(title: string): number {
   const indices = [
     title.indexOf(","),
+    title.indexOf(":"),
     title.indexOf("–"),
+    title.indexOf("—"),
     title.indexOf(" - "),
     title.indexOf("- "),
+    title.indexOf(" | "),
     title.indexOf(" ("),
   ].filter((index) => index !== -1);
   return indices.length === 0 ? title.length : Math.min(...indices);

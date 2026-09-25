@@ -482,6 +482,41 @@ test("excluded words: a title opening with a parenthesis keeps its whole role pa
   assert.equal(reasonFor(result.reasons, "excluded_words").verdict, "out");
 });
 
+test("excluded words: keeps a team-name word after a colon in the role part", () => {
+  const result = judgeListing(
+    posting({ title: "Senior Software Engineer: Customer Platform", comp_high: 260000 }),
+    criteria(),
+  );
+  assert.equal(reasonFor(result.reasons, "excluded_words").verdict, "in");
+  assert.equal(result.kept, true);
+});
+
+test("excluded words: drops a team-name word before a colon in the role part", () => {
+  const result = judgeListing(
+    posting({ title: "Customer Success: Software Engineer" }),
+    criteria(),
+  );
+  assert.equal(reasonFor(result.reasons, "excluded_words").verdict, "out");
+});
+
+test("excluded words: keeps a team-name word after an em dash in the role part", () => {
+  const result = judgeListing(
+    posting({ title: "Staff Software Engineer — Marketing Systems" }),
+    criteria(),
+  );
+  assert.equal(reasonFor(result.reasons, "excluded_words").verdict, "in");
+  assert.equal(result.kept, true);
+});
+
+test("excluded words: keeps a team-name word after a pipe in the role part", () => {
+  const result = judgeListing(
+    posting({ title: "Staff Software Engineer | Support Tools" }),
+    criteria(),
+  );
+  assert.equal(reasonFor(result.reasons, "excluded_words").verdict, "in");
+  assert.equal(result.kept, true);
+});
+
 test("excluded words: drops a non-team excluded word even after the role part", () => {
   const result = judgeListing(
     posting({ title: "Staff Backend Engineer, Developer Experience" }),
