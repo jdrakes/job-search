@@ -784,6 +784,186 @@ test("missing languages: 'our search tier is 99.8% Delphi!' requires the languag
   assert.equal(missingLanguagesVerdict("Our search tier is 99.8% Delphi!"), "out");
 });
 
+test("missing languages: a closed cue plus an accepted language welcomes it", () => {
+  assert.equal(
+    missingLanguagesVerdict(
+      "Strong ability in at least one language (Delphi, Python, Cobol, etc.)",
+    ),
+    "in",
+  );
+});
+
+test("missing languages: 'or another object-oriented language' is an open alternative", () => {
+  assert.equal(
+    missingLanguagesVerdict("Delphi, Cobol, or another object-oriented language."),
+    "in",
+  );
+});
+
+test("missing languages: 'or a similar language' is an open alternative", () => {
+  assert.equal(missingLanguagesVerdict("Delphi or a similar language."), "in");
+});
+
+test("missing languages: 'helpful' welcomes the language", () => {
+  assert.equal(
+    missingLanguagesVerdict("Delphi experience is helpful, but fundamentals matter more."),
+    "in",
+  );
+});
+
+test("missing languages: 'willingness to' welcomes the language", () => {
+  assert.equal(
+    missingLanguagesVerdict("Proficient in Delphi, or willingness to ramp up quickly in it."),
+    "in",
+  );
+});
+
+test("missing languages: a stack sentence with no heading is skipped", () => {
+  assert.equal(missingLanguagesVerdict("We also use Delphi and Cobol for native modules."), "in");
+});
+
+test("missing languages: a curly apostrophe still folds to a welcome signal", () => {
+  assert.equal(missingLanguagesVerdict("You don’t need Delphi experience to start."), "in");
+});
+
+test("missing languages: 'or any other JVM language' is a family, not an open door", () => {
+  assert.equal(missingLanguagesVerdict("Cobol, Delphi, or any other JVM language."), "out");
+});
+
+// "type-safe" is a hyphenated compound; `findWholeWord` bounds it on its
+// letters at each edge, with no special-casing needed.
+test("missing languages: 'or another type-safe language' is a family, not an open door", () => {
+  assert.equal(missingLanguagesVerdict("Delphi or another type-safe language."), "out");
+});
+
+// "low-level" is a hyphenated compound too, same boundary behaviour.
+test("missing languages: 'or other low-level languages' is a family, not an open door", () => {
+  assert.equal(missingLanguagesVerdict("Delphi or other low-level languages."), "out");
+});
+
+test("missing languages: 'either' is not an alternatives cue", () => {
+  assert.equal(missingLanguagesVerdict("Experience with either Delphi or Cobol."), "out");
+});
+
+test("missing languages: a stack sentence that also states a requirement is not skipped", () => {
+  assert.equal(
+    missingLanguagesVerdict("We currently use Delphi, and you must have 5+ years of it."),
+    "out",
+  );
+});
+
+test("missing languages: 'Go-To-Market' is not the language", () => {
+  assert.equal(
+    missingLanguagesVerdict("Our Go-To-Market team partners with engineering.", GO_MISSING),
+    "in",
+  );
+});
+
+test("missing languages: 'Go-based' still requires the language", () => {
+  assert.equal(
+    missingLanguagesVerdict("Build Go-based services; 5+ years of Go required.", GO_MISSING),
+    "out",
+  );
+});
+
+// Breaks if an open cue counts without "language" or "languages" within
+// four words after it.
+test("missing languages: 'or similar 3D media' is not a language alternative", () => {
+  assert.equal(
+    missingLanguagesVerdict("5+ years in game development or similar 3D media using Delphi"),
+    "out",
+  );
+});
+
+test("missing languages: 'or similar frameworks' is not a language alternative", () => {
+  assert.equal(
+    missingLanguagesVerdict("Hands-on expertise in Delphi, with Embassy or similar frameworks"),
+    "out",
+  );
+});
+
+test("missing languages: 'one or more years' is not a language alternative", () => {
+  assert.equal(missingLanguagesVerdict("Requires one or more years of Delphi experience."), "out");
+});
+
+test("missing languages: 'any of our backend services' is not a language alternative", () => {
+  assert.equal(
+    missingLanguagesVerdict("Delphi is required for any of our backend services."),
+    "out",
+  );
+});
+
+// Breaks if a family word anywhere in the sentence cancels the open cue,
+// rather than only one directly before "language".
+test("missing languages: 'distributed systems' is not a systems language", () => {
+  assert.equal(
+    missingLanguagesVerdict(
+      "Delphi or a similar language, with strong distributed systems fundamentals",
+    ),
+    "in",
+  );
+});
+
+// Breaks if "ideally" welcomes a language named before it.
+test("missing languages: 'ideally' does not welcome a language named before it", () => {
+  assert.equal(
+    missingLanguagesVerdict("You are highly proficient in Delphi and ideally also Python."),
+    "out",
+  );
+});
+
+test("missing languages: 'ideally' welcomes a language named after it", () => {
+  assert.equal(missingLanguagesVerdict("You know Python and ideally also Delphi."), "in");
+});
+
+// Breaks if "sometimes" is a welcome signal again.
+test("missing languages: 'sometimes' is not a welcome signal", () => {
+  assert.equal(
+    missingLanguagesVerdict(
+      "Deep Delphi expertise required, and you will sometimes pair with other teams.",
+    ),
+    "out",
+  );
+});
+
+// Breaks if a stack sentence is skipped although it asks for fluency.
+test("missing languages: a stack sentence inside a fluency requirement is not skipped", () => {
+  assert.equal(
+    missingLanguagesVerdict(
+      "Fluency in a systems language (we use Delphi) and comfort owning services end to end.",
+    ),
+    "out",
+  );
+});
+
+// Breaks if the Go-compound skip reads any "Go to" as "Go To Market".
+test("missing languages: 'Go to build services' still requires the language", () => {
+  assert.equal(
+    missingLanguagesVerdict("Experience with Go to build backend services for years", GO_MISSING),
+    "out",
+  );
+});
+
+test("missing languages: 'Go To Market' with spaces is not the language", () => {
+  assert.equal(
+    missingLanguagesVerdict("Partner with our Go To Market team on pricing", GO_MISSING),
+    "in",
+  );
+});
+
+// Breaks if "Go To Market" with spaces is read as the language; unlike the
+// sentence above, this one carries a programming cue, so the English-word
+// rule does not skip it first.
+test("missing languages: 'Go To Market' beside a programming cue is not the language", () => {
+  assert.equal(
+    missingLanguagesVerdict(
+      "Our Go To Market engineering team ships pricing software.",
+      GO_MISSING,
+    ),
+    "in",
+  );
+});
+
 // The listing criterion only opens the door for a below-floor base on an
 // assumed rate; this criterion settles it from the text, and a stated rate
 // always wins over the assumed one.
@@ -1126,4 +1306,81 @@ test("remote: 'an option to work fully remotely' affirms", () => {
   assert.equal(remote.verdict, "in");
   assert.match(remote.detail, /body affirms remote/);
   assert.match(remote.detail, /work fully remotely/);
+});
+
+test("remote: 'or remotely from anywhere in the US' affirms", () => {
+  const remote = remoteVerdict(
+    "You can work from a company office or remotely from anywhere in the US.",
+  );
+  assert.equal(remote.verdict, "in");
+});
+
+test("remote: 'Remote - Eligible' with a space and dash affirms", () => {
+  const remote = remoteVerdict("Staff Engineer, Platform (Remote - Eligible)");
+  assert.equal(remote.verdict, "in");
+});
+
+test("remote: 'partial or full remote work' affirms", () => {
+  const remote = remoteVerdict("You'll have the flexibility for partial or full remote work.");
+  assert.equal(remote.verdict, "in");
+});
+
+test("remote: a 'Posting Type' line of 'Hybrid/Remote' affirms", () => {
+  const remote = remoteVerdict("Posting Type\nHybrid/Remote");
+  assert.equal(remote.verdict, "in");
+});
+
+test("remote: a conditional or off-topic office sentence is not a requirement", () => {
+  const notOffice = [
+    "If this position is listed as onsite, work happens at an office.",
+    "Roles that are based in an office are onsite Tuesday through Thursday.",
+    "For remote roles, you may be asked to attend an on-site interview.",
+    "We don’t prescribe specific in-office days.",
+    "Travel occasionally to support onsite implementations.",
+    "Work styles (flexible, remote, or required in office) are categories we assign to employees.",
+  ];
+  for (const body of notOffice) {
+    const remote = remoteVerdict(body);
+    assert.doesNotMatch(remote.detail, /^body requires office attendance/, body);
+  }
+});
+
+test("remote: a real office requirement still stays out", () => {
+  const stillOut = [
+    "This role requires working in-office three days a week.",
+    "You must be onsite in our Denver office five days a week, with up to 20% travel.",
+    "This is not a remote or hybrid role; you will work on-site.",
+    "Must be based within commuting distance and able to work on-site two days per week.",
+  ];
+  for (const body of stillOut) {
+    const remote = remoteVerdict(body);
+    assert.equal(remote.verdict, "out", body);
+    assert.match(remote.detail, /^body requires office attendance/, body);
+  }
+});
+
+test("remote: an off-topic phrase beside a requirement does not cancel it", () => {
+  // Breaks if an off-topic phrase ("on-site interviews") nulls the whole
+  // sentence instead of only its own span.
+  const remote = remoteVerdict(
+    "This role is based in Denver and requires in-person work five days a week, plus availability for on-site interviews.",
+  );
+  assert.equal(remote.verdict, "out");
+  assert.match(remote.detail, /^body requires office attendance/);
+});
+
+test("remote: an if or unless clause covers only itself, not the sentence's requirement", () => {
+  // Breaks if any "if" or "unless" anywhere in the sentence nulls it, rather
+  // than only an office phrase inside the conditional clause.
+  const stillOut = [
+    "This role requires in-office attendance five days a week, even if you live nearby.",
+    "Unless otherwise noted, you must work on-site in our Austin office three days a week.",
+    "Expect three days a week in-office, with an option to come in more often if desired.",
+    "If you're interviewing for this role, your recruiter will explain the in-office expectations.",
+  ];
+  for (const body of stillOut) {
+    const remote = remoteVerdict(body);
+    assert.equal(remote.verdict, "out", body);
+    assert.match(remote.detail, /^body requires office attendance/, body);
+  }
 });

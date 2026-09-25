@@ -4,7 +4,7 @@
 // it falls: the reasons are what a run stores and what James reads.
 import { boardKey } from "../companies.ts";
 import type { Company, Criteria, Posting } from "../schema.ts";
-import { foreignPlace, unitedStatesPlace } from "./countries.ts";
+import { foreignPlace, unitedStatesCity, unitedStatesPlace } from "./countries.ts";
 import { findWholeWord, wholeWordPattern } from "./whole-word.ts";
 
 export interface Reason {
@@ -139,8 +139,8 @@ function judgeRole(title: string, criteria: Criteria): Reason {
   return { criterion: "role", verdict: "out", detail: "title carries no role word" };
 }
 
-// Everything before the first comma, en dash, hyphen-with-spaces or
-// parenthesis after a space, the marker that starts a team, level or
+// Everything before the first comma, colon, en dash, em dash, hyphen-with-spaces,
+// pipe, or parenthesis after a space, the marker that starts a team, level or
 // location suffix: "Staff Software Engineer (Agentic AI & Cloud Solutions)"
 // names its team in the parenthesis. The space keeps a leading "(Remote)"
 // tag from ending the role part before it starts. A title with none is the
@@ -148,9 +148,12 @@ function judgeRole(title: string, criteria: Criteria): Reason {
 function roleEnd(title: string): number {
   const indices = [
     title.indexOf(","),
+    title.indexOf(":"),
     title.indexOf("–"),
+    title.indexOf("—"),
     title.indexOf(" - "),
     title.indexOf("- "),
+    title.indexOf(" | "),
     title.indexOf(" ("),
   ].filter((index) => index !== -1);
   return indices.length === 0 ? title.length : Math.min(...indices);
@@ -190,7 +193,7 @@ function judgeCountry(location: string | null, criteria: Criteria): Reason {
     return { criterion: "country", verdict: "in", detail: "posting names no location" };
   }
   const excluded = matchesAny(location, criteria.excluded_locations);
-  if (excluded !== null && unitedStatesPlace(location) === null) {
+  if (excluded !== null && (unitedStatesPlace(location) ?? unitedStatesCity(location)) === null) {
     return {
       criterion: "country",
       verdict: "out",
@@ -205,7 +208,7 @@ function judgeCountry(location: string | null, criteria: Criteria): Reason {
       detail: `location "${location}" names no country other than the United States`,
     };
   }
-  const domestic = unitedStatesPlace(location);
+  const domestic = unitedStatesPlace(location) ?? unitedStatesCity(location);
   if (domestic !== null) {
     return {
       criterion: "country",

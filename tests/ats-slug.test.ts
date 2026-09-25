@@ -301,6 +301,28 @@ test("comp in text: the four shapes live boards write on 2026-09-16", () => {
   });
 });
 
+test("comp in text: currency word before the second dollar sign", () => {
+  assert.deepEqual(compInText("The base salary range is USD $120,000.00 - USD $300,000.00 /Yr."), {
+    compLow: 120_000,
+    compHigh: 300_000,
+  });
+});
+
+test("comp in text: 'between' ranges with and without space after dollar sign", () => {
+  assert.deepEqual(compInText("expected to be between $150,000 and $250,000/year"), {
+    compLow: 150_000,
+    compHigh: 250_000,
+  });
+  assert.deepEqual(compInText("between $ 140,000 and $230,000/year"), {
+    compLow: 140_000,
+    compHigh: 230_000,
+  });
+});
+
+test("comp in text: bare 'and' without 'between' does not form a range", () => {
+  assert.equal(compInText("a $1,500 home office stipend and $3,000 learning budget"), null);
+});
+
 test("comp in text: a K-suffixed bonus still loses to base pay, and small figures stay out", () => {
   assert.deepEqual(compInText("Signing bonus $5K - $10K. Base $220,000 - $300,000."), {
     compLow: 220_000,

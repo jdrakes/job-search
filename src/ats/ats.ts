@@ -97,9 +97,14 @@ export function isUsd(currency: unknown): boolean {
 // `{1,3}` admits), "$150000 - $200000" (separators optional; four digits is
 // the shortest figure, keeping "$5 - $10" out), `$198K – $319K`, `$120K-145K`,
 // `$198,000 USD – $233,000 USD` (currency word before the dash),
+// `USD $124,000.00 - USD $329,200.00` (currency word before the second dollar sign),
 // `$ 174,986 - $209,983`. The `i` flag is for `K`.
 const COMP_RANGE =
-  /\$ ?(\d{1,3}(?:,\d{3})+|\d{4,}|\d{1,3}K)(?:\.\d{2})?(?: USD)?\s*(?:-|–|—|to)\s*\$? ?(\d{1,3}(?:,\d{3})+|\d{4,}|\d{1,3}K)(?:\.\d{2})?/gi;
+  /\$ ?(\d{1,3}(?:,\d{3})+|\d{4,}|\d{1,3}K)(?:\.\d{2})?(?: USD)?\s*(?:-|–|—|to)\s*(?:USD ?)?\$? ?(\d{1,3}(?:,\d{3})+|\d{4,}|\d{1,3}K)(?:\.\d{2})?/gi;
+
+// "between $X and $Y": "and" is a separator only after "between".
+const COMP_BETWEEN =
+  /\bbetween (?:USD ?)?\$ ?(\d{1,3}(?:,\d{3})+|\d{4,}|\d{1,3}K)(?:\.\d{2})?(?: USD)? and (?:USD ?)?\$ ?(\d{1,3}(?:,\d{3})+|\d{4,}|\d{1,3}K)(?:\.\d{2})?/gi;
 
 function asAmount(digits: string): number | null {
   const thousands = /k$/i.test(digits);
@@ -113,7 +118,7 @@ function asAmount(digits: string): number | null {
 // worst a top-of-market metro band, erring toward looking at a posting.
 export function compInText(text: string): { compLow: number; compHigh: number } | null {
   let best: { compLow: number; compHigh: number } | null = null;
-  for (const match of text.matchAll(COMP_RANGE)) {
+  for (const match of [...text.matchAll(COMP_RANGE), ...text.matchAll(COMP_BETWEEN)]) {
     const first = asAmount(match[1] ?? "");
     const second = asAmount(match[2] ?? "");
     if (first === null || second === null) continue;

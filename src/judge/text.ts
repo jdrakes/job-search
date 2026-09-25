@@ -5,12 +5,20 @@ import { foreignPlace, unitedStatesPlace } from "./countries.ts";
 import type { Reason } from "./listing.ts";
 import { findWholeWord, wholeWordPattern } from "./whole-word.ts";
 
+// A posting's body carries either apostrophe; the signal lists are written
+// with the straight one, so the text is folded before it is checked against
+// them.
+function foldApostrophes(text: string): string {
+  return text.replace(/’/g, "'");
+}
+
 function matchesAny(
   text: string,
   terms: readonly string[],
 ): { readonly term: string; readonly index: number } | null {
+  const folded = foldApostrophes(text);
   for (const term of terms) {
-    const index = findWholeWord(text, term);
+    const index = findWholeWord(folded, term);
     if (index !== null) return { term, index };
   }
   return null;
@@ -30,7 +38,8 @@ function splitSentences(body: string): string[] {
 // Scored against boards' own workplace labels, these reject on-site roles
 // more often than remote; any other phrase tried rejected remote roles
 // above the base rate. A day count beside "the office" states attendance
-// the way these five do; bare "in the office" does not.
+// the way these five do; bare "in the office" does not. "in-person" counts
+// only with a day count right after it ("in-person work five days a week").
 const OFFICE_ATTENDANCE_PHRASES = [
   "onsite",
   "on-site",
@@ -42,6 +51,7 @@ const OFFICE_ATTENDANCE_PHRASES = [
 const OFFICE_DAYS_PATTERNS: readonly RegExp[] = [
   /\bdays?\b[^.]{0,60}\bin (?:the|our|an?) office\b/i,
   /\bin (?:the|our|an?) office\b[^.]{0,60}\bdays?\b/i,
+  /\bin[\s-]person\b[^.]{0,20}\bdays?\b/i,
 ];
 
 // A clause that lists what the company gives ("in-office benefits include
@@ -78,15 +88,20 @@ const LOCATION_LABEL_REMOTE_AFFIRMATION = /^location:.*\bremote\b/i;
 // worse on both remote roles lost and on-site roles admitted.
 const ROLE_REMOTE_AFFIRMATIONS: readonly RegExp[] = [
   /\b(?:fully|entirely|completely|100%)[\s-]remote(?:ly)?\b/i,
-  /\bremote[\s-](?:eligible|first|friendly)\b/i,
+  /\bremote\s*[-–]?\s*(?:eligible|first|friendly)\b/i,
   /\bremote (?:role|position|job|opportunity|work environment)\b/i,
   /\b(?:is|are|be)(?: an?)? remote\b/i,
   /\bopen to remote\b/i,
   /\bwork(?:s|ing)? remotely\b/i,
-  /\bor remote\b/i,
+  /\bor remote(?:ly)?\b/i,
   /\bbased remotely\b/i,
   /\ball[\s-]remote\b/i,
+  /\bfull[\s-]remote\b/i,
 ];
+
+// A "Posting Type" line naming both hybrid and remote states remote as one
+// of the role's own working arrangements, not a perk.
+const HYBRID_REMOTE_LINE = /^(?:hybrid\s*\/\s*remote|remote\s*\/\s*hybrid)$/i;
 
 // The recruiter's own tag: a posting tagged remote is remote, whatever else
 // its prose says.
@@ -103,9 +118,73 @@ function affirmsRemoteRole(sentence: string): boolean {
   if (matchesAny(sentence, PERK_SIGNALS) !== null) return false;
   return (
     LOCATION_LINE_REMOTE_AFFIRMATION.test(stripped) ||
-    LOCATION_LABEL_REMOTE_AFFIRMATION.test(stripped)
+    LOCATION_LABEL_REMOTE_AFFIRMATION.test(stripped) ||
+    HYBRID_REMOTE_LINE.test(stripped)
   );
 }
+
+// A sentence scoped to a category of roles is not stating this role's
+// requirement: "roles that are based in an office are onsite" describes
+// other postings, not this one.
+const CONDITIONAL_SIGNALS = ["for remote roles", "roles that are based in"] as const;
+
+// A clause conditioned on something else is not itself stating the
+// requirement: "if this position is listed as onsite" describes a category
+// of postings. The clause runs from the word to the next comma or the end of
+// the sentence, so a requirement outside it ("in-office five days a week,
+// even if you live nearby") still counts.
+const CONDITIONAL_CLAUSE = /\b(?:if|unless)\b[^,]*/gi;
+
+function insideConditionalClause(sentence: string, index: number): boolean {
+  for (const clause of sentence.matchAll(CONDITIONAL_CLAUSE)) {
+    if (index >= clause.index && index < clause.index + clause[0].length) return true;
+  }
+  return false;
+}
+
+// The company saying it leaves in-office days up to the team is not a
+// requirement that any days are in office.
+const OFFICE_NEGATIONS = [
+  "don't prescribe",
+  "do not prescribe",
+  "don't require",
+  "do not require",
+] as const;
+
+// An onsite interview or an onsite implementation at a customer's site is
+// not this role's own office requirement.
+const OFF_TOPIC_PHRASES = [
+  "onsite interview",
+  "on-site interview",
+  "onsite interviews",
+  "on-site interviews",
+  "onsite implementation",
+  "onsite implementations",
+  "on-site implementation",
+  "on-site implementations",
+] as const;
+
+const OFF_TOPIC_TRAVEL = /\btravel\b[^.]{0,40}\bon[\s-]?site\b/gi;
+
+const OFF_TOPIC_PATTERNS: readonly RegExp[] = [
+  ...OFF_TOPIC_PHRASES.map((phrase) => new RegExp(wholeWordPattern(phrase), "gi")),
+  OFF_TOPIC_TRAVEL,
+];
+
+// Spaces of equal length keep every later index pointing at the same
+// character of the sentence, so an off-topic span cannot hide a requirement
+// stated elsewhere in it.
+function blankOffTopic(sentence: string): string {
+  return OFF_TOPIC_PATTERNS.reduce(
+    (text, pattern) => text.replace(pattern, (match) => " ".repeat(match.length)),
+    sentence,
+  );
+}
+
+// "remote, or required in office" names remote as one category among
+// several, not a stated requirement; the comma is required so "not a
+// remote or hybrid role" still states one.
+const REMOTE_CATEGORY_LIST = /\bremote, or\b/i;
 
 // The office requirement this clause states, or null: a clause that says the
 // role is remote is answering the question, and a perks clause is not a
@@ -113,11 +192,23 @@ function affirmsRemoteRole(sentence: string): boolean {
 function officeRequirement(sentence: string): string | null {
   if (affirmsRemoteRole(sentence)) return null;
   if (matchesAny(sentence, PERK_SIGNALS) !== null) return null;
-  const phrase = matchesAny(sentence, OFFICE_ATTENDANCE_PHRASES);
-  if (phrase !== null) return phrase.term;
+  const folded = foldApostrophes(sentence);
+  if (matchesAny(sentence, CONDITIONAL_SIGNALS) !== null) return null;
+  if (matchesAny(sentence, OFFICE_NEGATIONS) !== null) return null;
+  if (REMOTE_CATEGORY_LIST.test(folded)) return null;
+  const onTopic = blankOffTopic(folded);
+  const office = officeMatch(onTopic);
+  if (office === null) return null;
+  if (insideConditionalClause(onTopic, office.index)) return null;
+  return office.text;
+}
+
+function officeMatch(text: string): { readonly text: string; readonly index: number } | null {
+  const phrase = matchesAny(text, OFFICE_ATTENDANCE_PHRASES);
+  if (phrase !== null) return { text: phrase.term, index: phrase.index };
   for (const pattern of OFFICE_DAYS_PATTERNS) {
-    const match = pattern.exec(sentence);
-    if (match !== null) return match[0];
+    const match = pattern.exec(text);
+    if (match !== null) return { text: match[0], index: match.index };
   }
   return null;
 }
@@ -265,6 +356,15 @@ const WELCOME_SIGNALS = [
   "preferred",
   "familiarity",
   "exposure",
+  "helpful",
+  "desirable",
+  "willingness to",
+  "willing to learn",
+  "don't need",
+  "do not need",
+  "don't write",
+  "not necessary",
+  "not needed",
 ] as const;
 
 // "go"/"golang" match only capitalized: "go" is an ordinary English word,
@@ -285,8 +385,23 @@ function withoutWebAddresses(sentence: string): string {
   return sentence.replace(WEB_ADDRESS, (address) => " ".repeat(address.length));
 }
 
+// "Go-To-Market", "Go To Market" and "Go-Live" are not the language;
+// "Go-based", "Go-native" and "Go to build services" still are, so only
+// these suffixes are skipped, and the rest of the sentence is still
+// searched for a real mention.
+const GO_COMPOUND_SKIP = /^(?:-(?:to|live)\b|\s+to\s+market\b)/i;
+
 function findLanguageMention(sentence: string, term: string): number | null {
   const text = withoutWebAddresses(sentence);
+  if (term === "go") {
+    const pattern = new RegExp(wholeWordPattern(properNoun(term)), "g");
+    for (const match of text.matchAll(pattern)) {
+      const after = text.slice(match.index + match[0].length);
+      if (GO_COMPOUND_SKIP.test(after)) continue;
+      return match.index;
+    }
+    return null;
+  }
   return CASE_SENSITIVE_TERMS.has(term)
     ? findWholeWord(text, properNoun(term), true)
     : findWholeWord(text, term);
@@ -390,22 +505,63 @@ function acceptedLanguage(sentence: string, criteria: Criteria): string | null {
   return null;
 }
 
+// A clause that names no accepted language still welcomes the one it names,
+// because it is asking for any language from an open-ended family rather
+// than this one specifically ("Delphi or another object-oriented
+// language"). A cue counts only when "language" or "languages" follows it
+// within four words, so "or similar frameworks" and "one or more years" do
+// not welcome. The exception is a family narrow enough that James's
+// languages are still excluded from it ("or another type-safe language");
+// those cues fall through to the closed rule below instead.
+const OPEN_ALTERNATIVES_CUES = [
+  "or similar",
+  "or a similar",
+  "or another",
+  "or other",
+  "or any other",
+  "or a comparable",
+  "or comparable",
+  "one or more",
+  "any of",
+] as const;
+
+function opensLanguageAlternatives(sentence: string): boolean {
+  return OPEN_ALTERNATIVES_CUES.some((cue) =>
+    new RegExp(`${wholeWordPattern(cue)}\\s+(?:[^\\s,;:()]+\\s+){0,3}languages?\\b`, "i").test(
+      sentence,
+    ),
+  );
+}
+
+// A family narrow enough that an open cue beside it still names a
+// requirement, not an open door. The family word must name the language
+// itself: "distributed systems fundamentals" is not a systems language.
+const LANGUAGE_FAMILY =
+  /\b(?:jvm|compiled|systems|low-level|type-safe|statically typed|strongly typed)\s+(?:programming\s+)?languages?\b/i;
+
+// "ideally" welcomes only what comes after it: "ideally also Delphi"
+// welcomes Delphi, "proficient in Delphi and ideally also Python" does not.
+function ideallyBefore(sentence: string, mentionIndex: number): boolean {
+  const ideally = matchesAny(sentence, ["ideally"]);
+  return ideally !== null && ideally.index < mentionIndex;
+}
+
 // A clause that offers a choice of languages rather than naming one
-// ("languages like Python or Kotlin", "Python/C/C++/Rust or similar"). A
-// bare "or" is a cue on its own; what it gets wrong is glued bullet blobs,
-// which `splitSentences`'s newline boundary separates.
+// ("languages like Python or Kotlin", "such as COBOL, Delphi, or Python").
+// These welcome only when the choice includes a language he has
+// (`acceptedLanguage`); a bare "or" is a cue on its own, what it gets wrong
+// is glued bullet blobs, which `splitSentences`'s newline boundary
+// separates.
 const ALTERNATIVES_CUES = [
   "and/or",
-  "any of",
+  "at least one",
+  "at least two",
   "e.g",
+  "etc",
   "like",
   "one of",
-  "one or more",
   "or",
-  "or another",
   "or equivalent",
-  "or other",
-  "or similar",
   "such as",
 ] as const;
 
@@ -426,6 +582,26 @@ const STACK_LISTING_CUES = [
   "tools we use",
   "what we use",
 ] as const;
+
+// A single sentence, with no heading, that names what the team already
+// runs on rather than what it asks a candidate to bring ("We also use
+// Delphi and Cobol for native modules"). Unlike `STACK_LISTING_CUES` this
+// governs only the sentence it is in, not the clauses after it, since there
+// is no heading to mark where the listing ends.
+const STACK_SENTENCE_CUES = [
+  "we use",
+  "we also use",
+  "currently uses",
+  "currently use",
+  "we work primarily in",
+  "we work in",
+] as const;
+
+// Words that make a stack sentence a requirement too ("Fluency in a systems
+// language (we use Delphi)"). Kept apart from `REQUIREMENT_SIGNALS`, which
+// also ends a stack listing, where "strong" or "deep" in a listed item
+// would end it too early.
+const STACK_SENTENCE_REQUIREMENT_WORDS = ["fluency", "fluent", "strong", "depth", "deep"] as const;
 
 // What ends a stack listing: the posting has gone back to asking for
 // something. A heading has to govern the clauses under it because
@@ -459,10 +635,20 @@ function judgeMissingLanguages(body: string, criteria: Criteria): Reason {
       inStackListing = false;
     }
     if (inStackListing) continue;
+    if (
+      matchesAny(sentence, STACK_SENTENCE_CUES) !== null &&
+      matchesAny(sentence, REQUIREMENT_SIGNALS) === null &&
+      matchesAny(sentence, STACK_SENTENCE_REQUIREMENT_WORDS) === null
+    ) {
+      continue;
+    }
     for (const term of criteria.missing_languages) {
-      if (findLanguageMention(sentence, term) === null) continue;
+      const mentionIndex = findLanguageMention(sentence, term);
+      if (mentionIndex === null) continue;
       if (ENGLISH_WORD_TERMS.has(term) && matchesAny(sentence, PROGRAMMING_CUES) === null) continue;
       if (matchesAny(sentence, WELCOME_SIGNALS) !== null) continue;
+      if (ideallyBefore(sentence, mentionIndex)) continue;
+      if (opensLanguageAlternatives(sentence) && !LANGUAGE_FAMILY.test(sentence)) continue;
       if (
         matchesAny(sentence, ALTERNATIVES_CUES) !== null &&
         acceptedLanguage(sentence, criteria) !== null

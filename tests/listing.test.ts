@@ -482,6 +482,41 @@ test("excluded words: a title opening with a parenthesis keeps its whole role pa
   assert.equal(reasonFor(result.reasons, "excluded_words").verdict, "out");
 });
 
+test("excluded words: keeps a team-name word after a colon in the role part", () => {
+  const result = judgeListing(
+    posting({ title: "Senior Software Engineer: Customer Platform", comp_high: 260000 }),
+    criteria(),
+  );
+  assert.equal(reasonFor(result.reasons, "excluded_words").verdict, "in");
+  assert.equal(result.kept, true);
+});
+
+test("excluded words: drops a team-name word before a colon in the role part", () => {
+  const result = judgeListing(
+    posting({ title: "Customer Success: Software Engineer" }),
+    criteria(),
+  );
+  assert.equal(reasonFor(result.reasons, "excluded_words").verdict, "out");
+});
+
+test("excluded words: keeps a team-name word after an em dash in the role part", () => {
+  const result = judgeListing(
+    posting({ title: "Staff Software Engineer — Marketing Systems" }),
+    criteria(),
+  );
+  assert.equal(reasonFor(result.reasons, "excluded_words").verdict, "in");
+  assert.equal(result.kept, true);
+});
+
+test("excluded words: keeps a team-name word after a pipe in the role part", () => {
+  const result = judgeListing(
+    posting({ title: "Staff Software Engineer | Support Tools" }),
+    criteria(),
+  );
+  assert.equal(reasonFor(result.reasons, "excluded_words").verdict, "in");
+  assert.equal(result.kept, true);
+});
+
 test("excluded words: drops a non-team excluded word even after the role part", () => {
   const result = judgeListing(
     posting({ title: "Staff Backend Engineer, Developer Experience" }),
@@ -680,6 +715,46 @@ test("country: a location matching excluded_locations stays in when also a US st
     criteria({ excluded_locations: ["Toronto"] }),
   );
   assert.equal(reasonFor(reasons, "country").verdict, "in");
+});
+
+test("country: a location matching excluded_locations stays in when a US city sits in a part naming no foreign place", () => {
+  const { reasons } = judgeListing(
+    posting({ title: "Staff Backend Engineer", location: "San Francisco HQ; Toronto Hub" }),
+    criteria({ excluded_locations: ["Toronto"] }),
+  );
+  assert.equal(reasonFor(reasons, "country").verdict, "in");
+});
+
+test("country: a US city in one part rescues a label naming a foreign place in another part", () => {
+  const { reasons } = judgeListing(
+    posting({ title: "Staff Backend Engineer", location: "Seattle; Vancouver, BC, Canada" }),
+    criteria(),
+  );
+  assert.equal(reasonFor(reasons, "country").verdict, "in");
+});
+
+test("country: a city sharing its name with a US city stays out when its own part names a foreign place", () => {
+  const { reasons } = judgeListing(
+    posting({ title: "Staff Backend Engineer", location: "San Francisco de Heredia, Costa Rica" }),
+    criteria(),
+  );
+  assert.equal(reasonFor(reasons, "country").verdict, "out");
+});
+
+test("country: a US city name inside a Mexican city name stays out", () => {
+  const { reasons } = judgeListing(
+    posting({ title: "Staff Backend Engineer", location: "San Francisco Coacalco, Mexico" }),
+    criteria(),
+  );
+  assert.equal(reasonFor(reasons, "country").verdict, "out");
+});
+
+test("country: Phoenix is left out of the US city list, so a Mauritian town keeps its verdict", () => {
+  const { reasons } = judgeListing(
+    posting({ title: "Staff Backend Engineer", location: "Vacoas-Phoenix, Mauritius" }),
+    criteria(),
+  );
+  assert.equal(reasonFor(reasons, "country").verdict, "out");
 });
 
 test("age: a posting with no max age is in", () => {
