@@ -12,7 +12,7 @@ import {
   formatList,
   parseList,
   patchFrom,
-  rowsFor,
+  TagInput,
 } from "../src/criteria.ts";
 import type { ToastState } from "../src/toast.ts";
 
@@ -42,6 +42,11 @@ const CONFIG: AppConfig = {
   statuses: [...STATUSES],
 };
 const ACCESS_TOKEN = "user-jwt";
+
+// A `confirm` that never blocks a test on a real dialog Node has no
+// `window` to show; a test that wants to see the confirm refused passes its
+// own `() => false`.
+const ALWAYS_CONFIRM = () => true;
 
 test("parseList splits on newlines, trims, and drops blank lines", () => {
   assert.deepEqual(parseList("senior\n  staff  \n\nlead\n"), ["senior", "staff", "lead"]);
@@ -208,16 +213,6 @@ test("patchFrom accepts an assumed bonus % typed with surrounding spaces", () =>
   }
 });
 
-test("rowsFor shows at least three rows even for empty lists", () => {
-  assert.equal(rowsFor(""), 3);
-  assert.equal(rowsFor("   \n  "), 3);
-});
-
-test("rowsFor gives each item a line plus one spare line", () => {
-  assert.equal(rowsFor("a\nb\nc\nd"), 5);
-  assert.equal(rowsFor("senior\nstaff\nlead"), 4);
-});
-
 test("floorLabel formats a number as a money string", () => {
   assert.equal(floorLabel("180000"), "$180k");
   assert.equal(floorLabel("150000"), "$150k");
@@ -231,17 +226,31 @@ test("floorLabel returns null for non-numbers and empty strings", () => {
   assert.equal(floorLabel("   \n  "), null);
 });
 
-test("CriteriaView prefills every field from the saved criteria row", async () => {
+test("CriteriaView groups every field under a labelled fieldset", async () => {
   const html = await render(CriteriaView, {
     criteria: CRITERIA,
     config: CONFIG,
     accessToken: ACCESS_TOKEN,
   });
 
-  assert.match(html, /senior\nstaff/);
-  assert.match(html, /engineer/);
-  assert.match(html, /intern/);
-  assert.match(html, /160000/);
+  for (const legend of ["Title", "Location", "Language", "Ranking only", "Pay &amp; freshness"]) {
+    assert.match(html, new RegExp(`<legend>${legend}</legend>`));
+  }
+  assert.equal([...html.matchAll(/<fieldset class="criteria-group"/g)].length, 5);
+});
+
+test("CriteriaView prefills every field from the saved criteria row, each item its own chip", async () => {
+  const html = await render(CriteriaView, {
+    criteria: CRITERIA,
+    config: CONFIG,
+    accessToken: ACCESS_TOKEN,
+  });
+
+  assert.match(html, /<li class="tag"><span>senior<\/span>/);
+  assert.match(html, /<li class="tag"><span>staff<\/span>/);
+  assert.match(html, /<li class="tag"><span>engineer<\/span>/);
+  assert.match(html, /<li class="tag"><span>intern<\/span>/);
+  assert.match(html, /value="160000"/);
   assert.match(html, /re-judges every posting at the next run/);
 });
 
@@ -256,29 +265,35 @@ test("CriteriaView offers one Save that writes every field at once", async () =>
   assert.equal(saveButtons.length, 1);
 });
 
-test("CriteriaView sizes textareas to their list length and shows the floor as money", async () => {
-  const html = await render(CriteriaView, {
-    criteria: { ...CRITERIA, role_words: ["engineer", "developer", "programmer", "architect"] },
-    config: CONFIG,
-    accessToken: ACCESS_TOKEN,
-  });
-
-  // Four role words plus one spare line.
-  assert.equal([...html.matchAll(/rows="5"/g)].length, 1);
-  assert.match(html, /Role words<\/span><textarea rows="5">/);
-  // Two level words plus one spare is the three-row minimum.
-  assert.match(html, /Level words<\/span><textarea rows="3">/);
-  assert.match(html, /<em class="money">\$160k<\/em>/);
-});
-
-test("CriteriaView carries an Excluded locations textarea and a Max age input", async () => {
+test("CriteriaView disables Save until a field actually changes", async () => {
   const html = await render(CriteriaView, {
     criteria: CRITERIA,
     config: CONFIG,
     accessToken: ACCESS_TOKEN,
   });
 
-  assert.match(html, /Excluded locations<\/span><textarea/);
+  assert.match(html, /<button type="submit" class="primary" disabled(="")?>Save<\/button>/);
+});
+
+test("CriteriaView shows the floor as money next to Comp floor", async () => {
+  const html = await render(CriteriaView, {
+    criteria: CRITERIA,
+    config: CONFIG,
+    accessToken: ACCESS_TOKEN,
+  });
+
+  assert.match(html, /Comp floor <em class="money">\$160k<\/em>/);
+});
+
+test("CriteriaView carries an Excluded locations tag editor and a Max age input", async () => {
+  const html = await render(CriteriaView, {
+    criteria: CRITERIA,
+    config: CONFIG,
+    accessToken: ACCESS_TOKEN,
+  });
+
+  assert.match(html, /Excluded locations<\/span>/);
+  assert.match(html, /placeholder="Add to excluded locations"/);
   assert.match(html, /Max age.*<input type="text" inputmode="numeric"/);
 });
 
@@ -292,14 +307,57 @@ test("CriteriaView carries an Assumed bonus % input", async () => {
   assert.match(html, /Assumed bonus %.*<input type="text" inputmode="numeric"/);
 });
 
-test("CriteriaView carries a Product words textarea", async () => {
+test("CriteriaView carries a Product words tag editor, marked as ranking only", async () => {
   const html = await render(CriteriaView, {
     criteria: CRITERIA,
     config: CONFIG,
     accessToken: ACCESS_TOKEN,
   });
 
-  assert.match(html, /Product words<\/span><textarea/);
+  assert.match(html, /<legend>Ranking only<\/legend>/);
+  assert.match(html, /placeholder="Add to product words"/);
+});
+
+// TagInput's `commit`/`removeAt` fire from DOM events SSR never runs, so
+// they are exercised directly off `setup()`'s return, the same way
+// `CriteriaView`'s `save` is below.
+interface TagInputBindings {
+  readonly draft: { value: string };
+  readonly items: { value: readonly string[] };
+  commit(): void;
+  removeAt(index: number): void;
+}
+
+test("TagInput's commit adds the trimmed draft once and clears it, skipping a blank or duplicate", () => {
+  let value = "senior\nstaff";
+  const bindings = TagInput.setup!(
+    { modelValue: value, addLabel: "Add" } as never,
+    { emit: (_event: string, next: string) => (value = next) } as never,
+  ) as unknown as TagInputBindings;
+
+  bindings.draft.value = "  lead  ";
+  bindings.commit();
+  assert.equal(value, "senior\nstaff\nlead");
+  assert.equal(bindings.draft.value, "");
+
+  bindings.draft.value = "   ";
+  bindings.commit();
+  assert.equal(value, "senior\nstaff\nlead", "a blank draft adds nothing");
+
+  bindings.draft.value = "staff";
+  bindings.commit();
+  assert.equal(value, "senior\nstaff\nlead", "a word already in the list is not added twice");
+});
+
+test("TagInput's removeAt drops only the item at that index", () => {
+  let value = "senior\nstaff\nlead";
+  const bindings = TagInput.setup!(
+    { modelValue: value, addLabel: "Add" } as never,
+    { emit: (_event: string, next: string) => (value = next) } as never,
+  ) as unknown as TagInputBindings;
+
+  bindings.removeAt(1);
+  assert.equal(value, "senior\nlead");
 });
 
 // SSR never runs the submit handler, so `save` is captured off `setup()`'s
@@ -308,16 +366,16 @@ test("CriteriaView carries a Product words textarea", async () => {
 
 interface CriteriaViewBindings {
   readonly toast: { value: ToastState | null };
+  readonly fields: { value: Record<string, string> };
+  readonly dirty: { value: boolean };
   save(): Promise<void>;
 }
 
 type CriteriaViewSetupParams = Parameters<NonNullable<typeof CriteriaView.setup>>;
 
-test("CriteriaView shows a Saved. toast after a successful save", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
-
+function capture(): { bindings?: CriteriaViewBindings; component: object } {
   const captured: { bindings?: CriteriaViewBindings } = {};
-  const TestableCriteriaView = {
+  const component = {
     ...CriteriaView,
     setup(props: CriteriaViewSetupParams[0], ctx: CriteriaViewSetupParams[1]) {
       const bindings = CriteriaView.setup!(props, ctx) as unknown as CriteriaViewBindings;
@@ -325,12 +383,30 @@ test("CriteriaView shows a Saved. toast after a successful save", async (t) => {
       return bindings;
     },
   };
+  return {
+    get bindings() {
+      return captured.bindings;
+    },
+    component,
+  } as {
+    bindings?: CriteriaViewBindings;
+    component: object;
+  };
+}
 
-  await render(TestableCriteriaView, {
+test("CriteriaView shows a Saved. toast after a successful save, and Save disables again", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+
+  const captured = capture();
+  await render(captured.component, {
     criteria: CRITERIA,
     config: CONFIG,
     accessToken: ACCESS_TOKEN,
+    confirm: ALWAYS_CONFIRM,
   });
+
+  captured.bindings!.fields.value = { ...captured.bindings!.fields.value, compFloor: "175000" };
+  assert.equal(captured.bindings!.dirty.value, true, "changing a field marks the form dirty");
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () =>
@@ -341,6 +417,8 @@ test("CriteriaView shows a Saved. toast after a successful save", async (t) => {
     globalThis.fetch = originalFetch;
   }
 
+  assert.equal(captured.bindings!.dirty.value, false, "a saved value is the new baseline");
+
   const Prefilled = { ...CriteriaView, setup: () => captured.bindings };
   const html = await render(Prefilled, {
     criteria: CRITERIA,
@@ -348,4 +426,31 @@ test("CriteriaView shows a Saved. toast after a successful save", async (t) => {
     accessToken: ACCESS_TOKEN,
   });
   assert.match(html, /<p class="toast notice" role="status">Saved\.<\/p>/);
+});
+
+test("CriteriaView asks to confirm before saving, and a refusal writes nothing", async () => {
+  const captured = capture();
+  await render(captured.component, {
+    criteria: CRITERIA,
+    config: CONFIG,
+    accessToken: ACCESS_TOKEN,
+    confirm: () => false,
+  });
+
+  captured.bindings!.fields.value = { ...captured.bindings!.fields.value, compFloor: "175000" };
+
+  let fetchCalled = false;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    fetchCalled = true;
+    return new Response(JSON.stringify([{}]), { status: 200 });
+  }) as typeof fetch;
+  try {
+    await captured.bindings!.save();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(fetchCalled, false, "a refused confirm never reaches the store");
+  assert.equal(captured.bindings!.dirty.value, true, "the unsaved change is still there");
 });

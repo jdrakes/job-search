@@ -1937,10 +1937,12 @@ textarea:focus-visible {
 /* --- Criteria ---------------------------------------------------------- */
 
 /*
- * One column of captioned fields at a reading width. Each list is one
- * item a line and sized to its items, so the list is seen whole while it
- * is edited. The floor is typed as a number and read back as money in the
- * caption, the way every card says it.
+ * One column of fieldsets at a reading width, each grouping the fields that
+ * judge the same thing (title, location, language, ranking, pay) behind a
+ * legend and a one-line explanation of what the group decides. A flat list
+ * of eleven unlabelled fields gave no sense of what any one of them was
+ * for; the group a field sits in is itself the first line of that
+ * explanation.
  */
 .criteria form {
   display: flex;
@@ -1950,15 +1952,13 @@ textarea:focus-visible {
 }
 
 /*
- * Two columns from 60rem up. Nine fields in one 34rem column ran four
- * screens deep on a laptop with the whole right half of the window empty,
- * and every field is short (a word list six items long, a number), so
- * nothing about them needs the full measure (rendered at 1440px,
- * 2026-09-17). 60rem, not the 80rem master-detail breakpoint: this is a
- * form deciding it has room for a second column, which it does long
+ * Two columns from 60rem up. Five fieldsets in one 34rem column ran deep on
+ * a laptop with the whole right half of the window empty (rendered at
+ * 1440px, 2026-09-17). 60rem, not the 80rem master-detail breakpoint: this
+ * is a form deciding it has room for a second column, which it does long
  * before there is room for a pane beside a list, and it is the width the
- * page already used as its measure. `align-items: start` so a short field
- * beside a tall one keeps its own height rather than stretching.
+ * page already used as its measure. `align-items: start` so a short
+ * fieldset beside a tall one keeps its own height rather than stretching.
  */
 @media (min-width: 60rem) {
   .criteria form {
@@ -1976,10 +1976,43 @@ textarea:focus-visible {
   }
 }
 
-.criteria textarea {
-  resize: vertical;
-  font-size: var(--text-md);
-  line-height: 1.5;
+.criteria-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  min-width: 0;
+  padding: var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+}
+
+.criteria-group legend {
+  padding: 0 var(--s-1);
+  font-weight: 600;
+}
+
+/* The group's own explanation, right under its legend rather than beside
+   Save at the bottom: it is what the fields under it have in common. */
+.criteria-group > .hint {
+  margin: calc(var(--s-2) * -1) 0 0;
+}
+
+.criteria .field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+
+.field-label {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+.field-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-xs);
 }
 
 .criteria input {
@@ -1992,6 +2025,80 @@ textarea:focus-visible {
   font-weight: 400;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+/*
+ * A word at a time, shown back as a chip: adding or removing one is a click
+ * or a keystroke rather than finding its line in a block of text. The box
+ * reads as one text field (the same border, radius and background every
+ * other input on the page uses) with its chips flowing inside it.
+ */
+.tag-editor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: 2.25rem;
+  padding: var(--s-1) var(--s-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--paper);
+}
+
+.tag-editor:focus-within {
+  border-color: var(--accent);
+}
+
+/* `display: contents`: the chips join the editor's own flex row instead of
+   wrapping as a nested block, so a chip and the draft input share one line
+   until the row itself wraps. */
+.tag-list {
+  display: contents;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: var(--s-1) var(--s-1) var(--s-1) var(--s-3);
+  border-radius: 999px;
+  background: var(--raised);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.tag-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.125rem;
+  height: 1.125rem;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--ink-2);
+  line-height: 1;
+}
+
+.tag-remove:hover {
+  background: var(--line);
+  color: var(--ink);
+}
+
+.tag-draft {
+  flex: 1 1 8rem;
+  min-width: 8rem;
+  min-height: 1.5rem;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.tag-draft:focus-visible {
+  outline: none;
 }
 
 /* The cost of saving sits beside Save, not above the form. */

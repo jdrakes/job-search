@@ -1,7 +1,7 @@
 /**
- * The criteria row, each field edited as plain text, saved as one write
- * that stamps `updated_at`. Saving re-judges every posting at the next
- * run, so the view says so next to Save.
+ * The criteria row, grouped by what it judges and edited as tag lists, saved
+ * as one write that stamps `updated_at`. Saving re-judges every posting at
+ * the next run, so the view confirms it and says so next to Save.
  */
 import { computed, defineComponent, ref, type PropType } from "vue";
 
@@ -20,11 +20,6 @@ export function parseList(text: string): string[] {
 
 export function formatList(items: readonly string[]): string {
   return items.join("\n");
-}
-
-/** Every item and one spare line, never fewer than three rows. */
-export function rowsFor(text: string): number {
-  return Math.max(3, parseList(text).length + 1);
 }
 
 /** Null while the field is not a number. */
@@ -115,35 +110,180 @@ export function patchFrom(fields: CriteriaFormFields): PatchOutcome {
   };
 }
 
-const LIST_FIELDS: readonly {
-  readonly key: Exclude<keyof CriteriaFormFields, "compFloor" | "maxAgeDays">;
+/**
+ * One item at a time, typed into a text field and shown back as a removable
+ * chip: adding or dropping a word no longer means finding its line in a
+ * multi-line textarea. The list itself stays the same newline-joined string
+ * every other piece of this view already speaks, so nothing about
+ * `parseList`/`formatList`/`patchFrom` had to change for it.
+ */
+export const TagInput = defineComponent({
+  name: "TagInput",
+  props: {
+    modelValue: { type: String, required: true },
+    addLabel: { type: String, required: true },
+  },
+  emits: ["update:modelValue"],
+  setup(props, { emit }) {
+    const draft = ref("");
+    const items = computed(() => parseList(props.modelValue));
+
+    function commit(): void {
+      const value = draft.value.trim();
+      draft.value = "";
+      if (value === "" || items.value.includes(value)) return;
+      emit("update:modelValue", formatList([...items.value, value]));
+    }
+
+    function removeAt(index: number): void {
+      emit("update:modelValue", formatList(items.value.filter((_, current) => current !== index)));
+    }
+
+    // Enter and comma both commit, the way a chip field is typed anywhere
+    // else; Backspace on an empty draft deletes the last chip instead of
+    // doing nothing, so a misadded word is one keystroke to undo.
+    function onKeydown(event: KeyboardEvent): void {
+      if (event.key === "Enter" || event.key === ",") {
+        event.preventDefault();
+        commit();
+      } else if (event.key === "Backspace" && draft.value === "" && items.value.length > 0) {
+        removeAt(items.value.length - 1);
+      }
+    }
+
+    return { draft, items, commit, removeAt, onKeydown };
+  },
+  template: `
+    <div class="tag-editor">
+      <ul class="tag-list" v-if="items.length">
+        <li class="tag" v-for="(item, index) in items" :key="item">
+          <span>{{ item }}</span>
+          <button type="button" class="tag-remove" :aria-label="'Remove ' + item" @click="removeAt(index)">×</button>
+        </li>
+      </ul>
+      <input
+        type="text"
+        class="tag-draft"
+        v-model="draft"
+        :placeholder="addLabel"
+        @keydown="onKeydown"
+        @blur="commit" />
+    </div>
+  `,
+});
+
+interface ListFieldSpec {
+  readonly key: Exclude<keyof CriteriaFormFields, "compFloor" | "maxAgeDays" | "assumedBonusPct">;
   readonly label: string;
-}[] = [
-  { key: "levelWords", label: "Level words" },
-  { key: "roleWords", label: "Role words" },
-  { key: "excludedTitleWords", label: "Excluded title words" },
-  { key: "teamNameWords", label: "Team name words" },
-  { key: "excludedStates", label: "Excluded states" },
-  { key: "missingLanguages", label: "Missing languages" },
-  { key: "excludedLocations", label: "Excluded locations" },
-  { key: "productWords", label: "Product words" },
+  readonly hint: string;
+}
+
+interface FieldGroup {
+  readonly title: string;
+  readonly hint: string;
+  readonly listFields: readonly ListFieldSpec[];
+}
+
+/**
+ * What each field actually decides, in the terms `judge.ts` uses, so the
+ * form explains a criterion instead of just naming it. Order follows the
+ * judging pass: title, then location and language, then pay, then the one
+ * field (product words) that never drops a posting at all.
+ */
+const GROUPS: readonly FieldGroup[] = [
+  {
+    title: "Title",
+    hint: "What the posting's title itself must or must not say.",
+    listFields: [
+      {
+        key: "levelWords",
+        label: "Level words",
+        hint: "A title carrying any one of these whole-word is senior enough on its own.",
+      },
+      {
+        key: "roleWords",
+        label: "Role words",
+        hint: "A title needs one of these, alongside real engineering work, to pass the role check.",
+      },
+      {
+        key: "excludedTitleWords",
+        label: "Excluded title words",
+        hint: "A title carrying any of these anywhere is dropped, unless it's also a team name below.",
+      },
+      {
+        key: "teamNameWords",
+        label: "Team name words",
+        hint: "Excluded title words allowed to appear as a team name, after the role part of the title.",
+      },
+    ],
+  },
+  {
+    title: "Location",
+    hint: "Where the role can be based.",
+    listFields: [
+      {
+        key: "excludedStates",
+        label: "Excluded states",
+        hint: "Dropped if the posting's body says one of these states is ineligible.",
+      },
+      {
+        key: "excludedLocations",
+        label: "Excluded locations",
+        hint: "Dropped if the posting is based in one of these and not also in the United States.",
+      },
+    ],
+  },
+  {
+    title: "Language",
+    hint: "What the posting's body can ask of you.",
+    listFields: [
+      {
+        key: "missingLanguages",
+        label: "Missing languages",
+        hint: "Dropped if the body requires one of these and doesn't welcome it as a nice-to-have.",
+      },
+    ],
+  },
+  {
+    title: "Ranking only",
+    hint: "Never drops a posting — only orders the Queue.",
+    listFields: [
+      {
+        key: "productWords",
+        label: "Product words",
+        hint: "A title carrying one of these whole-word ranks higher in the Queue.",
+      },
+    ],
+  },
 ];
 
 export const CriteriaView = defineComponent({
   name: "CriteriaView",
-  components: { Toast },
+  components: { Toast, TagInput },
   props: {
     criteria: { type: Object as PropType<Criteria>, required: true },
     config: { type: Object as PropType<AppConfig>, required: true },
     accessToken: { type: String, required: true },
+    // Overridden in tests, which run with no `window` and must not block on
+    // a real confirm dialog; a plain browser mount gets the real one.
+    confirm: {
+      type: Function as PropType<(message: string) => boolean>,
+      default: (message: string) =>
+        typeof window === "undefined" ? true : window.confirm(message),
+    },
   },
   setup(props) {
     const fields = ref<CriteriaFormFields>(fieldsFrom(props.criteria));
+    // What Save last wrote (or the row's own values, before any edit), so
+    // Save can stay disabled until something actually changed and reread
+    // its own baseline once a write lands rather than the stale one.
+    const saved = ref<CriteriaFormFields>(fieldsFrom(props.criteria));
     const busy = ref(false);
     const error = ref<string | null>(null);
     const { toast, showToast } = useToast();
 
-    const canSubmit = computed(() => !busy.value);
+    const dirty = computed(() => JSON.stringify(fields.value) !== JSON.stringify(saved.value));
+    const canSubmit = computed(() => !busy.value && dirty.value);
     const floor = computed(() => floorLabel(fields.value.compFloor));
 
     async function save(): Promise<void> {
@@ -152,6 +292,7 @@ export const CriteriaView = defineComponent({
         error.value = outcome.error;
         return;
       }
+      if (!props.confirm("Save and re-judge every posting at the next run?")) return;
       error.value = null;
       busy.value = true;
       const written: WriteResult = await saveCriteria(
@@ -162,6 +303,7 @@ export const CriteriaView = defineComponent({
       );
       busy.value = false;
       if (written.ok) {
+        saved.value = { ...fields.value };
         showToast("Saved.");
       } else {
         error.value = written.reason;
@@ -171,12 +313,12 @@ export const CriteriaView = defineComponent({
     return {
       fields,
       busy,
+      dirty,
       canSubmit,
       error,
       toast,
       save,
-      listFields: LIST_FIELDS,
-      rowsFor,
+      groups: GROUPS,
       floor,
     };
   },
@@ -184,22 +326,40 @@ export const CriteriaView = defineComponent({
     <section class="criteria" role="tabpanel" id="panel-criteria" aria-labelledby="tab-criteria" tabindex="-1">
       <form @submit.prevent="save">
         <p class="error" v-if="error">{{ error }}</p>
-        <label v-for="field in listFields" :key="field.key">
-          <span>{{ field.label }}</span>
-          <textarea v-model="fields[field.key]" :rows="rowsFor(fields[field.key])"></textarea>
-        </label>
-        <label>
-          <span>Comp floor <em class="money" v-if="floor">{{ floor }}</em></span>
-          <input type="text" inputmode="numeric" v-model="fields.compFloor" />
-        </label>
-        <label>
-          <span>Max age <em v-if="fields.maxAgeDays">{{ fields.maxAgeDays }} days</em></span>
-          <input type="text" inputmode="numeric" v-model="fields.maxAgeDays" placeholder="blank for none" />
-        </label>
-        <label>
-          <span>Assumed bonus % <em v-if="fields.assumedBonusPct">{{ fields.assumedBonusPct }}%</em></span>
-          <input type="text" inputmode="numeric" v-model="fields.assumedBonusPct" placeholder="blank for none" />
-        </label>
+
+        <fieldset class="criteria-group" v-for="group in groups" :key="group.title">
+          <legend>{{ group.title }}</legend>
+          <p class="hint">{{ group.hint }}</p>
+          <div class="field" v-for="field in group.listFields" :key="field.key">
+            <span class="field-label">{{ field.label }}</span>
+            <p class="field-hint">{{ field.hint }}</p>
+            <TagInput
+              :model-value="fields[field.key]"
+              @update:model-value="fields[field.key] = $event"
+              :add-label="'Add to ' + field.label.toLowerCase()" />
+          </div>
+        </fieldset>
+
+        <fieldset class="criteria-group">
+          <legend>Pay &amp; freshness</legend>
+          <p class="hint">What settles whether a posting's pay and age are good enough.</p>
+          <label class="field">
+            <span class="field-label">Comp floor <em class="money" v-if="floor">{{ floor }}</em></span>
+            <p class="field-hint">The lowest top-of-band pay that clears on its own, with no bonus.</p>
+            <input type="text" inputmode="numeric" v-model="fields.compFloor" />
+          </label>
+          <label class="field">
+            <span class="field-label">Assumed bonus % <em v-if="fields.assumedBonusPct">{{ fields.assumedBonusPct }}%</em></span>
+            <p class="field-hint">Applied to a band below the floor as a guess, to ask whether the body's bonus language would still clear it. Blank drops a low band outright.</p>
+            <input type="text" inputmode="numeric" v-model="fields.assumedBonusPct" placeholder="blank for none" />
+          </label>
+          <label class="field">
+            <span class="field-label">Max age <em v-if="fields.maxAgeDays">{{ fields.maxAgeDays }} days</em></span>
+            <p class="field-hint">Drops a kept posting once it's this many days old. Blank means no limit.</p>
+            <input type="text" inputmode="numeric" v-model="fields.maxAgeDays" placeholder="blank for none" />
+          </label>
+        </fieldset>
+
         <div class="actions">
           <p class="hint">Saving re-judges every posting at the next run.</p>
           <button type="submit" class="primary" :disabled="!canSubmit">{{ busy ? 'Saving…' : 'Save' }}</button>
