@@ -38,7 +38,8 @@ function splitSentences(body: string): string[] {
 // Scored against boards' own workplace labels, these reject on-site roles
 // more often than remote; any other phrase tried rejected remote roles
 // above the base rate. A day count beside "the office" states attendance
-// the way these five do; bare "in the office" does not.
+// the way these five do; bare "in the office" does not. "in-person" counts
+// only with a day count right after it ("in-person work five days a week").
 const OFFICE_ATTENDANCE_PHRASES = [
   "onsite",
   "on-site",
@@ -50,6 +51,7 @@ const OFFICE_ATTENDANCE_PHRASES = [
 const OFFICE_DAYS_PATTERNS: readonly RegExp[] = [
   /\bdays?\b[^.]{0,60}\bin (?:the|our|an?) office\b/i,
   /\bin (?:the|our|an?) office\b[^.]{0,60}\bdays?\b/i,
+  /\bin[\s-]person\b[^.]{0,20}\bdays?\b/i,
 ];
 
 // A clause that lists what the company gives ("in-office benefits include
@@ -121,15 +123,24 @@ function affirmsRemoteRole(sentence: string): boolean {
   );
 }
 
+// A sentence scoped to a category of roles is not stating this role's
+// requirement: "roles that are based in an office are onsite" describes
+// other postings, not this one.
+const CONDITIONAL_SIGNALS = ["for remote roles", "roles that are based in"] as const;
+
 // A clause conditioned on something else is not itself stating the
 // requirement: "if this position is listed as onsite" describes a category
-// of postings, not this one.
-const CONDITIONAL_SIGNALS = [
-  "if",
-  "unless",
-  "for remote roles",
-  "roles that are based in",
-] as const;
+// of postings. The clause runs from the word to the next comma or the end of
+// the sentence, so a requirement outside it ("in-office five days a week,
+// even if you live nearby") still counts.
+const CONDITIONAL_CLAUSE = /\b(?:if|unless)\b[^,]*/gi;
+
+function insideConditionalClause(sentence: string, index: number): boolean {
+  for (const clause of sentence.matchAll(CONDITIONAL_CLAUSE)) {
+    if (index >= clause.index && index < clause.index + clause[0].length) return true;
+  }
+  return false;
+}
 
 // The company saying it leaves in-office days up to the team is not a
 // requirement that any days are in office.
@@ -153,7 +164,22 @@ const OFF_TOPIC_PHRASES = [
   "on-site implementations",
 ] as const;
 
-const OFF_TOPIC_TRAVEL = /\btravel\b[^.]{0,40}\bon[\s-]?site\b/i;
+const OFF_TOPIC_TRAVEL = /\btravel\b[^.]{0,40}\bon[\s-]?site\b/gi;
+
+const OFF_TOPIC_PATTERNS: readonly RegExp[] = [
+  ...OFF_TOPIC_PHRASES.map((phrase) => new RegExp(wholeWordPattern(phrase), "gi")),
+  OFF_TOPIC_TRAVEL,
+];
+
+// Spaces of equal length keep every later index pointing at the same
+// character of the sentence, so an off-topic span cannot hide a requirement
+// stated elsewhere in it.
+function blankOffTopic(sentence: string): string {
+  return OFF_TOPIC_PATTERNS.reduce(
+    (text, pattern) => text.replace(pattern, (match) => " ".repeat(match.length)),
+    sentence,
+  );
+}
 
 // "remote, or required in office" names remote as one category among
 // several, not a stated requirement; the comma is required so "not a
@@ -169,14 +195,20 @@ function officeRequirement(sentence: string): string | null {
   const folded = foldApostrophes(sentence);
   if (matchesAny(sentence, CONDITIONAL_SIGNALS) !== null) return null;
   if (matchesAny(sentence, OFFICE_NEGATIONS) !== null) return null;
-  if (matchesAny(sentence, OFF_TOPIC_PHRASES) !== null) return null;
-  if (OFF_TOPIC_TRAVEL.test(folded)) return null;
   if (REMOTE_CATEGORY_LIST.test(folded)) return null;
-  const phrase = matchesAny(sentence, OFFICE_ATTENDANCE_PHRASES);
-  if (phrase !== null) return phrase.term;
+  const onTopic = blankOffTopic(folded);
+  const office = officeMatch(onTopic);
+  if (office === null) return null;
+  if (insideConditionalClause(onTopic, office.index)) return null;
+  return office.text;
+}
+
+function officeMatch(text: string): { readonly text: string; readonly index: number } | null {
+  const phrase = matchesAny(text, OFFICE_ATTENDANCE_PHRASES);
+  if (phrase !== null) return { text: phrase.term, index: phrase.index };
   for (const pattern of OFFICE_DAYS_PATTERNS) {
-    const match = pattern.exec(sentence);
-    if (match !== null) return match[0];
+    const match = pattern.exec(text);
+    if (match !== null) return { text: match[0], index: match.index };
   }
   return null;
 }

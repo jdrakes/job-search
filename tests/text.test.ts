@@ -1260,3 +1260,29 @@ test("remote: a real office requirement still stays out", () => {
     assert.match(remote.detail, /^body requires office attendance/, body);
   }
 });
+
+test("remote: an off-topic phrase beside a requirement does not cancel it", () => {
+  // Breaks if an off-topic phrase ("on-site interviews") nulls the whole
+  // sentence instead of only its own span.
+  const remote = remoteVerdict(
+    "This role is based in Denver and requires in-person work five days a week, plus availability for on-site interviews.",
+  );
+  assert.equal(remote.verdict, "out");
+  assert.match(remote.detail, /^body requires office attendance/);
+});
+
+test("remote: an if or unless clause covers only itself, not the sentence's requirement", () => {
+  // Breaks if any "if" or "unless" anywhere in the sentence nulls it, rather
+  // than only an office phrase inside the conditional clause.
+  const stillOut = [
+    "This role requires in-office attendance five days a week, even if you live nearby.",
+    "Unless otherwise noted, you must work on-site in our Austin office three days a week.",
+    "Expect three days a week in-office, with an option to come in more often if desired.",
+    "If you're interviewing for this role, your recruiter will explain the in-office expectations.",
+  ];
+  for (const body of stillOut) {
+    const remote = remoteVerdict(body);
+    assert.equal(remote.verdict, "out", body);
+    assert.match(remote.detail, /^body requires office attendance/, body);
+  }
+});
