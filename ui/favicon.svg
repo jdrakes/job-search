@@ -1,33 +1,4 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
-  <!--
-    The app's own "Applied" checkmark (ACT_ICONS.applied, ui/src/posting.ts:44)
-    knocked out of a filled accent field. Colours are the literal hex values
-    of the light `--accent`/`--accent-ink` pair from app.css, duplicated here
-    because a standalone SVG can't read the host page's custom properties.
-    `ui/apple-touch-icon.png` bakes the same light pair a second time, since
-    iOS takes one raster and answers no media query.
-
-    Fill and stroke are set directly on each element rather than through a
-    `<style>` block: a `<style>` with `@media (prefers-color-scheme: dark)`
-    let a dark variant ride along, but Chrome's favicon renderer only reads
-    presentation attributes on an SVG favicon — it does not run `<style>`
-    there, and when it can't resolve one it falls back to the browser's
-    generic globe icon instead of the unstyled shape (confirmed live,
-    2026-09-25: the tab showed the globe, not a black-on-transparent
-    fallback, for as long as the colour lived in `<style>`). One light-mode
-    icon that actually renders beats a dark-aware one that renders nowhere.
-
-    Knocked out rather than drawn in accent on a pale field: at 16px a
-    near-white field disappears into a light tab strip, and the same pale
-    tile reads as blank on a phone's home screen. --accent-ink is already
-    the app's label colour on --accent, so the pair carries its own
-    contrast: 5.93:1 light.
-
-    Stroke stays 1.5, the one weight 39853e9 gave this glyph everywhere
-    it renders. A knockout does read slightly thinner than the same
-    stroke drawn dark-on-light, but at 16px the difference against 1.75
-    is marginal and one weight for one glyph is the stated rule.
-  -->
   <rect x="0.5" y="0.5" width="15" height="15" rx="4" fill="#1a56e8" />
   <path d="M3 8.5l3 3 7-7" fill="none" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
 </svg>

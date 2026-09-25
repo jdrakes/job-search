@@ -45,6 +45,23 @@
    * `ui/apple-touch-icon.png` bakes the light pair in a third time, since
    * iOS takes one raster and answers no media query. All three draw the
    * glyph at stroke-width 1.5.
+   *
+   * `ui/favicon.svg` carries no comment of its own, unlike the other two
+   * assets this file documents, because the glyph is knocked out of a
+   * filled accent field rather than drawn in accent on a pale one: at 16px
+   * a near-white field disappears into a light tab strip, and the same
+   * pale tile reads as blank on a phone's home screen. `--accent-ink` is
+   * already the app's label colour on `--accent`, so the pair carries its
+   * own contrast (5.93:1 light) knocked out.
+   *
+   * It also, as of 2026-09-25, does not carry a dark-mode variant: served
+   * as a `<style>` block with `@media (prefers-color-scheme: dark)`, the
+   * file loaded correctly (verified byte-for-byte against
+   * jobs.jamesdrakes.com) but Chrome's own Network-panel preview reported
+   * it undecodable as an image and the tab fell back to the generic globe.
+   * The investigation was still open as of this note; if the cause turns
+   * out to be something other than the `<style>` block, this comment is
+   * now stale and should be corrected once that's known.
    */
   --brand-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3 8.5l3 3 7-7' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 
