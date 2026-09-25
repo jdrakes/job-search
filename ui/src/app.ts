@@ -374,7 +374,10 @@ export const AppRoot = defineComponent({
           :busy="refreshing"
           @select="selectTab" />
         <p class="sr-only" role="status">{{ refreshing ? "Recounting the queue" : "" }}</p>
-        <button type="button" class="ghost sign-out" @click="onSignOut">Sign out</button>
+        <div class="top-actions">
+          <button type="button" class="ghost refresh" :disabled="refreshing" @click="onRetry">{{ refreshing ? "Refreshing…" : "Refresh" }}</button>
+          <button type="button" class="ghost sign-out" @click="onSignOut">Sign out</button>
+        </div>
       </div>
       <div>
         <p class="error" v-if="tabError">{{ tabError }} <button type="button" class="ghost" :disabled="refreshing" @click="onRetry">Try again</button></p>
