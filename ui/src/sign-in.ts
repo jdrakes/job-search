@@ -5,47 +5,25 @@
  */
 import { defineComponent, type PropType } from "vue";
 
-export type SignInStage = "email" | "code";
+export type SignInStage = "email" | "sent";
 
 export const SignIn = defineComponent({
   name: "SignIn",
   props: {
     stage: { type: String as PropType<SignInStage>, required: true },
     email: { type: String, required: true },
-    code: { type: String, required: true },
     busy: { type: Boolean, required: true },
     // Optional with a null default: Vue's runtime check only skips a null
     // when the prop is not required.
     error: { type: String as PropType<string | null>, default: null },
   },
-  emits: ["update:email", "update:code", "request", "verify"],
-  // `autofocus` does not fire when the code input mounts after `stage`
-  // flips, so that stage focuses itself here. Vue never runs watcher
-  // callbacks during server rendering, so this stays clear of the DOM.
-  watch: {
-    stage: {
-      // Post-flush: with the default "pre" timing the input the ref points at
-      // does not exist yet and the `?.` guard silently no-ops.
-      handler() {
-        this.focusCodeInput();
-      },
-      flush: "post",
-    },
-  },
-  methods: {
-    focusCodeInput() {
-      if (this.stage === "code") {
-        (this.$refs["codeInput"] as HTMLInputElement | undefined)?.focus();
-      }
-    },
-  },
+  emits: ["update:email", "request", "restart"],
   template: `
-    <form class="sign-in" @submit.prevent="stage === 'email' ? $emit('request') : $emit('verify')">
+    <form class="sign-in" @submit.prevent="$emit('request')" v-if="stage === 'email'">
       <h1>Job search</h1>
-      <p class="lead" v-if="stage === 'email'">Sign in to see what needs you.</p>
-      <p class="lead" v-else>Check {{ email }} for a one-time code.</p>
+      <p class="lead">Sign in to see what needs you.</p>
 
-      <label v-if="stage === 'email'">
+      <label>
         <span>Email</span>
         <input
           type="email"
@@ -57,23 +35,16 @@ export const SignIn = defineComponent({
           @input="$emit('update:email', $event.target.value)" />
       </label>
 
-      <label v-else>
-        <span>One-time code</span>
-        <input
-          ref="codeInput"
-          type="text"
-          name="code"
-          inputmode="numeric"
-          autocomplete="one-time-code"
-          required
-          :value="code"
-          @input="$emit('update:code', $event.target.value)" />
-      </label>
-
       <button type="submit" class="primary" :disabled="busy">
-        {{ stage === 'email' ? (busy ? 'Sending…' : 'Send me a code') : (busy ? 'Signing in…' : 'Sign in') }}
+        {{ busy ? 'Sending…' : 'Email me a sign-in link' }}
       </button>
       <p class="error" role="alert" v-if="error">{{ error }}</p>
     </form>
+    <div class="sign-in" v-else>
+      <h1>Job search</h1>
+      <p class="lead">Check {{ email }} for a sign-in link.</p>
+      <button type="button" class="ghost" @click="$emit('restart')">Use a different address</button>
+      <p class="error" role="alert" v-if="error">{{ error }}</p>
+    </div>
   `,
 });

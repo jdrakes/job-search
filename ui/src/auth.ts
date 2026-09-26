@@ -1,6 +1,9 @@
 /**
- * Sign-in: a one-time code to the operator's address, over Supabase Auth's REST
+ * Sign-in: a link to the operator's address, over Supabase Auth's REST
  * endpoints; two POSTs and a JWT is the whole protocol, so no SDK. The
+ * link comes back to this page carrying a `token_hash`, and the page
+ * trades it for a session itself: a mail scanner that only GETs the link
+ * does not spend it, and no token ever sits in the address bar. The
  * session lives in `localStorage` and is bounded by
  * `INACTIVITY_TIMEOUT_SECONDS`, not the tab's lifetime. The store is
  * injected so every function here runs without a browser.
@@ -56,7 +59,7 @@ async function failure(response: Response): Promise<string> {
 }
 
 /** `create_user: false`: a typo'd address must fail rather than quietly enrol a new user. */
-export async function requestCode(
+export async function requestLink(
   config: AppConfig,
   email: string,
   httpFetch: typeof globalThis.fetch = globalThis.fetch,
@@ -96,22 +99,43 @@ export function parseSession(
   };
 }
 
-export async function verifyCode(
+/**
+ * The `token_hash` a sign-in link brought back, or null for any other
+ * visit. The email template writes `type=email`; `magiclink` is what
+ * Supabase's own templates have used for the same link.
+ */
+export function linkTokenFrom(search: string): string | null {
+  const params = new URLSearchParams(search);
+  const type = params.get("type");
+  const tokenHash = params.get("token_hash");
+  if (type !== "email" && type !== "magiclink") return null;
+  return tokenHash === null || tokenHash === "" ? null : tokenHash;
+}
+
+/** The page never saw the address the link was sent to, so the session takes it from the response's `user`. */
+export async function verifyLink(
   config: AppConfig,
-  email: string,
-  code: string,
+  tokenHash: string,
   httpFetch: typeof globalThis.fetch = globalThis.fetch,
   nowSeconds: number = Math.floor(Date.now() / 1000),
 ): Promise<AuthResult<Session>> {
   const response = await httpFetch(`${config.url}/auth/v1/verify`, {
     method: "POST",
     headers: authHeaders(config),
-    body: JSON.stringify({ type: "email", email, token: code }),
+    body: JSON.stringify({ type: "email", token_hash: tokenHash }),
   });
   if (!response.ok) {
     return { ok: false, reason: await failure(response) };
   }
-  return parseSession(email, await response.json(), nowSeconds);
+  const body: unknown = await response.json();
+  const user =
+    typeof body === "object" && body !== null ? (body as Record<string, unknown>)["user"] : null;
+  const email =
+    typeof user === "object" && user !== null ? (user as Record<string, unknown>)["email"] : null;
+  if (typeof email !== "string" || email === "") {
+    return { ok: false, reason: "the sign-in response carried no user email" };
+  }
+  return parseSession(email, body, nowSeconds);
 }
 
 export function saveSession(store: SessionStore, session: Session): void {

@@ -39,13 +39,13 @@ Nothing in `src/` or `scripts/` applies a migration, so the Supabase CLI or
 
 **A local Supabase gets you the engine but not the list.** `supabase start`
 gives you a working database, and the run will discover, ingest and judge
-against it. Signing in to the page will not work. Sign-in is a one-time code
+against it. Signing in to the page will not work. Sign-in is a link
 sent to an email address, posted with `create_user: false` so a mistyped
 address fails rather than quietly enrolling somebody (`ui/src/auth.ts`), and
 the browser then reads rows as that signed-in user over PostgREST with a
 bearer token (`ui/src/api.ts`), which the policies require. The local
 `supabase/config.toml` has `local_smtp` disabled and `studio` disabled, so
-there is no mail to carry the code and no dashboard to create the user in.
+there is no mail to carry the link and no dashboard to create the user in.
 The engine will fill the database and the page will sit on its sign-in form.
 
 Neither of those is settled design. They are known limitations, and until one
@@ -116,12 +116,24 @@ That is all. `pg` is the only runtime dependency.
    case.
 
 9. Add your email address as a user in the Supabase dashboard, under
-   Authentication, before you try to sign in. Sign-in does not create one. Then
-   open the page, ask for a code, and enter it.
+   Authentication, before you try to sign in. Sign-in does not create one.
 
-Steps 2, 3 and 9 are the ones this repository cannot check for you. What a
+10. Point the sign-in email at the page. In the Supabase dashboard, under
+    Authentication:
+
+    - Set the Site URL (URL Configuration) to the address the page is served
+      from.
+    - Make the Magic Link email template link to
+      `{{ .SiteURL }}/?token_hash={{ .TokenHash }}&type=email`.
+
+    The page trades that `token_hash` for a session itself (`ui/src/auth.ts`).
+    Supabase's stock template links through its own verify endpoint instead,
+    which lands on the page with no `token_hash` and leaves it on the sign-in
+    form. Then open the page, ask for a link, and open it.
+
+Steps 2, 3, 9 and 10 are the ones this repository cannot check for you. What a
 Supabase project is called, where its dashboard puts the pooler string, and
-what its email provider needs before it will send a code are Supabase's and
+what its email provider needs before it will send a link are Supabase's and
 can move. Everything else above is a command in this tree, and `src/` is the
 authority on what it does.
 
