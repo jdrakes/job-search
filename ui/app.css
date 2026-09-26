@@ -54,14 +54,18 @@
    * already the app's label colour on `--accent`, so the pair carries its
    * own contrast (5.93:1 light) knocked out.
    *
-   * It also, as of 2026-09-25, does not carry a dark-mode variant: served
-   * as a `<style>` block with `@media (prefers-color-scheme: dark)`, the
-   * file loaded correctly (verified byte-for-byte against
-   * jobs.jamesdrakes.com) but Chrome's own Network-panel preview reported
-   * it undecodable as an image and the tab fell back to the generic globe.
-   * The investigation was still open as of this note; if the cause turns
-   * out to be something other than the `<style>` block, this comment is
-   * now stale and should be corrected once that's known.
+   * It also, as of 2026-09-26, does not carry a dark-mode variant: served
+   * as a `<style>` block with `@media (prefers-color-scheme: dark)` (plus a
+   * long comment with non-ASCII em-dashes/quotes), the file loaded
+   * correctly (verified byte-for-byte against jobs.jamesdrakes.com) but
+   * Chrome's own Network-panel preview reported it undecodable as an image
+   * and the tab fell back to the generic globe. Moving the colours onto
+   * `fill`/`stroke` presentation attributes directly, on its own, did not
+   * fix it (confirmed still broken, fresh Incognito included); dropping the
+   * comment as well did (confirmed live in Chrome). The comment and its
+   * non-ASCII characters, not the `<style>` block, are the more likely
+   * actual cause, though the two were never tested apart from each other in
+   * the fixed direction.
    */
   --brand-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3 8.5l3 3 7-7' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 
