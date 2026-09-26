@@ -137,6 +137,64 @@ test("AppRoot shows the sign-in form when there is no session, and reads nothing
   assert.equal(calls.length, 0);
 });
 
+test("AppRoot trades a sign-in link's token for a session, forgetting it first, then reads", async () => {
+  const events: string[] = [];
+  const { calls, fetchImpl } = recordingFetch([
+    jsonReply({
+      access_token: "link-jwt",
+      expires_at: NOW + 3600,
+      refresh_token: "link-refresh",
+      user: { email: "someone@example.com" },
+    }),
+    jsonReply([]),
+    jsonReply([]),
+    jsonReply([]),
+    jsonReply([CRITERIA_ROW]),
+  ]);
+  const recorded: typeof fetch = async (input, init) => {
+    events.push(`fetch ${String(input)}`);
+    return fetchImpl(input, init);
+  };
+  const store = memoryStore();
+
+  const html = await render({
+    config: CONFIG,
+    store,
+    httpFetch: recorded,
+    now: () => NOW,
+    linkToken: "hash-1",
+    forgetLinkToken: () => events.push("forget"),
+  });
+
+  assert.equal(events[0], "forget");
+  assert.equal(calls[0], `${CONFIG.url}/auth/v1/verify`);
+  assert.equal(calls.length, 5);
+  assert.match(html, /id="panel-queue"/);
+  const saved = JSON.parse(store.getItem(SESSION_KEY) ?? "null") as Session;
+  assert.equal(saved.email, "someone@example.com");
+  assert.equal(saved.accessToken, "link-jwt");
+});
+
+test("AppRoot shows the sign-in form with the reason when a link is spent", async () => {
+  const { calls, fetchImpl } = recordingFetch([
+    statusReply(403, JSON.stringify({ msg: "Email link is invalid or has expired" })),
+  ]);
+  const store = memoryStore();
+
+  const html = await render({
+    config: CONFIG,
+    store,
+    httpFetch: fetchImpl,
+    now: () => NOW,
+    linkToken: "spent",
+  });
+
+  assert.equal(calls.length, 1);
+  assert.match(html, /class="sign-in"/);
+  assert.match(html, /Email link is invalid or has expired/);
+  assert.equal(store.getItem(SESSION_KEY), null);
+});
+
 test("AppRoot opens on the Queue tab when signed in", async () => {
   const { fetchImpl } = recordingFetch([
     jsonReply([{ key: "acme::1", company: "Acme", evidence: {} }]),
