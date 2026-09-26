@@ -32,19 +32,22 @@
   --accent-ink: #ffffff;
 
   /*
-   * The header mark: the same "Applied" checkmark as favicon.svg and
-   * ACT_ICONS.applied (ui/src/posting.ts:44), as a mask-image data URI:
-   * an outline-only shape (fill: none) whose stroke colour is irrelevant,
+   * The header mark: the "Applied" checkmark, also drawn as
+   * ACT_ICONS.applied (ui/src/posting.ts:44), as a mask-image data URI: an
+   * outline-only shape (fill: none) whose stroke colour is irrelevant,
    * since a mask reads the shape's alpha, not its colour. `.top h1::before`
    * paints it with `background-color: var(--accent)`, so this reads `--accent`
    * directly instead of embedding its hex, and (unlike the old
    * background-image version) needs no separate dark-mode copy.
-   * `ui/favicon.svg` still hardcodes `--accent` and `--accent-ink` a
-   * second time: a standalone .svg file can't read the host page's custom
-   * properties, so that duplication is real, not an oversight, and stays.
-   * `ui/apple-touch-icon.png` bakes the light pair in a third time, since
-   * iOS takes one raster and answers no media query. All three draw the
-   * glyph at stroke-width 1.5.
+   *
+   * `ui/favicon.svg` and `ui/apple-touch-icon.png` draw a different glyph
+   * (a briefcase) as of 2026-09-26: the header mark stays the checkmark on
+   * purpose, since it is what ACT_ICONS.applied means elsewhere in the app,
+   * but a bare checkmark in a browser tab read as nothing job-related on
+   * its own. Both still hardcode `--accent` and `--accent-ink` a second and
+   * third time (a standalone .svg can't read the host page's custom
+   * properties, and iOS's one raster answers no media query), and both
+   * still draw at stroke-width 1.5.
    *
    * `ui/favicon.svg` carries no comment of its own, unlike the other two
    * assets this file documents, because the glyph is knocked out of a
