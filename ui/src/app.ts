@@ -32,10 +32,11 @@ import {
   clearSession,
   ensureFreshSession,
   loadSession,
+  linkTokenFrom,
   refreshSession,
-  requestCode,
+  requestLink,
   saveSession,
-  verifyCode,
+  verifyLink,
   type AuthResult,
   type Session,
   type SessionStore,
@@ -133,6 +134,10 @@ export const AppRoot = defineComponent({
     // A callback, not `history` here: ui/src stays DOM-free, and `mountApp`
     // owns the window.
     rememberTab: { type: Function as PropType<(id: TabId) => void>, default: () => () => {} },
+    // The `token_hash` a sign-in link brought back, and how to take it out
+    // of the address bar; both come from `mountApp` for the same reason.
+    linkToken: { type: String as PropType<string | null>, default: null },
+    forgetLinkToken: { type: Function as PropType<() => void>, default: () => () => {} },
   },
   async setup(props) {
     const tab = ref<TabId>(props.initialTab);
@@ -140,7 +145,6 @@ export const AppRoot = defineComponent({
 
     const signInStage = ref<SignInStage>("email");
     const email = ref("");
-    const code = ref("");
     const signInBusy = ref(false);
     const signInError = ref<string | null>(null);
 
@@ -213,6 +217,30 @@ export const AppRoot = defineComponent({
       }
     }
 
+    // Forgotten before it is spent, so a reload never replays a used hash;
+    // a link that fails leaves the sign-in form saying why.
+    if (props.linkToken !== null) {
+      props.forgetLinkToken();
+      try {
+        const result = await verifyLink(
+          props.config,
+          props.linkToken,
+          props.httpFetch,
+          props.now(),
+        );
+        if (result.ok) {
+          // The link may name a different account than the last round read.
+          clearReads(props.store);
+          saveSession(props.store, result.value);
+          session.value = result.value;
+        } else {
+          signInError.value = result.reason;
+        }
+      } catch (error) {
+        signInError.value = messageOf(error);
+      }
+    }
+
     const cached = session.value === null ? null : loadReads(props.store);
     if (cached !== null) {
       queueResult.value = { ok: true, value: cached.queue };
@@ -231,9 +259,9 @@ export const AppRoot = defineComponent({
       signInBusy.value = true;
       signInError.value = null;
       try {
-        const result = await requestCode(props.config, email.value, props.httpFetch);
+        const result = await requestLink(props.config, email.value, props.httpFetch);
         if (result.ok) {
-          signInStage.value = "code";
+          signInStage.value = "sent";
         } else {
           signInError.value = result.reason;
         }
@@ -243,28 +271,9 @@ export const AppRoot = defineComponent({
       signInBusy.value = false;
     }
 
-    async function onVerify(): Promise<void> {
-      signInBusy.value = true;
+    function onRestart(): void {
+      signInStage.value = "email";
       signInError.value = null;
-      try {
-        const result = await verifyCode(
-          props.config,
-          email.value,
-          code.value,
-          props.httpFetch,
-          props.now(),
-        );
-        if (result.ok) {
-          saveSession(props.store, result.value);
-          session.value = result.value;
-          await loadAll(result.value.accessToken);
-        } else {
-          signInError.value = result.reason;
-        }
-      } catch (error) {
-        signInError.value = messageOf(error);
-      }
-      signInBusy.value = false;
     }
 
     async function onRetry(): Promise<void> {
@@ -334,11 +343,10 @@ export const AppRoot = defineComponent({
       refreshing,
       signInStage,
       email,
-      code,
       signInBusy,
       signInError,
       onRequest,
-      onVerify,
+      onRestart,
       onSignOut,
       onRetry,
       selectTab,
@@ -359,11 +367,10 @@ export const AppRoot = defineComponent({
       <SignIn
         :stage="signInStage"
         v-model:email="email"
-        v-model:code="code"
         :busy="signInBusy"
         :error="signInError"
         @request="onRequest"
-        @verify="onVerify" />
+        @restart="onRestart" />
     </template>
     <template v-else>
       <div class="top">
@@ -479,6 +486,13 @@ export function mountApp(selector: string, configText: string, store: SessionSto
             initialTab,
             rememberTab: (id: TabId) =>
               window.history.replaceState(null, "", window.location.pathname + searchFor(id)),
+            linkToken: linkTokenFrom(window.location.search),
+            forgetLinkToken: () =>
+              window.history.replaceState(
+                null,
+                "",
+                window.location.pathname + searchFor(initialTab),
+              ),
           }),
         fallback: () => h(LoadingShell, { tab: initialTab }),
       }),
