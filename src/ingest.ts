@@ -8,7 +8,7 @@ import { boardGone, boardsOf, isGone, recordBoardsRead, watched } from "./compan
 import { loadCriteria } from "./criteria.ts";
 import { describeError } from "./errors.ts";
 import { judge, needsJudging, representativeByKey } from "./judge/judge.ts";
-import { type BoardIndex, boardIndex, judgeListing } from "./judge/listing.ts";
+import { type BoardIndex, boardIndex, judgeListing, NO_BOARDS } from "./judge/listing.ts";
 import {
   COMPANY_FIELDS,
   postingKey,
@@ -17,6 +17,7 @@ import {
   type Criteria,
   type Platform,
   type Posting,
+  type Status,
   type Workplace,
 } from "./schema.ts";
 import type { Store } from "./store/store.ts";
@@ -64,8 +65,9 @@ interface ListedRow extends ListedFields {
   readonly workplace?: Workplace | null;
   readonly comp_low?: number | null;
   readonly comp_high?: number | null;
-  readonly body?: string;
-  readonly body_hash?: string;
+  // `undefined` leaves the stored text alone; `null` clears it.
+  readonly body?: string | null;
+  readonly body_hash?: string | null;
   readonly judged_with?: null;
 }
 
@@ -80,6 +82,7 @@ function toRow(
   listing: Listing,
   timestamp: string,
   stored: StoredListing | undefined,
+  criteria: Criteria | undefined,
 ): ListedRow {
   const fields: ListedFields = {
     key: postingKey(board, listing.id),
@@ -117,6 +120,39 @@ function toRow(
   const verdictInputChanged =
     workplaceChanged || (stored !== undefined && stored.comp_high !== row.comp_high);
   if (listing.body === null) return verdictInputChanged ? { ...row, judged_with: null } : row;
+  // A body is stored unless nothing can ever read it. Readers: a posting
+  // acted on; one whose board states `remote` or `onsite`, which
+  // `scripts/score-remote.ts` scores the text detector against whatever the
+  // verdict; and one the listing criteria keep, since `judgeAll` reads the
+  // body back to run the text criteria on exactly those. The decision is
+  // `judgeListing`, never the full `judge()`: `judgeAll`'s `wantsBody` asks
+  // for a body on the listing criteria alone, and a one-phase board has no
+  // detail to refetch it from, so a body dropped here on a text criterion
+  // would be judged back in as empty text. A text rejection keeps its body
+  // for good: `judgeAll` never clears a one-phase body either.
+  // `NO_BOARDS` and an empty representative map leave gone, unwatched and
+  // duplicate "in"; real context can only drop more, so an "out" here is one
+  // `wantsBody` also reaches. Decided before the unchanged-hash check, so a
+  // criteria edit that newly drops a posting clears the body it already has.
+  // No criteria row (a fresh install) stores every body, as before.
+  const acted = (stored?.status ?? null) !== null;
+  const workplaceScored = bare.workplace === "remote" || bare.workplace === "onsite";
+  const keep =
+    acted ||
+    workplaceScored ||
+    criteria === undefined ||
+    judgeListing(
+      { ...fields, comp_high: row.comp_high ?? null },
+      criteria,
+      timestamp,
+      NO_BOARDS,
+      new Map(),
+    ).kept;
+  if (!keep) {
+    const cleared: ListedRow =
+      (stored?.body_hash ?? null) !== null ? { ...row, body: null, body_hash: null } : row;
+    return verdictInputChanged ? { ...cleared, judged_with: null } : cleared;
+  }
   const hash = bodyHash(listing.body);
   // An unchanged body is left out of the payload, so the row goes as a small
   // listing-fields update instead of the text the store already has.
@@ -124,7 +160,10 @@ function toRow(
     return verdictInputChanged ? { ...row, judged_with: null } : row;
   }
   const withBody: ListedRow = { ...row, body: listing.body, body_hash: hash };
-  return verdictInputChanged ? { ...withBody, judged_with: null } : withBody;
+  // A body landing where none was stored: the last verdict was reached
+  // without its text, so it is judged again with it.
+  const bodyIsNew = (stored?.body_hash ?? null) === null;
+  return verdictInputChanged || bodyIsNew ? { ...withBody, judged_with: null } : withBody;
 }
 
 // Cut at the first `::`, so an id carrying `::` comes back whole.
@@ -359,7 +398,27 @@ export async function judgeAll(
       evidence: judgment.evidence,
       judged_with: judgment.judged_with,
     };
-    pending.push(fetched ? { ...verdict, body, workplace } : verdict);
+    // A fetched detail's workplace is cheap structured data and multiple
+    // criteria read it directly, so it is kept whenever fetched regardless
+    // of verdict. The body is kept only where something reads it: a
+    // posting kept, acted on (`row.status`, read before this pass's write,
+    // so a posting acted on this same run still counts), or stating
+    // `remote` or `onsite` (`scripts/score-remote.ts`). Decided only on a
+    // body fetched this pass, from the same detail the verdict just read.
+    // A body read back from the store is never cleared here: nothing
+    // guarantees it can be read again. A one-phase board's body returns
+    // only with a fresh listing, and a re-judge can run without one (the
+    // board's read failed that day, or a criteria edit alone). A reader
+    // having `body` does not mean this board has a detail read either:
+    // `withDetailRead` wraps a whole platform for one board's read and
+    // answers null for the rest. Either way `wantsBody` would ask for the
+    // body again, find none, and judge the empty text back in. A stored
+    // body is cleared only by `toRow`, on a listing "out" `wantsBody` agrees
+    // with; a stored body out only on its text is kept, stale in size, not
+    // in content.
+    const workplaceScored = workplace === "remote" || workplace === "onsite";
+    const keepBody = judgment.kept || row.status !== null || workplaceScored;
+    pending.push(fetched ? { ...verdict, body: keepBody ? body : null, workplace } : verdict);
     if (pending.length >= VERDICT_FLUSH) {
       const flushed = await writeVerdicts(store, pending);
       judged += flushed.written;
@@ -387,6 +446,7 @@ async function listCompany(
   company: Company,
   now: () => string,
   stored: ReadonlyMap<string, StoredListing>,
+  criteria: Criteria | undefined,
 ): Promise<ListedCompany> {
   const errors: string[] = [];
   const returned: string[] = [];
@@ -443,7 +503,7 @@ async function listCompany(
         continue;
       }
       const key = postingKey(board, listing.id);
-      batch.set(key, toRow(company.name, board, listing, now(), stored.get(key)));
+      batch.set(key, toRow(company.name, board, listing, now(), stored.get(key), criteria));
     }
   }
 
@@ -473,19 +533,23 @@ interface StoredListing {
   readonly body_hash: string | null;
   readonly comp_high: number | null;
   readonly workplace: Workplace | null;
+  readonly status: Status | null;
 }
 
 // One select of small columns for the whole run.
 async function storedListings(store: Store): Promise<Map<string, StoredListing>> {
-  const rows = await store.select<Pick<Posting, "key" | "body_hash" | "comp_high" | "workplace">>(
-    "postings",
-    undefined,
-    ["key", "body_hash", "comp_high", "workplace"],
-  );
+  const rows = await store.select<
+    Pick<Posting, "key" | "body_hash" | "comp_high" | "workplace" | "status">
+  >("postings", undefined, ["key", "body_hash", "comp_high", "workplace", "status"]);
   return new Map(
     rows.map((row) => [
       row.key,
-      { body_hash: row.body_hash, comp_high: row.comp_high, workplace: row.workplace },
+      {
+        body_hash: row.body_hash,
+        comp_high: row.comp_high,
+        workplace: row.workplace,
+        status: row.status,
+      },
     ]),
   );
 }
@@ -517,6 +581,12 @@ export async function ingest(
     stored = new Map();
   }
 
+  // Judges each listed body before it is stored; see `toRow`.
+  // No criteria row stores every body, silently: an error line here would
+  // count toward `daily.ts`'s every-board-failed check.
+  const criteriaResult = await loadCriteria(store);
+  const criteria = criteriaResult.ok ? criteriaResult.value : undefined;
+
   // One worker per platform, the platforms concurrently: no host is shared
   // between platforms, so `http.ts`'s per-host delay keeps its meaning and
   // hosts never wait on each other.
@@ -532,7 +602,7 @@ export async function ingest(
     [...groups.values()].map(async (group) => {
       const results: ListedCompany[] = [];
       for (const company of group) {
-        results.push(await listCompany(store, readers, company, now, stored));
+        results.push(await listCompany(store, readers, company, now, stored, criteria));
       }
       return results;
     }),
