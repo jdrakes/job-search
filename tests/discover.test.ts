@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import type { Reader } from "../src/ats/ats.ts";
 import { discoverLine } from "../src/daily.ts";
-import { discover, type DiscoverResult } from "../src/discover.ts";
+import { discover, suggestAgain, type DiscoverResult } from "../src/discover.ts";
 import type { BoardSource, DiscoverySource, Source } from "../src/discovery/source.ts";
 import { HttpError } from "../src/net/http.ts";
 import type { Board, Candidate, Company, Platform } from "../src/schema.ts";
@@ -297,6 +297,101 @@ test("discover: a company with no board is known by name, not probed, and untouc
   assert.deepEqual(requested, []);
   assert.deepEqual(await candidates(store), ["hn Pocketly -> known Pocketly"]);
   assert.deepEqual(await companyRow(store, "Pocketly"), company("Pocketly"));
+});
+
+// Unlike an ordinary name, a `gone` candidate for a company already on file
+// (one that just lost its last board) skips the known-name arm above and is
+// probed like a brand new name; a board found is added to that same company,
+// never a second row.
+test("discover: a gone candidate for a known company with no board is probed, and a found board is added to it", async () => {
+  const store = memoryStore({
+    companies: [company("Pocketly")],
+    candidates: [candidate({ name: "Pocketly", origin: "gone", evidence: "board lever/pocketly answered gone" })],
+  });
+
+  const { result, lines, requested } = await run(store, [], {
+    responses: leverBoard("pocketly", "Pocketly"),
+  });
+
+  assert.notDeepEqual(requested, [], "the known name was probed, not skipped");
+  assert.deepEqual(await candidates(store), ["gone Pocketly -> added Pocketly"]);
+  assert.equal(result.resolved.added, 1);
+  assert.deepEqual(lines, ["gone: added Pocketly lever::pocketly"]);
+  assert.deepEqual(await companyRow(store, "Pocketly"), {
+    name: "Pocketly",
+    boards: [{ platform: "lever", id: "pocketly" }],
+    reason: null,
+    dropped_at: null,
+  });
+});
+
+test("discover: a gone candidate for a known company whose probe finds no board is no_board, and the company stays boardless", async () => {
+  const store = memoryStore({
+    companies: [company("Pocketly")],
+    candidates: [candidate({ name: "Pocketly", origin: "gone", evidence: "board lever/pocketly answered gone" })],
+  });
+
+  const { result } = await run(store, []);
+
+  assert.deepEqual(await candidates(store), ["gone Pocketly -> no_board null"]);
+  assert.equal(result.resolved.no_board, 1);
+  assert.deepEqual(await companyRow(store, "Pocketly"), company("Pocketly"));
+});
+
+test("suggestAgain: one candidate per returned label, named for the company and carrying the board as evidence", async () => {
+  const store = memoryStore();
+
+  const inserted = await suggestAgain(store, [
+    "Acme greenhouse/acme-gh",
+    "Globex lever/globex-lv",
+  ]);
+
+  assert.equal(inserted, 2);
+  const rows = await store.select<Candidate>("candidates");
+  assert.deepEqual(
+    rows
+      .map((row) => ({
+        name: row.name,
+        origin: row.origin,
+        evidence: row.evidence,
+        outcome: row.outcome,
+        company: row.company,
+      }))
+      .sort((left, right) => (left.name ?? "").localeCompare(right.name ?? "")),
+    [
+      {
+        name: "Acme",
+        origin: "gone",
+        evidence: "board greenhouse/acme-gh answered gone",
+        outcome: null,
+        company: null,
+      },
+      {
+        name: "Globex",
+        origin: "gone",
+        evidence: "board lever/globex-lv answered gone",
+        outcome: null,
+        company: null,
+      },
+    ],
+  );
+});
+
+test("suggestAgain: no labels writes nothing", async () => {
+  const inner = memoryStore();
+  let writes = 0;
+  const store: Store = {
+    ...inner,
+    async upsert(table, rows) {
+      writes += 1;
+      return inner.upsert(table, rows);
+    },
+  };
+
+  const inserted = await suggestAgain(store, []);
+
+  assert.equal(inserted, 0);
+  assert.equal(writes, 0);
 });
 
 test("discover: one origin naming a name twice, in one run or two, is one row", async () => {

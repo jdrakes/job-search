@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { boardsOf, readable } from "./companies.ts";
 import { loadCriteria } from "./criteria.ts";
-import { discover, type DiscoverResult } from "./discover.ts";
+import { discover, suggestAgain, type DiscoverResult } from "./discover.ts";
 import { builtInSource } from "./discovery/builtin.ts";
 import { commonCrawlSource } from "./discovery/commoncrawl.ts";
 import { hnSource } from "./discovery/hn.ts";
@@ -214,6 +214,14 @@ async function main(): Promise<number> {
   }
   for (const line of result.returned) {
     console.log(`  returned: ${line}`);
+  }
+
+  // A company whose last board this run removed is suggested again by
+  // name, so it is probed fresh the next morning like any other candidate
+  // (`resolveName`, discover.ts) instead of staying unwatched for good.
+  if (result.returned.length > 0) {
+    const suggested = await suggestAgain(store, result.returned);
+    console.log(`gone: ${suggested} candidates suggested`);
   }
 
   // Every HTTP request this phase makes is a body fetch.

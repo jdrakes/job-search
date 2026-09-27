@@ -343,7 +343,12 @@ async function resolveName(
   options: HttpOptions | undefined,
   log: (line: string) => void,
 ): Promise<Resolution | null> {
-  const known = knownMatch(registry, name);
+  // A `gone` candidate names a company already on file whose last board was
+  // just removed: its name is known, but the known-name arm would leave it
+  // there for good, so this origin alone skips it and is probed like any
+  // new name.
+  const gone = candidate.origin === "gone";
+  const known = gone ? null : knownMatch(registry, name);
   if (known !== null) return known;
 
   let found: ProbeResult;
@@ -360,7 +365,10 @@ async function resolveName(
     if (carrier !== undefined) return { outcome: "alias", company: carrier };
   }
   if (boards.length === 0) {
-    if (refused.length === 0) return { outcome: "no_board", company: null };
+    // A `gone` name is a company already known by that exact name, so a
+    // board that answers here under someone else's name is no more than
+    // "still no board", not a new wrong_company to file.
+    if (gone || refused.length === 0) return { outcome: "no_board", company: null };
     // A board answered under this name's slug but named someone else, or
     // nobody; the line says which, so a refusal that was wrong can be seen.
     for (const refusal of refused) {
@@ -372,9 +380,46 @@ async function resolveName(
     return { outcome: "wrong_company", company: null };
   }
 
+  if (gone) {
+    const canonical = registry.companies.get(nameKey(name))?.name ?? name;
+    for (const board of boards) await addBoard(store, canonical, board);
+    for (const board of boards) registry.carriers.set(carrierKey(board), canonical);
+    log(`${candidate.origin}: added ${canonical} ${boards.map(boardKey).join(" ")}`);
+    return { outcome: "added", company: canonical };
+  }
+
   await writeCompany(store, name, boards, registry);
   log(`${candidate.origin}: new ${name} ${boards.map(boardKey).join(" ")}`);
   return { outcome: "watched", company: name };
+}
+
+// Called once, after the list phase, with the labels ingest reports for
+// every board this run took (`<company> <platform>/<id>`, `IngestResult`'s
+// `returned`, ingest.ts). One unresolved candidate per label, so the
+// company is probed again the next morning like any other name; `origin`
+// `"gone"` is read by `resolveName` above to skip the known-name arm a
+// company already on file would otherwise take.
+export async function suggestAgain(store: Store, names: readonly string[]): Promise<number> {
+  if (names.length === 0) return 0;
+  const now = new Date().toISOString();
+  const rows: Candidate[] = names.map((label) => {
+    const space = label.indexOf(" ");
+    const name = space === -1 ? label : label.slice(0, space);
+    const board = space === -1 ? label : label.slice(space + 1);
+    return {
+      id: randomUUID(),
+      name,
+      url: null,
+      origin: "gone",
+      evidence: `board ${board} answered gone`,
+      added_at: now,
+      outcome: null,
+      outcome_at: null,
+      company: null,
+    };
+  });
+  await store.upsert("candidates", rows);
+  return rows.length;
 }
 
 async function writeCompany(
