@@ -2,23 +2,24 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { Reader } from "../src/ats/ats.ts";
-import { watched } from "../src/companies.ts";
-import { discover } from "../src/discover.ts";
-import type { BoardSource, Source } from "../src/discovery/source.ts";
+import { discoverLine } from "../src/daily.ts";
+import { discover, type DiscoverResult } from "../src/discover.ts";
+import type { BoardSource, DiscoverySource, Source } from "../src/discovery/source.ts";
 import { HttpError } from "../src/net/http.ts";
-import type { Board, Company, Platform } from "../src/schema.ts";
+import type { Board, Candidate, Company, Platform } from "../src/schema.ts";
 import { memoryStore } from "../src/store/memory.ts";
 import type { Store } from "../src/store/store.ts";
 
-// http.ts requires a configured User-Agent now that it no longer carries a
-// built-in one (src/net/http.ts); these tests fake the network entirely, so
-// any value satisfies it.
+// `discover` calls the real `probe` and the real `boardName`; these tests
+// fake the network underneath both (`HttpOptions.fetchImpl`) and the board
+// readers, so nothing leaves the process. http.ts requires a configured
+// User-Agent; any value satisfies it.
 const TEST_USER_AGENT = "test-bot (+https://example.com)";
 
 function company(name: string, overrides: Partial<Company> = {}): Company {
   return {
     name,
-    state: "discovered",
+    state: "watched",
     boards: [],
     source: "test",
     reason: null,
@@ -29,331 +30,41 @@ function company(name: string, overrides: Partial<Company> = {}): Company {
   };
 }
 
-function fakeSource(name: string, names: string[] | (() => Promise<string[]>)): Source {
+function candidate(overrides: Partial<Candidate>): Candidate {
+  return {
+    id: "seeded-1",
+    name: null,
+    url: null,
+    origin: "ui",
+    evidence: null,
+    added_at: "2026-09-20T00:00:00.000Z",
+    outcome: null,
+    outcome_at: null,
+    company: null,
+    ...overrides,
+  };
+}
+
+function nameSource(name: string, names: string[] | (() => Promise<string[]>)): Source {
+  return { name, companies: async () => (typeof names === "function" ? names() : names) };
+}
+
+// `companyName` is never asked: discover reads a board's name with
+// `boardName` itself, so it throws here to say so.
+function boardSource(name: string, boards: Board[] | (() => Promise<Board[]>)): BoardSource {
   return {
     name,
-    companies: async () => (typeof names === "function" ? names() : names),
-  };
-}
-
-// Every `select` a run issues, as "table {eq filter}", to count the round
-// trips a run costs the store.
-function countingStore(inner: Store): { store: Store; selects: string[] } {
-  const selects: string[] = [];
-  const store: Store = {
-    select: async <T>(...args: Parameters<Store["select"]>) => {
-      const [table, eq] = args;
-      selects.push(`${table} ${JSON.stringify(eq ?? {})}`);
-      return inner.select<T>(...args);
+    boards: async () => (typeof boards === "function" ? boards() : boards),
+    companyName: async () => {
+      throw new Error("discover must not call companyName");
     },
-    upsert: (table, rows) => inner.upsert(table, rows),
-    update: (table, key, patch) => inner.update(table, key, patch),
-    delete: (table, keys) => inner.delete(table, keys),
   };
-  return { store, selects };
 }
-
-// `discover` calls the real `probe`; these tests fake the network
-// underneath it (`HttpOptions.fetchImpl`), so the already-present skip,
-// the watched/discovered split and the error handling run through the
-// real call path.
-
-test("discover: a name with a board becomes watched", async () => {
-  const store = memoryStore();
-  const fetchImpl: typeof fetch = async (input) => {
-    const url = String(input);
-    if (url.includes("boards-api.greenhouse.io")) {
-      return new Response(JSON.stringify({ jobs: [{ id: "1", company_name: "Acme" }] }), {
-        status: 200,
-      });
-    }
-    return new Response(null, { status: 404 });
-  };
-
-  const result = await discover(store, [fakeSource("test-source", ["Acme"])], {
-    fetchImpl,
-    userAgent: TEST_USER_AGENT,
-    sleep: async () => {},
-  });
-
-  assert.equal(result.seen, 1);
-  assert.equal(result.probed, 1);
-  assert.equal(result.watched, 1);
-  assert.deepEqual(result.errors, []);
-
-  const [row] = await store.select<Company>("companies", { name: "Acme" });
-  assert.ok(row);
-  assert.equal(row?.state, "watched");
-  assert.deepEqual(row?.boards, [{ platform: "greenhouse", id: "acme" }]);
-});
-
-test("discover: a name with no board stays discovered", async () => {
-  const store = memoryStore();
-  const fetchImpl: typeof fetch = async () => new Response(null, { status: 404 });
-
-  const result = await discover(store, [fakeSource("test-source", ["Nobody"])], {
-    fetchImpl,
-    userAgent: TEST_USER_AGENT,
-    sleep: async () => {},
-  });
-
-  assert.equal(result.seen, 1);
-  assert.equal(result.probed, 1);
-  assert.equal(result.watched, 0);
-
-  const [row] = await store.select<Company>("companies", { name: "Nobody" });
-  assert.ok(row);
-  assert.equal(row?.state, "discovered");
-  assert.deepEqual(row?.boards, []);
-});
-
-test("discover: a probe that answers with a board another company already carries records an alias and watches nothing", async () => {
-  const store = memoryStore({
-    companies: [
-      company("Tessera", {
-        state: "watched",
-        boards: [{ platform: "greenhouse", id: "pocketly" }],
-      }),
-    ],
-  });
-  const fetchImpl: typeof fetch = async (input) => {
-    const url = String(input);
-    if (url.includes("boards-api.greenhouse.io/v1/boards/pocketly")) {
-      return new Response(JSON.stringify({ jobs: [{ id: "1", company_name: "Pocketly" }] }), {
-        status: 200,
-      });
-    }
-    return new Response(null, { status: 404 });
-  };
-
-  const result = await discover(store, [fakeSource("test-source", ["Pocketly"])], {
-    fetchImpl,
-    userAgent: TEST_USER_AGENT,
-    sleep: async () => {},
-  });
-
-  assert.equal(result.probed, 1);
-  assert.equal(result.watched, 0, "the alias is never watched");
-  assert.equal(result.aliases, 1);
-
-  const [row] = await store.select<Company>("companies", { name: "Pocketly" });
-  assert.ok(row);
-  assert.equal(row?.state, "alias");
-  assert.equal(row?.alias_of, "Tessera");
-  assert.equal(row?.reason, null);
-
-  const [tessera] = await store.select<Company>("companies", { name: "Tessera" });
-  assert.equal(tessera?.state, "watched");
-});
-
-test("discover: a probe that answers with a new board is watched as today", async () => {
-  const store = memoryStore({
-    companies: [
-      company("Tessera", {
-        state: "watched",
-        boards: [{ platform: "greenhouse", id: "pocketly" }],
-      }),
-    ],
-  });
-  const fetchImpl: typeof fetch = async (input) => {
-    const url = String(input);
-    if (url.includes("boards-api.greenhouse.io/v1/boards/acme")) {
-      return new Response(JSON.stringify({ jobs: [{ id: "1", company_name: "Acme" }] }), {
-        status: 200,
-      });
-    }
-    return new Response(null, { status: 404 });
-  };
-
-  const result = await discover(store, [fakeSource("test-source", ["Acme"])], {
-    fetchImpl,
-    userAgent: TEST_USER_AGENT,
-    sleep: async () => {},
-  });
-
-  assert.equal(result.watched, 1);
-  assert.equal(result.aliases, 0);
-
-  const [row] = await store.select<Company>("companies", { name: "Acme" });
-  assert.equal(row?.state, "watched");
-  assert.equal(row?.reason, null);
-});
-
-test("discover: two new names probing to one board in the same run are one company and one alias", async () => {
-  const store = memoryStore({ companies: [] });
-  // "Acme Inc" reduces to the slug `acme`, which is also "Acme"'s own.
-  const fetchImpl: typeof fetch = async (input) => {
-    const url = String(input);
-    if (url === "https://api.lever.co/v0/postings/acme?mode=json") {
-      return new Response(JSON.stringify([]), { status: 200 });
-    }
-    return new Response(null, { status: 404 });
-  };
-
-  const result = await discover(store, [fakeSource("test-source", ["Acme Inc", "Acme"])], {
-    fetchImpl,
-    userAgent: TEST_USER_AGENT,
-    sleep: async () => {},
-  });
-
-  assert.equal(result.probed, 2);
-  assert.equal(result.watched, 1, "the second spelling is not watched as a second company");
-  assert.equal(result.aliases, 1);
-
-  const [first] = await store.select<Company>("companies", { name: "Acme Inc" });
-  assert.equal(first?.state, "watched");
-  assert.equal(first?.reason, null);
-
-  const [second] = await store.select<Company>("companies", { name: "Acme" });
-  assert.equal(second?.state, "alias");
-  assert.equal(second?.alias_of, "Acme Inc");
-  assert.equal(second?.reason, null);
-});
-
-test("discover: a name already recorded as an alias is not probed again", async () => {
-  const store = memoryStore({
-    companies: [company("Pocketly", { state: "alias", alias_of: "Tessera" })],
-  });
-  let requested = false;
-  const fetchImpl: typeof fetch = async () => {
-    requested = true;
-    return new Response(null, { status: 404 });
-  };
-
-  const result = await discover(store, [fakeSource("test-source", ["Pocketly"])], {
-    fetchImpl,
-    userAgent: TEST_USER_AGENT,
-    sleep: async () => {},
-  });
-
-  assert.equal(result.probed, 0);
-  assert.equal(requested, false);
-
-  const [row] = await store.select<Company>("companies", { name: "Pocketly" });
-  assert.equal(row?.state, "alias");
-  assert.equal(row?.alias_of, "Tessera");
-});
-
-test("discover: a name already in companies is never probed", async () => {
-  const store = memoryStore({
-    companies: [
-      company("Acme", {
-        dropped_at: "2026-09-01T00:00:00Z",
-        reason: "no staff-level roles",
-      }),
-    ],
-  });
-  let requested = false;
-  const fetchImpl: typeof fetch = async () => {
-    requested = true;
-    return new Response(null, { status: 404 });
-  };
-
-  const result = await discover(store, [fakeSource("test-source", ["Acme"])], {
-    fetchImpl,
-    userAgent: TEST_USER_AGENT,
-    sleep: async () => {},
-  });
-
-  assert.equal(result.seen, 1);
-  assert.equal(result.probed, 0);
-  assert.equal(requested, false);
-
-  // The drop is the operator's and stays.
-  const [row] = await store.select<Company>("companies", { name: "Acme" });
-  assert.equal(row?.dropped_at, "2026-09-01T00:00:00Z");
-  assert.equal(row?.reason, "no staff-level roles");
-});
-
-test("discover: known names cost one query for the whole run, not one each", async () => {
-  const { store, selects } = countingStore(
-    memoryStore({
-      companies: [company("Acme"), company("Beta"), company("Cog", { state: "alias" })],
-    }),
-  );
-  const fetchImpl: typeof fetch = async () => new Response(null, { status: 404 });
-
-  const result = await discover(store, [fakeSource("test-source", ["Acme", "Beta", "Cog"])], {
-    fetchImpl,
-    userAgent: TEST_USER_AGENT,
-    sleep: async () => {},
-  });
-
-  assert.equal(result.seen, 3);
-  assert.equal(result.probed, 0);
-  // One unfiltered read of `companies`, and nothing per name.
-  assert.deepEqual(selects, ["companies {}"]);
-});
-
-test("discover: a new name is probed once even when two sources name it", async () => {
-  const { store, selects } = countingStore(memoryStore());
-  const fetchImpl: typeof fetch = async () => new Response(null, { status: 404 });
-
-  const result = await discover(
-    store,
-    [fakeSource("first", ["Nobody"]), fakeSource("second", ["Nobody"])],
-    { fetchImpl, userAgent: TEST_USER_AGENT, sleep: async () => {} },
-  );
-
-  assert.equal(result.seen, 2);
-  assert.equal(result.probed, 1, "the second sighting must not spend another probe");
-  assert.deepEqual(selects, ["companies {}", 'companies {"name":"Nobody"}']);
-});
-
-test("discover: a failing source is one error line naming the cause, and the other source still lands", async () => {
-  const store = memoryStore();
-  const fetchImpl: typeof fetch = async () => new Response(null, { status: 404 });
-
-  // The shape Node's fetch throws for a network-level fault: the reason is
-  // in `cause`, not `message`.
-  const failing = fakeSource("broken", () => {
-    throw Object.assign(new TypeError("fetch failed"), {
-      cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }),
-    });
-  });
-  const working = fakeSource("test-source", ["Nobody"]);
-
-  const result = await discover(store, [failing, working], {
-    fetchImpl,
-    userAgent: TEST_USER_AGENT,
-    sleep: async () => {},
-  });
-
-  assert.equal(result.errors.length, 1);
-  assert.equal(result.errors[0], "broken: fetch failed <- read ECONNRESET (ECONNRESET)");
-  assert.equal(result.seen, 1);
-  assert.equal(result.probed, 1);
-
-  const rows = await store.select<Company>("companies");
-  assert.deepEqual(
-    rows.map((row) => row.name),
-    ["Nobody"],
-  );
-});
-
-// The board path. A fake board source names boards and, per board id, the
-// company name its page states; fake readers answer, 404 (gone) or 503
-// (unreachable) per board id. Nothing touches the network.
 
 type Answer = "ok" | "gone" | "down";
 
-function fakeBoardSource(
-  name: string,
-  boards: Board[] | (() => Promise<Board[]>),
-  names: Record<string, string | null> = {},
-): { source: BoardSource; namesAsked: string[] } {
-  const namesAsked: string[] = [];
-  const source: BoardSource = {
-    name,
-    boards: async () => (typeof boards === "function" ? boards() : boards),
-    companyName: async (board) => {
-      namesAsked.push(board.id);
-      return names[board.id] ?? null;
-    },
-  };
-  return { source, namesAsked };
-}
-
+// A reader per platform, answering per board id: listing, 404 (gone) or 503
+// (unreachable). Every board asked is recorded.
 function fakeReaders(answers: Record<string, Answer>): {
   readers: Partial<Record<Platform, Reader>>;
   asked: string[];
@@ -375,14 +86,39 @@ function fakeReaders(answers: Record<string, Answer>): {
   };
 }
 
-async function runBoards(
+// A Lever board answering `[]` is a board the probe finds.
+function leverBoard(slug: string): Record<string, string> {
+  return { [`https://api.lever.co/v0/postings/${slug}?mode=json`]: "[]" };
+}
+
+interface Run {
+  readonly result: DiscoverResult;
+  readonly lines: string[];
+  readonly asked: string[];
+  readonly requested: string[];
+}
+
+// `responses` maps an exact URL to a 200 body; every other URL is a 404.
+async function run(
   store: Store,
-  sources: (BoardSource | Source)[],
-  answers: Record<string, Answer> = {},
-): Promise<{ result: Awaited<ReturnType<typeof discover>>; lines: string[]; asked: string[] }> {
+  sources: DiscoverySource[],
+  {
+    answers = {},
+    responses = {},
+  }: {
+    answers?: Record<string, Answer>;
+    responses?: Record<string, string>;
+  } = {},
+): Promise<Run> {
   const { readers, asked } = fakeReaders(answers);
   const lines: string[] = [];
-  const fetchImpl: typeof fetch = async () => new Response(null, { status: 404 });
+  const requested: string[] = [];
+  const fetchImpl: typeof fetch = async (input) => {
+    const url = String(input);
+    requested.push(url);
+    const body = responses[url];
+    return body === undefined ? new Response(null, { status: 404 }) : new Response(body);
+  };
   const result = await discover(
     store,
     sources,
@@ -390,293 +126,414 @@ async function runBoards(
     readers,
     (line) => lines.push(line),
   );
-  return { result, lines, asked };
+  return { result, lines, asked, requested };
 }
 
-async function row(store: Store, name: string): Promise<Company | undefined> {
+// Each candidate as "origin name-or-url -> outcome company", sorted: the
+// store returns them by random id.
+async function candidates(store: Store): Promise<string[]> {
+  const rows = await store.select<Candidate>("candidates");
+  return rows
+    .map((row) => `${row.origin} ${row.name ?? row.url} -> ${row.outcome} ${row.company}`)
+    .sort();
+}
+
+async function companyRow(store: Store, name: string): Promise<Company | undefined> {
   return (await store.select<Company>("companies", { name }))[0];
 }
 
-test("discover boards: a board already carried under different case is not asked", async () => {
-  const store = memoryStore({
-    companies: [
-      company("Thyme", { state: "watched", boards: [{ platform: "lever", id: "thyme" }] }),
-    ],
-  });
-  const { source, namesAsked } = fakeBoardSource("crawl", [{ platform: "lever", id: "Thyme" }]);
+async function companyNames(store: Store): Promise<string[]> {
+  return (await store.select<Company>("companies")).map((row) => row.name);
+}
 
-  const { result, lines, asked } = await runBoards(store, [source]);
-
-  assert.deepEqual(asked, []);
-  assert.deepEqual(namesAsked, []);
-  assert.deepEqual(lines, []);
-  assert.equal(result.seen, 1);
-  assert.equal(result.probed, 0);
-  assert.equal((await store.select<Company>("companies")).length, 1);
-});
-
-test("discover boards: a board naming no company on file is watched under the name its page states", async () => {
-  const store = memoryStore({ companies: [company("Other")] });
-  const { source } = fakeBoardSource("crawl", [{ platform: "ashby", id: "thyme-care" }], {
-    "thyme-care": "Thyme Care",
-  });
-
-  const { result, lines } = await runBoards(store, [source]);
-
-  assert.equal(result.watched, 1);
-  assert.equal(result.probed, 1);
-  assert.deepEqual(lines, ["crawl: new Thyme Care ashby::thyme-care"]);
-  const created = await row(store, "Thyme Care");
-  assert.equal(created?.state, "watched");
-  assert.equal(created?.source, "crawl");
-  assert.deepEqual(created?.boards, [{ platform: "ashby", id: "thyme-care" }]);
-});
-
-test("discover boards: a board whose name cannot be read is watched under its id", async () => {
+test("discover: a new name that probes to a board is watched, and its company written", async () => {
   const store = memoryStore();
-  const { source } = fakeBoardSource("crawl", [{ platform: "lever", id: "Zenco" }], {
-    Zenco: null,
+
+  const { result, lines } = await run(store, [nameSource("hn", ["Acme"])], {
+    responses: leverBoard("acme"),
   });
 
-  const { lines } = await runBoards(store, [source]);
-
-  assert.deepEqual(lines, ["crawl: new Zenco lever::Zenco"]);
-  const created = await row(store, "Zenco");
-  assert.equal(created?.state, "watched");
-  assert.deepEqual(created?.boards, [{ platform: "lever", id: "Zenco" }]);
+  assert.deepEqual(await candidates(store), ["hn Acme -> watched Acme"]);
+  assert.equal(result.suggested, 1);
+  assert.equal(result.resolved.watched, 1);
+  assert.equal(result.pending, 0);
+  assert.deepEqual(result.errors, []);
+  assert.deepEqual(lines, ["hn: new Acme lever::acme"]);
+  const row = await companyRow(store, "Acme");
+  assert.equal(row?.state, "watched");
+  assert.equal(row?.source, "hn");
+  assert.deepEqual(row?.boards, [{ platform: "lever", id: "acme" }]);
 });
 
-for (const existing of [
-  company("Acme", { state: "watched", boards: [{ platform: "lever", id: "acme-old" }] }),
-  company("Acme", { state: "discovered" }),
-]) {
-  test(`discover boards: a board naming a ${existing.state} company on file joins it rather than making a second row`, async () => {
-    const store = memoryStore({ companies: [existing] });
-    // "A.C.M.E" squashes to "acme", as "Acme" does.
-    const { source } = fakeBoardSource("crawl", [{ platform: "greenhouse", id: "acmehq" }], {
-      acmehq: "A.C.M.E",
+test("discover: a name with no board is no_board and writes no company", async () => {
+  const store = memoryStore();
+
+  const { result } = await run(store, [nameSource("hn", ["Nobody"])]);
+
+  assert.deepEqual(await candidates(store), ["hn Nobody -> no_board null"]);
+  assert.equal(result.resolved.no_board, 1);
+  assert.deepEqual(await companyNames(store), []);
+});
+
+test("discover: a company's name from a second source is known, with a row, and not probed", async () => {
+  const store = memoryStore({
+    companies: [company("Acme", { boards: [{ platform: "lever", id: "acme" }] })],
+    candidates: [candidate({ name: "Acme", origin: "hn", outcome: "watched", company: "Acme" })],
+  });
+
+  const { result, requested } = await run(store, [nameSource("remoteok", ["ACME"])]);
+
+  assert.deepEqual(requested, []);
+  assert.deepEqual(await candidates(store), [
+    "hn Acme -> watched Acme",
+    "remoteok ACME -> known Acme",
+  ]);
+  assert.equal(result.suggested, 1);
+  assert.equal(result.resolved.known, 1);
+});
+
+test("discover: a name known only as a resolved candidate is known with no company, and not probed", async () => {
+  const store = memoryStore({
+    candidates: [candidate({ name: "Nobody", origin: "hn", outcome: "no_board" })],
+  });
+
+  const { requested } = await run(store, [nameSource("remoteok", ["Nobody"])]);
+
+  assert.deepEqual(requested, []);
+  assert.deepEqual(await candidates(store), [
+    "hn Nobody -> no_board null",
+    "remoteok Nobody -> known null",
+  ]);
+});
+
+test("discover: an alias row still in companies keeps its name known, and is not probed", async () => {
+  const store = memoryStore({
+    companies: [company("Pocketly", { state: "alias", alias_of: "Tessera" })],
+  });
+
+  const { requested } = await run(store, [nameSource("hn", ["Pocketly"])]);
+
+  assert.deepEqual(requested, []);
+  assert.deepEqual(await candidates(store), ["hn Pocketly -> known null"]);
+  assert.equal((await companyRow(store, "Pocketly"))?.state, "alias");
+});
+
+test("discover: one origin naming a name twice, in one run or two, is one row", async () => {
+  const store = memoryStore();
+
+  const first = await run(store, [nameSource("hn", ["Nobody", "NOBODY"])]);
+  const second = await run(store, [nameSource("hn", ["Nobody"])]);
+
+  assert.equal(first.result.suggested, 1);
+  assert.equal(second.result.suggested, 0);
+  assert.deepEqual(second.requested, []);
+  assert.deepEqual(await candidates(store), ["hn Nobody -> no_board null"]);
+});
+
+test("discover: a name whose probe finds a board another company carries is an alias, with no company row", async () => {
+  const store = memoryStore({
+    companies: [company("Tessera", { boards: [{ platform: "lever", id: "pocketly" }] })],
+  });
+
+  const { result, lines } = await run(store, [nameSource("hn", ["Pocketly"])], {
+    responses: leverBoard("pocketly"),
+  });
+
+  assert.deepEqual(await candidates(store), ["hn Pocketly -> alias Tessera"]);
+  assert.equal(result.resolved.alias, 1);
+  assert.deepEqual(await companyNames(store), ["Tessera"]);
+  assert.deepEqual(lines, []);
+});
+
+// Breaks if a company written in this run is not indexed by its boards
+// before the next candidate: "Acme" would become a second company.
+test("discover: two names probing to one board in one run are one company and one alias", async () => {
+  const store = memoryStore();
+
+  const { lines } = await run(store, [nameSource("hn", ["Acme Inc", "Acme"])], {
+    responses: leverBoard("acme"),
+  });
+
+  assert.deepEqual(await candidates(store), [
+    "hn Acme -> alias Acme Inc",
+    "hn Acme Inc -> watched Acme Inc",
+  ]);
+  assert.deepEqual(await companyNames(store), ["Acme Inc"]);
+  assert.deepEqual(lines, ["hn: new Acme Inc lever::acme"]);
+});
+
+test("discover: a URL whose board another company carries is that company's alias", async () => {
+  const store = memoryStore({
+    companies: [company("Tessera", { boards: [{ platform: "lever", id: "pocketly" }] })],
+    candidates: [candidate({ name: "Pocketly", url: "https://jobs.lever.co/pocketly/abc-123" })],
+  });
+
+  const { asked } = await run(store, []);
+
+  assert.deepEqual(asked, [], "a carried board is not read");
+  assert.deepEqual(await candidates(store), ["ui Pocketly -> alias Tessera"]);
+  assert.deepEqual(await companyNames(store), ["Tessera"]);
+});
+
+test("discover: a URL with no name whose board a company now carries is known to it", async () => {
+  const store = memoryStore({
+    companies: [company("Tessera", { boards: [{ platform: "lever", id: "pocketly" }] })],
+    candidates: [candidate({ origin: "commoncrawl", url: "https://jobs.lever.co/pocketly" })],
+  });
+
+  await run(store, []);
+
+  assert.deepEqual(await candidates(store), [
+    "commoncrawl https://jobs.lever.co/pocketly -> known Tessera",
+  ]);
+});
+
+for (const state of ["watched", "discovered"] as const) {
+  test(`discover: a URL candidate named like a ${state} company adds the board to it, and it is watched`, async () => {
+    const store = memoryStore({
+      companies: [company("Acme", { state, boards: [{ platform: "lever", id: "acme-old" }] })],
+      candidates: [candidate({ name: "A.C.M.E", url: "https://jobs.ashbyhq.com/acme-hq" })],
     });
 
-    const { result, lines } = await runBoards(store, [source]);
+    const { result, lines, asked } = await run(store, []);
 
-    assert.deepEqual(lines, ["crawl: added Acme greenhouse::acmehq"]);
-    assert.deepEqual(
-      (await store.select<Company>("companies")).map((company) => company.name),
-      ["Acme"],
-    );
-    const joined = await row(store, "Acme");
-    assert.equal(joined?.state, "watched");
-    assert.deepEqual(joined?.boards, [
-      ...existing.boards,
-      { platform: "greenhouse", id: "acmehq" },
+    assert.deepEqual(asked, ["ashby::acme-hq"]);
+    assert.deepEqual(await candidates(store), ["ui A.C.M.E -> added Acme"]);
+    assert.equal(result.resolved.added, 1);
+    assert.deepEqual(lines, ["ui: added Acme ashby::acme-hq"]);
+    assert.deepEqual(await companyNames(store), ["Acme"]);
+    const row = await companyRow(store, "Acme");
+    assert.equal(row?.state, "watched");
+    assert.equal(row?.source, "test", "the company keeps the source that first named it");
+    assert.deepEqual(row?.boards, [
+      { platform: "lever", id: "acme-old" },
+      { platform: "ashby", id: "acme-hq" },
     ]);
-    assert.equal(joined?.source, "test", "the row keeps the source that first named it");
-    assert.equal(result.watched, 1);
   });
 }
 
-test("discover boards: a board whose name is an alias joins the company the alias names", async () => {
+test("discover: a dropped company's name is dropped, not probed, and the company untouched", async () => {
+  const dropped = company("Acme", {
+    boards: [{ platform: "lever", id: "acme" }],
+    dropped_at: "2026-09-01T00:00:00Z",
+    reason: "no staff-level roles",
+  });
   const store = memoryStore({
-    companies: [
-      company("Acme Corp", { state: "watched", boards: [{ platform: "lever", id: "acmecorp" }] }),
-      company("Acme", { state: "alias", alias_of: "Acme Corp" }),
-    ],
-  });
-  const { source } = fakeBoardSource("crawl", [{ platform: "ashby", id: "acme" }], {
-    acme: "Acme",
+    companies: [dropped],
+    candidates: [candidate({ name: "Acme" })],
   });
 
-  const { lines } = await runBoards(store, [source]);
+  const { result, requested } = await run(store, [nameSource("hn", ["acme"])]);
 
-  assert.deepEqual(lines, ["crawl: added Acme Corp ashby::acme"]);
-  assert.deepEqual((await row(store, "Acme Corp"))?.boards, [
-    { platform: "lever", id: "acmecorp" },
-    { platform: "ashby", id: "acme" },
-  ]);
-  const alias = await row(store, "Acme");
-  assert.equal(alias?.state, "alias");
-  assert.deepEqual(alias?.boards, []);
+  assert.deepEqual(requested, []);
+  assert.deepEqual(await candidates(store), ["hn acme -> dropped Acme", "ui Acme -> dropped Acme"]);
+  assert.equal(result.resolved.dropped, 2);
+  assert.deepEqual(await store.select<Company>("companies"), [dropped]);
 });
 
-test("discover boards: a board naming a dropped company joins it and the drop stays", async () => {
-  const store = memoryStore({
-    companies: [
-      company("Acme", {
-        state: "watched",
-        boards: [{ platform: "lever", id: "acme-old" }],
-        dropped_at: "2026-09-01T00:00:00Z",
-        reason: "no staff-level roles",
-      }),
-    ],
+test("discover: a board whose page names a dropped company is dropped and the board not added", async () => {
+  const dropped = company("Acme", {
+    boards: [{ platform: "lever", id: "acme" }],
+    dropped_at: "2026-09-01T00:00:00Z",
   });
-  const { source } = fakeBoardSource("crawl", [{ platform: "greenhouse", id: "acme" }], {
-    acme: "Acme",
-  });
+  const store = memoryStore({ companies: [dropped] });
 
-  const { lines } = await runBoards(store, [source]);
+  const { lines } = await run(
+    store,
+    [boardSource("commoncrawl", [{ platform: "greenhouse", id: "acmehq" }])],
+    {
+      responses: {
+        "https://boards-api.greenhouse.io/v1/boards/acmehq": JSON.stringify({ name: "Acme" }),
+      },
+    },
+  );
 
-  assert.deepEqual(lines, ["crawl: added Acme greenhouse::acme"]);
-  const joined = await row(store, "Acme");
-  assert.equal(joined?.dropped_at, "2026-09-01T00:00:00Z");
-  assert.equal(joined?.reason, "no staff-level roles");
-  assert.deepEqual(joined?.boards, [
-    { platform: "lever", id: "acme-old" },
-    { platform: "greenhouse", id: "acme" },
+  assert.deepEqual(await candidates(store), [
+    "commoncrawl https://job-boards.greenhouse.io/acmehq -> dropped Acme",
   ]);
-  assert.deepEqual(await watched(store), []);
+  assert.deepEqual(lines, []);
+  assert.deepEqual(await store.select<Company>("companies"), [dropped]);
 });
 
-test("discover boards: two boards naming one new company in one run make one row with both boards", async () => {
+test("discover: a gone board is gone, writes no company, and is not suggested or read again", async () => {
   const store = memoryStore();
-  const { source } = fakeBoardSource(
-    "crawl",
-    [
-      { platform: "ashby", id: "newco" },
-      { platform: "greenhouse", id: "newcoinc" },
-    ],
-    { newco: "NewCo", newcoinc: "Newco" },
-  );
+  const source = boardSource("commoncrawl", [{ platform: "ashby", id: "ghostco" }]);
 
-  const { result, lines } = await runBoards(store, [source]);
+  const first = await run(store, [source], { answers: { ghostco: "gone" } });
+  const second = await run(store, [source], { answers: { ghostco: "gone" } });
 
-  assert.deepEqual(lines, [
-    "crawl: new NewCo ashby::newco",
-    "crawl: added NewCo greenhouse::newcoinc",
+  assert.deepEqual(await candidates(store), [
+    "commoncrawl https://jobs.ashbyhq.com/ghostco -> gone null",
   ]);
-  const rows = await store.select<Company>("companies");
-  assert.deepEqual(
-    rows.map((company) => company.name),
-    ["NewCo"],
-  );
-  assert.deepEqual(rows[0]?.boards, [
+  assert.equal(first.result.resolved.gone, 1);
+  assert.deepEqual(await companyNames(store), []);
+  assert.equal(second.result.suggested, 0);
+  assert.deepEqual(second.asked, []);
+});
+
+test("discover: an unreachable board stays unresolved, is logged, and the next call retries it", async () => {
+  const store = memoryStore();
+  const source = boardSource("commoncrawl", [{ platform: "lever", id: "flaky" }]);
+
+  const first = await run(store, [source], { answers: { flaky: "down" } });
+
+  assert.equal(first.result.pending, 1);
+  assert.deepEqual(first.result.errors, []);
+  assert.deepEqual(first.lines, ["commoncrawl flaky lever::flaky: HTTP 503"]);
+  assert.deepEqual(await candidates(store), [
+    "commoncrawl https://jobs.lever.co/flaky -> null null",
+  ]);
+  assert.deepEqual(await companyNames(store), []);
+
+  const second = await run(store, [source]);
+
+  assert.equal(second.result.suggested, 0, "the board is not suggested twice");
+  assert.deepEqual(second.asked, ["lever::flaky"]);
+  assert.equal(second.result.pending, 0);
+  assert.deepEqual(await candidates(store), [
+    "commoncrawl https://jobs.lever.co/flaky -> watched flaky",
+  ]);
+  assert.deepEqual(second.lines, ["commoncrawl: new flaky lever::flaky"]);
+});
+
+test("discover: a URL naming no board a reader can read is bad_url and nothing is asked", async () => {
+  const store = memoryStore({
+    candidates: [candidate({ name: "Acme", url: "https://acme.example/careers" })],
+  });
+
+  const { result, asked, requested } = await run(store, []);
+
+  assert.deepEqual(asked, []);
+  assert.deepEqual(requested, []);
+  assert.equal(result.resolved.bad_url, 1);
+  assert.deepEqual(await candidates(store), ["ui Acme -> bad_url null"]);
+});
+
+test("discover: two boards naming one new company in one run make one company with both boards", async () => {
+  const store = memoryStore();
+  const source = boardSource("commoncrawl", [
     { platform: "ashby", id: "newco" },
     { platform: "greenhouse", id: "newcoinc" },
   ]);
-  assert.equal(rows[0]?.state, "watched");
-  assert.equal(result.errors.length, 0);
-});
 
-test("discover boards: a dead board whose id reads like a company on file writes nothing and is asked again", async () => {
-  const before = company("Acme", {
-    state: "watched",
-    boards: [{ platform: "lever", id: "acme-real" }],
-  });
-  const store = memoryStore({ companies: [before] });
-  const { source } = fakeBoardSource("crawl", [{ platform: "ashby", id: "acme" }]);
-
-  const first = await runBoards(store, [source], { acme: "gone" });
-
-  assert.deepEqual(first.lines, []);
-  assert.deepEqual(first.result.errors, []);
-  assert.deepEqual(await store.select<Company>("companies"), [before]);
-
-  const second = await runBoards(store, [source], { acme: "gone" });
-  assert.deepEqual(second.asked, ["ashby::acme"]);
-  assert.deepEqual(await store.select<Company>("companies"), [before]);
-});
-
-test("discover boards: a dead board naming no company is discovered carrying it and not asked again", async () => {
-  const store = memoryStore();
-  const { source, namesAsked } = fakeBoardSource("crawl", [{ platform: "ashby", id: "ghostco" }]);
-
-  const first = await runBoards(store, [source], { ghostco: "gone" });
-
-  assert.deepEqual(first.lines, ["crawl: new ghostco ashby::ghostco (gone)"]);
-  assert.deepEqual(namesAsked, [], "a dead board's name is not read");
-  const created = await row(store, "ghostco");
-  assert.equal(created?.state, "discovered");
-  assert.equal(created?.source, "crawl");
-  assert.deepEqual(created?.boards, [{ platform: "ashby", id: "ghostco" }]);
-
-  const second = await runBoards(store, [source], { ghostco: "gone" });
-  assert.deepEqual(second.asked, []);
-  assert.deepEqual(second.lines, []);
-});
-
-test("discover boards: an unreachable board writes nothing and is one error line", async () => {
-  const store = memoryStore();
-  const { source } = fakeBoardSource("crawl", [{ platform: "greenhouse", id: "flaky" }]);
-
-  const { result, lines } = await runBoards(store, [source], { flaky: "down" });
-
-  assert.deepEqual(result.errors, ["crawl flaky greenhouse::flaky: HTTP 503"]);
-  assert.deepEqual(lines, []);
-  assert.deepEqual(await store.select<Company>("companies"), []);
-});
-
-test("discover boards: a boards() throw is one error line and the next source still runs", async () => {
-  const store = memoryStore();
-  const { source: broken } = fakeBoardSource("crawl", async () => {
-    throw new Error("collinfo.json names no crawl index");
-  });
-  const { source: working } = fakeBoardSource("second", [{ platform: "lever", id: "fine" }], {
-    fine: "Fine",
-  });
-
-  const { result, lines } = await runBoards(store, [broken, working]);
-
-  assert.deepEqual(result.errors, ["crawl: collinfo.json names no crawl index"]);
-  assert.deepEqual(lines, ["second: new Fine lever::fine"]);
-  assert.equal((await row(store, "Fine"))?.state, "watched");
-});
-
-// Breaks if discoverBoards stops passing its `log` to `boards()`: the
-// source's own partial-failure line would vanish.
-test("discover boards: a source's partial-failure line reaches the log and its boards are still watched", async () => {
-  const store = memoryStore();
-  const source: BoardSource = {
-    name: "crawl",
-    boards: async (_options, log) => {
-      log?.("test source: partial failure");
-      return [{ platform: "lever", id: "fine" }];
+  const { result, lines } = await run(store, [source], {
+    responses: {
+      "https://jobs.ashbyhq.com/newco": "<html><title>NewCo Jobs</title></html>",
+      "https://boards-api.greenhouse.io/v1/boards/newcoinc": JSON.stringify({ name: "Newco" }),
     },
-    companyName: async () => "Fine",
-  };
+  });
 
-  const { result, lines } = await runBoards(store, [source]);
-
-  assert.deepEqual(lines, ["test source: partial failure", "crawl: new Fine lever::fine"]);
-  assert.deepEqual(result.errors, []);
-  assert.equal((await row(store, "Fine"))?.state, "watched");
+  assert.deepEqual(lines, [
+    "commoncrawl: new NewCo ashby::newco",
+    "commoncrawl: added NewCo greenhouse::newcoinc",
+  ]);
+  assert.deepEqual(await companyNames(store), ["NewCo"]);
+  assert.deepEqual((await companyRow(store, "NewCo"))?.boards, [
+    { platform: "ashby", id: "newco" },
+    { platform: "greenhouse", id: "newcoinc" },
+  ]);
+  assert.equal(result.resolved.watched, 1);
+  assert.equal(result.resolved.added, 1);
 });
 
-// Breaks if the board lines are logged after the whole batch is written:
-// the first board landed, so its line is the only record of it.
-test("discover boards: a store throw on the second board still logs the first and surfaces the throw", async () => {
+test("discover: a board already carried, in any case, is not suggested", async () => {
+  const store = memoryStore({
+    companies: [company("Thyme", { boards: [{ platform: "lever", id: "thyme" }] })],
+  });
+
+  const { result, asked } = await run(store, [
+    boardSource("commoncrawl", [{ platform: "lever", id: "Thyme" }]),
+  ]);
+
+  assert.equal(result.suggested, 0);
+  assert.deepEqual(asked, []);
+  assert.deepEqual(await candidates(store), []);
+});
+
+test("discover: a board whose page gives no name is watched under its id", async () => {
+  const store = memoryStore();
+
+  const { lines } = await run(store, [
+    boardSource("commoncrawl", [{ platform: "lever", id: "zenco" }]),
+  ]);
+
+  assert.deepEqual(lines, ["commoncrawl: new zenco lever::zenco"]);
+  assert.equal((await companyRow(store, "zenco"))?.state, "watched");
+});
+
+test("discover: a failing source is one error line and the next source still suggests", async () => {
+  const store = memoryStore();
+  const broken = nameSource("hn", async () => {
+    throw new Error("thread not found");
+  });
+
+  const { result } = await run(store, [broken, nameSource("remoteok", ["Nobody"])]);
+
+  assert.deepEqual(result.errors, ["hn: thread not found"]);
+  assert.deepEqual(await candidates(store), ["remoteok Nobody -> no_board null"]);
+});
+
+// Breaks if a company's line is logged only after every candidate is
+// resolved: the first company landed, so its line is the only record of it.
+test("discover: a store throw on the second company still logs the first and surfaces the throw", async () => {
   const inner = memoryStore();
-  let upserts = 0;
+  let companyUpserts = 0;
   const store: Store = {
     select: (...args) => inner.select(...args),
     upsert: async (table, rows) => {
-      upserts += 1;
-      if (upserts === 2) throw new Error("connection reset");
+      if (table === "companies") {
+        companyUpserts += 1;
+        if (companyUpserts === 2) throw new Error("connection reset");
+      }
       return inner.upsert(table, rows);
     },
     update: (table, key, patch) => inner.update(table, key, patch),
     delete: (table, keys) => inner.delete(table, keys),
   };
-  const { source } = fakeBoardSource(
-    "crawl",
-    [
-      { platform: "ashby", id: "first" },
-      { platform: "lever", id: "second" },
-    ],
-    { first: "First Co", second: "Second Co" },
-  );
-  const { readers } = fakeReaders({});
+  const source = boardSource("commoncrawl", [
+    { platform: "lever", id: "first" },
+    { platform: "lever", id: "second" },
+  ]);
+
   const lines: string[] = [];
+  const fetchImpl: typeof fetch = async () => new Response(null, { status: 404 });
 
   await assert.rejects(
     discover(
       store,
       [source],
-      { userAgent: TEST_USER_AGENT, sleep: async () => {} },
-      readers,
+      { fetchImpl, userAgent: TEST_USER_AGENT, sleep: async () => {} },
+      fakeReaders({}).readers,
       (line) => lines.push(line),
     ),
     /connection reset/,
   );
 
-  assert.deepEqual(lines, ["crawl: new First Co ashby::first"]);
-  assert.equal((await row(inner, "First Co"))?.state, "watched");
+  assert.deepEqual(lines, ["commoncrawl: new first lever::first"]);
+  assert.deepEqual(await companyNames(inner), ["first"]);
+});
+
+test("discoverLine: names every outcome's count, then pending and errors", () => {
+  const result: DiscoverResult = {
+    suggested: 12,
+    resolved: {
+      watched: 2,
+      added: 1,
+      known: 5,
+      alias: 1,
+      no_board: 3,
+      wrong_company: 0,
+      gone: 0,
+      dropped: 0,
+      bad_url: 0,
+    },
+    pending: 1,
+    errors: ["hn: thread not found"],
+  };
+
+  assert.equal(
+    discoverLine(result),
+    "discover: 12 suggested, 2 watched, 1 added, 5 known, 1 alias, 3 no_board, " +
+      "0 wrong_company, 0 gone, 0 dropped, 0 bad_url, 1 pending, 1 errors",
+  );
 });
