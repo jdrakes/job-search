@@ -8,13 +8,18 @@
 -- `candidates` (the candidates migration copied every row there). So
 -- `state`, `source`, `first_seen` and `alias_of` go, and with `state` the
 -- rows that were only ever input: a `discovered` or `alias` row that owns
--- no posting.
+-- no posting and that the operator has not dropped.
+--
+-- A dropped row is never deleted, whatever its state: the drop and its
+-- reason are the operator's alone, and deleting the row would lose them.
+-- A watched row is never deleted either, board or not.
 --
 -- Measured on the local store, 2026-09-27: 2,768 watched, 3,194 discovered,
--- 28 alias. 7 discovered and 2 alias rows own postings, so this deletes
--- 3,187 + 26 = 3,213 rows and keeps 2,777. The 9 that own postings stay,
--- with no board, so their postings stay out under Unwatched ("has no
--- board"). A watched row is never deleted, board or not.
+-- 28 alias. 7 discovered and 2 alias rows own postings, and 1 discovered
+-- row that owns none is dropped, so this deletes 3,186 + 26 = 3,212 rows
+-- and keeps 2,778. The 9 that own postings stay, with no board, so their
+-- postings stay out under Unwatched ("has no board"); the dropped one
+-- stays with its drop.
 --
 -- The 2 kept alias rows are the exception to "with no board": each still
 -- carries the board it was found on, which is another company's. Before
@@ -22,7 +27,8 @@
 -- is gone, a row with a board is read, so those boards would be read a
 -- second time under the alias's name. So their boards are emptied here,
 -- while `state` can still pick them out, and they stay like the other 7:
--- kept, never read.
+-- kept, never read. The reset covers every alias row left after the
+-- delete, a dropped one included.
 --
 -- There is no way back from here but a `pg_dump -t companies` taken before
 -- this is applied: the deleted rows and the dropped columns are not kept
@@ -41,6 +47,7 @@ BEGIN
   ) THEN
     DELETE FROM "companies" c
     WHERE c."state" IN ('discovered', 'alias')
+      AND c.dropped_at IS NULL
       AND NOT EXISTS (SELECT 1 FROM "postings" p WHERE p."company" = c."name");
 
     UPDATE "companies" SET "boards" = '[]'

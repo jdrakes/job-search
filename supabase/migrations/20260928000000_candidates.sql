@@ -19,13 +19,23 @@
 --
 --   state        outcome     company
 --   watched      watched     the name
---   discovered   no_board    the name when the company owns a posting,
---                            else null
+--   discovered   no_board    the name when the company owns a posting or
+--                            the operator dropped it, else null
 --   alias        alias       alias_of
 --
 -- The discovered names that own postings keep their name as `company`
 -- because their company row has to stay: losing it would put their
--- postings back in.
+-- postings back in. A dropped discovered name (1 on the local store) keeps
+-- its name for the same reason: the drop is the operator's alone, so the
+-- companies_derived migration keeps its row, and `company` names it.
+--
+-- Each backfilled row's id is `'backfill-' || md5(name)`, not a random
+-- one. This migration runs on both stores, and a company's name is its
+-- key on both, so the same company gets the same candidate id on each and
+-- a later sync between them (#280) finds one row, not two. `company` for a
+-- discovered name that owns a posting can still differ between the stores,
+-- since the hosted store holds only a slice of the postings; that is left
+-- as it is, because publish carries the local value up once #280 syncs.
 --
 -- `builtin` and `builtin.com` are two origins, not one site spelled two
 -- ways. `builtin` (4,919 rows) labels a bootstrap import on 2026-09-15,
@@ -38,8 +48,11 @@
 -- so an unresolved candidate needs no `IS NULL` arm.
 --
 -- Read-only to the browser, like `companies`: the processor writes with the
--- service key. Written idempotently, like every migration here.
--- `gen_random_uuid()` is core Postgres from 13 on.
+-- service key. Written idempotently, like every migration here: the
+-- backfill runs only while `candidates` is empty and `companies` still has
+-- `state`, so a re-run after the companies_derived migration dropped the
+-- columns it reads does nothing, even on a store whose `candidates` is
+-- empty.
 
 CREATE TABLE IF NOT EXISTS "candidates" (
   "id" text PRIMARY KEY,
@@ -56,11 +69,16 @@ CREATE TABLE IF NOT EXISTS "candidates" (
 
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM "candidates") THEN
+  IF NOT EXISTS (SELECT 1 FROM "candidates")
+    AND EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'companies' AND column_name = 'state'
+    )
+  THEN
     INSERT INTO "candidates"
       ("id", "name", "url", "origin", "evidence", "added_at", "outcome", "outcome_at", "company")
     SELECT
-      gen_random_uuid()::text,
+      'backfill-' || md5(c."name"),
       c."name",
       NULL,
       CASE c."source" WHEN 'builtin' THEN 'bootstrap' ELSE coalesce(c."source", 'unknown') END,
@@ -75,7 +93,8 @@ BEGIN
       CASE c."state"
         WHEN 'watched' THEN c."name"
         WHEN 'discovered' THEN
-          CASE WHEN EXISTS (SELECT 1 FROM "postings" p WHERE p."company" = c."name")
+          CASE WHEN c."dropped_at" IS NOT NULL
+              OR EXISTS (SELECT 1 FROM "postings" p WHERE p."company" = c."name")
             THEN c."name" END
         WHEN 'alias' THEN c."alias_of"
       END
