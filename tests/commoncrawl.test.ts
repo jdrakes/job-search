@@ -2,12 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import {
-  commonCrawlSource,
-  latestIndex,
-  pageTitle,
-  parseIndexPage,
-} from "../src/discovery/commoncrawl.ts";
+import { commonCrawlSource, latestIndex, parseIndexPage } from "../src/discovery/commoncrawl.ts";
 
 function fixture(name: string): string {
   return readFileSync(new URL(`./fixtures/commoncrawl/${name}`, import.meta.url), "utf8");
@@ -57,18 +52,6 @@ test("parseIndexPage: a url whose board segment is malformed percent-encoding is
     JSON.stringify({ url: "https://jobs.lever.co/trey-research/abc" }),
   ].join("\n");
   assert.deepEqual(parseIndexPage(body, "jobs.lever.co"), ["trey-research"]);
-});
-
-test("pageTitle: an Ashby page's title loses its ' Jobs' suffix", () => {
-  assert.equal(pageTitle(fixture("ashby-thyme-care-head.html"), "ashby"), "Thyme Care");
-});
-
-test("pageTitle: a Lever page's title is the company name as written, no suffix stripped", () => {
-  assert.equal(pageTitle(fixture("lever-trey-research-head.html"), "lever"), "Trey Research");
-});
-
-test("pageTitle: no <title> tag reads as no name, not a throw", () => {
-  assert.equal(pageTitle("<head><meta charset='utf-8'></head>", "ashby"), null);
 });
 
 // A small, hand-built index page per host: one host answers a lowercase

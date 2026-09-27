@@ -4,8 +4,9 @@
 // once, for the company name.
 import { boardKey } from "../companies.ts";
 import { describeError } from "../errors.ts";
-import { getJson, getText, htmlToText, HttpError, type HttpOptions } from "../net/http.ts";
+import { getJson, getText, type HttpOptions } from "../net/http.ts";
 import type { Board } from "../schema.ts";
+import { boardName } from "./boards.ts";
 import type { BoardSource } from "./source.ts";
 
 const COLLECTIONS_URL = "https://index.commoncrawl.org/collinfo.json";
@@ -55,16 +56,6 @@ export function parseIndexPage(body: string, host: string): string[] {
     ids.push(segment);
   }
   return ids;
-}
-
-// An Ashby board page's title is "<Company> Jobs"; a Lever page's is the
-// company's name.
-export function pageTitle(html: string, platform: "ashby" | "lever"): string | null {
-  const match = /<title>([^<]*)<\/title>/i.exec(html);
-  if (match === null) return null;
-  let title = htmlToText(match[1] ?? "").trim();
-  if (platform === "ashby") title = title.replace(/\s+Jobs$/i, "").trim();
-  return title === "" ? null : title;
 }
 
 // Without a crawl index there is nothing to walk, so collinfo.json failing
@@ -122,31 +113,4 @@ async function boards(options?: HttpOptions, log?: (line: string) => void): Prom
   return found;
 }
 
-async function companyName(board: Board, options?: HttpOptions): Promise<string | null> {
-  try {
-    if (board.platform === "greenhouse") {
-      const data = await getJson<{ name?: unknown }>(
-        `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(board.id)}`,
-        options,
-      );
-      return typeof data.name === "string" && data.name !== "" ? data.name : null;
-    }
-
-    if (board.platform === "ashby") {
-      const html = await getText(`https://jobs.ashbyhq.com/${board.id}`, options);
-      return pageTitle(html, "ashby");
-    }
-
-    if (board.platform === "lever") {
-      const html = await getText(`https://jobs.lever.co/${board.id}`, options);
-      return pageTitle(html, "lever");
-    }
-
-    return null;
-  } catch (error) {
-    if (error instanceof HttpError) return null;
-    throw error;
-  }
-}
-
-export const commonCrawlSource: BoardSource = { name: "commoncrawl", boards, companyName };
+export const commonCrawlSource: BoardSource = { name: "commoncrawl", boards, companyName: boardName };
