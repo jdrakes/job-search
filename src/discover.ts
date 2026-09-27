@@ -421,31 +421,76 @@ function byCompany(gone: readonly GoneBoard[]): Map<string, Board[]> {
   return grouped;
 }
 
+export type Unbound = {
+  readonly removed: number;
+  readonly suggested: number;
+  // Each company this call took the last board from.
+  readonly boardless: readonly string[];
+  // One line per company whose removal was refused; its boards stay bound.
+  readonly errors: readonly string[];
+};
+
 // Called once, after the list phase, with every board that answered gone
 // this run (`IngestResult`'s `gone`, ingest.ts): the list phase writes
 // postings only, so this is where a gone board leaves its company, at once
-// and never marked. One read and at most one write per company, the row
-// read back fresh. Every company still on file is suggested again
-// (`suggestAgain`), whether this call or an earlier one took the board; a
-// company whose row is missing by now is neither written nor suggested.
+// and never marked. A company whose row is missing by now is neither
+// written nor suggested; every other is suggested again (`suggestAgain`),
+// whether this call or an earlier one took the board.
+//
+// Suggest first, remove second, so no failure strands a company: a
+// boardless company never answers gone again, so a removal without its
+// candidate loses the company for good. A refused read or candidates write
+// removes nothing and is the reason returned; every board stays bound,
+// answers gone tomorrow and is handed back again. A refused removal is one
+// error line and the rest go ahead; that board stays bound too, and
+// tomorrow's second `gone` candidate for it resolves `known`, harmless.
 export async function unbind(
   store: Store,
   gone: readonly GoneBoard[],
-): Promise<{ removed: number; suggested: number }> {
+): Promise<{ ok: true; value: Unbound } | { ok: false; reason: string }> {
+  let affected: Affected[];
+  let suggested: number;
+  try {
+    affected = await affectedRows(store, gone);
+    suggested = await suggestAgain(
+      store,
+      affected.flatMap(({ name, boards }) => boards.map((board) => ({ company: name, board }))),
+    );
+  } catch (error) {
+    return { ok: false, reason: describeError(error) };
+  }
+
   let removed = 0;
-  const unbound: GoneBoard[] = [];
-  for (const [name, boards] of byCompany(gone)) {
-    const [current] = await store.select<Company>("companies", { name });
-    if (current === undefined) continue;
+  const boardless: string[] = [];
+  const errors: string[] = [];
+  for (const { name, current, boards } of affected) {
     const dead = new Set(boards.map(boardKey));
     const kept = current.boards.filter((board) => !dead.has(boardKey(board)));
-    if (kept.length < current.boards.length) {
+    if (kept.length === current.boards.length) continue;
+    try {
       await store.upsert("companies", [{ ...current, boards: kept }]);
-      removed += current.boards.length - kept.length;
+    } catch (error) {
+      const labels = boards.map((board) => `${board.platform}/${board.id}`).join(" ");
+      errors.push(`${name}: removing ${labels}: ${describeError(error)}`);
+      continue;
     }
-    for (const board of boards) unbound.push({ company: name, board });
+    removed += current.boards.length - kept.length;
+    if (kept.length === 0) boardless.push(name);
   }
-  return { removed, suggested: await suggestAgain(store, unbound) };
+  return { ok: true, value: { removed, suggested, boardless, errors } };
+}
+
+type Affected = { name: string; current: Company; boards: readonly Board[] };
+
+// One read per company, however many of its boards went, so two gone
+// boards of one company cost one write, not two read-modify-writes.
+async function affectedRows(store: Store, gone: readonly GoneBoard[]): Promise<Affected[]> {
+  const affected: Affected[] = [];
+  for (const [name, boards] of byCompany(gone)) {
+    const [current] = await store.select<Company>("companies", { name });
+    if (current !== undefined) affected.push({ name, current, boards });
+  }
+  return affected;
 }
 
 // One unresolved candidate per company, however many of its boards went,

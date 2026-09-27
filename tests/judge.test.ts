@@ -63,8 +63,8 @@ function company(name: string, overrides: Partial<Company> = {}): Company {
   };
 }
 
-// The fixture posting's board, `greenhouse/board`, read on the 16th.
-const READ_ON_16TH = boardIndex([
+// The fixture posting's board, `greenhouse/board`, bound to Acme, so watched.
+const ACME_WATCHES_BOARD = boardIndex([
   company("Acme", {
     boards: [{ platform: "greenhouse", id: "board" }],
   }),
@@ -443,7 +443,10 @@ test("needsJudging: an unwatched-out posting whose board is watched again needs 
     kept: false,
     reasons: [UNWATCHED_OUT],
   });
-  assert.equal(needsJudging(relisted, criteria(), "2026-09-17T00:00:00Z", READ_ON_16TH), true);
+  assert.equal(
+    needsJudging(relisted, criteria(), "2026-09-17T00:00:00Z", ACME_WATCHES_BOARD),
+    true,
+  );
 });
 
 test("needsJudging: a posting out on another criterion is not re-judged just because its company later has no board", () => {
