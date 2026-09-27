@@ -633,6 +633,7 @@ test("ingest: a store refusal while recording one company is an error line and t
 test("ingest: a board whose platform has no reader is an error line, not a crash", async () => {
   const store = memoryStore({
     companies: [company("Acme", { boards: [{ platform: "workday", id: "wd5/Acme/acme" }] })],
+    criteria: [criteria()],
   });
 
   const result = await ingest(store, {});
@@ -1364,7 +1365,10 @@ test("ingest: a failed hash read logs an error and lists with every body written
       eq?: Partial<Record<string, unknown>>,
       columns?: readonly string[],
     ) {
-      if (table === "postings" && columns?.join(",") === "key,body_hash,comp_high,workplace") {
+      if (
+        table === "postings" &&
+        columns?.join(",") === "key,body_hash,comp_high,workplace,status"
+      ) {
         throw new Error("column postings.body_hash does not exist");
       }
       return inner.select<T>(table, eq, columns);
@@ -1389,6 +1393,136 @@ test("ingest: a failed hash read logs an error and lists with every body written
     { body?: unknown; body_hash?: unknown } | undefined;
   assert.equal(written?.body, bodyText);
   assert.equal(written?.body_hash, hashOf(bodyText));
+});
+
+// Clears every criterion `judge()` can decide on the posting alone under
+// `criteria()`: a role word, a level settled by pay above the floor, a
+// remote body with no missing language.
+const KEPT_BODY = "This is a fully remote position open to candidates anywhere in the US.";
+
+function keptListing(id: string): Listing {
+  return listing(id, {
+    title: "Senior Backend Engineer",
+    compLow: 250_000,
+    compHigh: 300_000,
+    body: KEPT_BODY,
+  });
+}
+
+// The same listing, dropped by title alone.
+const EXCLUDES_SENIOR = criteria({ excluded_title_words: ["senior"] });
+
+function oneBoard(listings: Listing[]): Partial<Record<Platform, Reader>> {
+  return { greenhouse: { platform: "greenhouse", list: async () => listings } };
+}
+
+const ACME = company("Acme", { boards: [{ platform: "greenhouse", id: "acme-gh" }] });
+const KEY = "greenhouse/acme-gh::b1";
+
+// Breaks if `toRow` stores a body without judging it first.
+test("ingest: a one-phase listing dropped on its title is stored without its body", async () => {
+  const store = memoryStore({ companies: [ACME], criteria: [EXCLUDES_SENIOR] });
+
+  const result = await ingest(store, oneBoard([keptListing("b1")]));
+
+  assert.deepEqual(result.errors, []);
+  const [row] = await store.select<Posting>("postings", { key: KEY });
+  assert.equal(row?.title, "Senior Backend Engineer");
+  assert.equal(row?.body, null);
+  assert.equal(row?.body_hash, null);
+});
+
+// Breaks if a dropped listing leaves its columns out of the upsert (which
+// keeps the old text) or if the unchanged-hash check runs before the
+// decision.
+test("ingest: a criteria edit that drops a stored one-phase posting clears its body", async () => {
+  const store = memoryStore({
+    companies: [ACME],
+    postings: [
+      posting({
+        key: KEY,
+        company: "Acme",
+        board: "acme-gh",
+        body: KEPT_BODY,
+        body_hash: hashOf(KEPT_BODY),
+      }),
+    ],
+    criteria: [EXCLUDES_SENIOR],
+  });
+
+  await ingest(store, oneBoard([keptListing("b1")]));
+
+  const [row] = await store.select<Posting>("postings", { key: KEY });
+  assert.equal(row?.body, null);
+  assert.equal(row?.body_hash, null);
+});
+
+// Breaks if the decision drops bodies `judge()` keeps.
+test("ingest: a one-phase listing every criterion keeps is stored with its body", async () => {
+  const store = memoryStore({ companies: [ACME], criteria: [criteria()] });
+
+  await ingest(store, oneBoard([keptListing("b1")]));
+
+  const [row] = await store.select<Posting>("postings", { key: KEY });
+  assert.equal(row?.body, KEPT_BODY);
+  assert.equal(row?.body_hash, hashOf(KEPT_BODY));
+});
+
+// Breaks if the stored `status` is not read or not consulted.
+test("ingest: a one-phase listing acted on keeps its body whatever the verdict", async () => {
+  const store = memoryStore({
+    companies: [ACME],
+    postings: [posting({ key: KEY, company: "Acme", board: "acme-gh", status: "applied" })],
+    criteria: [EXCLUDES_SENIOR],
+  });
+
+  await ingest(store, oneBoard([keptListing("b1")]));
+
+  const [row] = await store.select<Posting>("postings", { key: KEY });
+  assert.equal(row?.body, KEPT_BODY);
+  assert.equal(row?.body_hash, hashOf(KEPT_BODY));
+});
+
+// Breaks if a missing criteria row refuses the run or drops bodies.
+test("ingest: with no criteria row every listed body is stored and the fallback is an error line", async () => {
+  const store = memoryStore({ companies: [ACME] });
+
+  const result = await ingest(store, oneBoard([listing("b1", { body: "any text" })]));
+
+  assert.equal(result.recorded, 1);
+  assert.equal(result.errors.length, 1);
+  assert.match(
+    result.errors[0] ?? "",
+    /^ingest: criteria: .*every body clearing its own listing check will still be stored/,
+  );
+  const [row] = await store.select<Posting>("postings", { key: KEY });
+  assert.equal(row?.body, "any text");
+});
+
+// Breaks if a body landing where none was stored keeps the old verdict's
+// `judged_with`, which was reached without the text.
+test("ingest: a body stored where the row had none clears judged_with", async () => {
+  const store = memoryStore({
+    companies: [ACME],
+    postings: [
+      posting({
+        key: KEY,
+        company: "Acme",
+        board: "acme-gh",
+        title: "Senior Backend Engineer",
+        comp_low: 250_000,
+        comp_high: 300_000,
+        judged_with: "2026-09-14T00:00:00Z",
+      }),
+    ],
+    criteria: [criteria()],
+  });
+
+  await ingest(store, oneBoard([keptListing("b1")]));
+
+  const [row] = await store.select<Posting>("postings", { key: KEY });
+  assert.equal(row?.body, KEPT_BODY);
+  assert.equal(row?.judged_with, null);
 });
 
 test("ingest: a listing with no id is refused, never recorded under an empty key", async () => {

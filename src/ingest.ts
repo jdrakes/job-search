@@ -8,7 +8,7 @@ import { boardGone, boardsOf, isGone, recordBoardsRead, watched } from "./compan
 import { loadCriteria } from "./criteria.ts";
 import { describeError } from "./errors.ts";
 import { judge, needsJudging, representativeByKey } from "./judge/judge.ts";
-import { type BoardIndex, boardIndex, judgeListing } from "./judge/listing.ts";
+import { type BoardIndex, boardIndex, judgeListing, NO_BOARDS } from "./judge/listing.ts";
 import {
   COMPANY_FIELDS,
   postingKey,
@@ -17,6 +17,7 @@ import {
   type Criteria,
   type Platform,
   type Posting,
+  type Status,
   type Workplace,
 } from "./schema.ts";
 import type { Store } from "./store/store.ts";
@@ -64,8 +65,9 @@ interface ListedRow extends ListedFields {
   readonly workplace?: Workplace | null;
   readonly comp_low?: number | null;
   readonly comp_high?: number | null;
-  readonly body?: string;
-  readonly body_hash?: string;
+  // `undefined` leaves the stored text alone; `null` clears it.
+  readonly body?: string | null;
+  readonly body_hash?: string | null;
   readonly judged_with?: null;
 }
 
@@ -80,6 +82,7 @@ function toRow(
   listing: Listing,
   timestamp: string,
   stored: StoredListing | undefined,
+  criteria: Criteria | undefined,
 ): ListedRow {
   const fields: ListedFields = {
     key: postingKey(board, listing.id),
@@ -117,6 +120,36 @@ function toRow(
   const verdictInputChanged =
     workplaceChanged || (stored !== undefined && stored.comp_high !== row.comp_high);
   if (listing.body === null) return verdictInputChanged ? { ...row, judged_with: null } : row;
+  // A body is stored only where something reads it: a posting acted on, or
+  // one every criterion judged on the posting alone keeps. `NO_BOARDS` and
+  // an empty representative map leave gone, unwatched and duplicate "in",
+  // since this listing has no board or sibling state to judge them by.
+  // Decided before the unchanged-hash check, so a criteria edit that newly
+  // drops a posting clears the body it already has. No criteria row (a
+  // fresh install) stores every body, as before.
+  const status = stored?.status ?? null;
+  const keep =
+    status !== null ||
+    criteria === undefined ||
+    judge(
+      {
+        ...fields,
+        comp_high: row.comp_high ?? null,
+        body: listing.body,
+        workplace: bare.workplace ?? null,
+        // Always null here: an acted-on posting short-circuits above.
+        status: null,
+      },
+      criteria,
+      timestamp,
+      NO_BOARDS,
+      new Map(),
+    ).kept;
+  if (!keep) {
+    const cleared: ListedRow =
+      (stored?.body_hash ?? null) !== null ? { ...row, body: null, body_hash: null } : row;
+    return verdictInputChanged ? { ...cleared, judged_with: null } : cleared;
+  }
   const hash = bodyHash(listing.body);
   // An unchanged body is left out of the payload, so the row goes as a small
   // listing-fields update instead of the text the store already has.
@@ -124,7 +157,10 @@ function toRow(
     return verdictInputChanged ? { ...row, judged_with: null } : row;
   }
   const withBody: ListedRow = { ...row, body: listing.body, body_hash: hash };
-  return verdictInputChanged ? { ...withBody, judged_with: null } : withBody;
+  // A body landing where none was stored: the last verdict was reached
+  // without its text, so it is judged again with it.
+  const bodyIsNew = (stored?.body_hash ?? null) === null;
+  return verdictInputChanged || bodyIsNew ? { ...withBody, judged_with: null } : withBody;
 }
 
 // Cut at the first `::`, so an id carrying `::` comes back whole.
@@ -387,6 +423,7 @@ async function listCompany(
   company: Company,
   now: () => string,
   stored: ReadonlyMap<string, StoredListing>,
+  criteria: Criteria | undefined,
 ): Promise<ListedCompany> {
   const errors: string[] = [];
   const returned: string[] = [];
@@ -443,7 +480,7 @@ async function listCompany(
         continue;
       }
       const key = postingKey(board, listing.id);
-      batch.set(key, toRow(company.name, board, listing, now(), stored.get(key)));
+      batch.set(key, toRow(company.name, board, listing, now(), stored.get(key), criteria));
     }
   }
 
@@ -473,19 +510,23 @@ interface StoredListing {
   readonly body_hash: string | null;
   readonly comp_high: number | null;
   readonly workplace: Workplace | null;
+  readonly status: Status | null;
 }
 
 // One select of small columns for the whole run.
 async function storedListings(store: Store): Promise<Map<string, StoredListing>> {
-  const rows = await store.select<Pick<Posting, "key" | "body_hash" | "comp_high" | "workplace">>(
-    "postings",
-    undefined,
-    ["key", "body_hash", "comp_high", "workplace"],
-  );
+  const rows = await store.select<
+    Pick<Posting, "key" | "body_hash" | "comp_high" | "workplace" | "status">
+  >("postings", undefined, ["key", "body_hash", "comp_high", "workplace", "status"]);
   return new Map(
     rows.map((row) => [
       row.key,
-      { body_hash: row.body_hash, comp_high: row.comp_high, workplace: row.workplace },
+      {
+        body_hash: row.body_hash,
+        comp_high: row.comp_high,
+        workplace: row.workplace,
+        status: row.status,
+      },
     ]),
   );
 }
@@ -517,6 +558,15 @@ export async function ingest(
     stored = new Map();
   }
 
+  // Judges each listed body before it is stored; see `toRow`.
+  const criteriaResult = await loadCriteria(store);
+  if (!criteriaResult.ok) {
+    errors.push(
+      `ingest: ${criteriaResult.reason}; every body clearing its own listing check will still be stored, since nothing is known to judge it against`,
+    );
+  }
+  const criteria = criteriaResult.ok ? criteriaResult.value : undefined;
+
   // One worker per platform, the platforms concurrently: no host is shared
   // between platforms, so `http.ts`'s per-host delay keeps its meaning and
   // hosts never wait on each other.
@@ -532,7 +582,7 @@ export async function ingest(
     [...groups.values()].map(async (group) => {
       const results: ListedCompany[] = [];
       for (const company of group) {
-        results.push(await listCompany(store, readers, company, now, stored));
+        results.push(await listCompany(store, readers, company, now, stored, criteria));
       }
       return results;
     }),
