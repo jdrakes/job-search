@@ -3736,20 +3736,24 @@ test("judgeAll: a long sweep logs its progress periodically", async () => {
     criteria: [criteria()],
   });
   const lines: string[] = [];
-  // Advances 31 seconds every call, past the 30 s throttle every time, so
-  // each of the three scanned rows logs once.
-  let tick = 0;
+  // Pins the 30 s threshold exactly, on both sides. Readings, in order:
+  // the initial `lastProgressAt` (0), then one gap-check per row. Row 1's
+  // gap is 29,999ms (must NOT log); row 2's is exactly 30,000ms (must
+  // log, and resets `lastProgressAt` to this same reading); row 3's gap
+  // from that reset point is only 1ms (must NOT log again).
+  const readings = [0, 29_999, 30_000, 30_001];
+  let call = 0;
   const clock = () => {
-    tick += 31_000;
-    return tick;
+    const value = readings[call] ?? readings[readings.length - 1];
+    call += 1;
+    return value;
   };
 
   const judging = await judgeAll(store, {}, { log: (line) => lines.push(line), clock });
 
   assert.equal(judging.judged, 3);
-  assert.equal(lines.length, 3);
-  assert.match(lines[0] ?? "", /^judge: 1\/3 scanned, 0 judged so far$/);
-  assert.match(lines[2] ?? "", /^judge: 3\/3 scanned, \d+ judged so far$/);
+  assert.equal(lines.length, 1);
+  assert.match(lines[0] ?? "", /^judge: 2\/3 scanned, \d+ judged so far$/);
 });
 
 // Breaks if the throttle fires on every row instead of waiting the interval.
@@ -3761,7 +3765,8 @@ test("judgeAll: a quick sweep logs no progress at all", async () => {
   });
   const lines: string[] = [];
 
-  await judgeAll(store, {}, { log: (line) => lines.push(line) });
+  const judging = await judgeAll(store, {}, { log: (line) => lines.push(line) });
 
+  assert.equal(judging.judged, 1);
   assert.equal(lines.length, 0);
 });

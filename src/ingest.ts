@@ -46,8 +46,8 @@ export interface JudgeOptions {
 
 // How often the sweep below logs how far it has gotten. A full sweep (every
 // stored posting stale at once, e.g. after a criteria edit) can run long
-// with no other output in between, which reads the same as a hang from the
-// log alone — this is the difference between the two.
+// with no other output in between, which reads the same as a hang. This
+// progress line is the difference between the two.
 const PROGRESS_INTERVAL_MS = 30_000;
 
 export interface IngestOptions {
@@ -362,9 +362,10 @@ export async function judgeAll(
 
   for (const row of postings) {
     scanned += 1;
-    if (clock() - lastProgressAt >= PROGRESS_INTERVAL_MS) {
+    const sinceProgress = clock();
+    if (sinceProgress - lastProgressAt >= PROGRESS_INTERVAL_MS) {
       log(`judge: ${scanned}/${postings.length} scanned, ${judged} judged so far`);
-      lastProgressAt = clock();
+      lastProgressAt = sinceProgress;
     }
     // One clock reading per posting: two readings could pick a posting up
     // for aging out and then judge it as still within the max.

@@ -23,16 +23,14 @@
 -- a re-run cannot reach the backfill's column, so the backfill runs only
 -- while it exists.
 --
--- Full re-judge: the backfill above writes `gone_at` directly by SQL, not
--- through `listCompany`/`toRow`, so it can't be trusted to leave every row's
--- `judged_with` in the state that code path would have. Rather than reason
--- row by row about which ones drifted, this migration forces a full
--- re-judge the same way this project already does after a judging-logic
--- change (docs/plans/2026-09-16-data-word.md, Step R of
--- docs/plans/2026-09-25-judge-misreads.md): clear `judged_with` on every
--- row, unconditionally. The next daily run re-judges every posting against
--- the new `gone_at` rules with no gaps; a one-time full re-judge is sound
--- and cheap (design finding 2, job-search-storage-and-writes).
+-- Re-judge only the rows this migration touched: a row the backfill above
+-- just set `gone_at` on may have a stored verdict that predates the new
+-- Gone criterion and so reads wrong until it is re-derived. Every other
+-- row's Gone verdict does not depend on anything this migration changes,
+-- so it is left alone. Clearing `judged_with` on `gone_at IS NOT NULL`
+-- covers exactly that backfilled set (and any row already gone_at-set
+-- before this ran); the next daily run re-judges each of them against the
+-- new rules.
 
 ALTER TABLE "postings" ADD COLUMN IF NOT EXISTS "gone_at" timestamptz;
 
@@ -57,7 +55,7 @@ BEGIN
   END IF;
 END $$;
 
-UPDATE "postings" SET "judged_with" = NULL;
+UPDATE "postings" SET "judged_with" = NULL WHERE "gone_at" IS NOT NULL;
 
 ALTER TABLE "postings" DROP COLUMN IF EXISTS "last_seen";
 ALTER TABLE "postings" DROP COLUMN IF EXISTS "live";
