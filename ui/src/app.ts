@@ -18,8 +18,9 @@ import {
   type Ref,
 } from "vue";
 
-import type { Company, Criteria, PostingSummary } from "../../src/schema.ts";
+import type { Candidate, Company, Criteria, PostingSummary } from "../../src/schema.ts";
 import {
+  loadCandidates,
   loadCompanies,
   loadCriteria,
   loadPostings,
@@ -164,6 +165,7 @@ export const AppRoot = defineComponent({
     const postingsResult = ref<ReadResult<PostingSummary[]> | null>(null);
     const companiesResult = ref<ReadResult<Company[]> | null>(null);
     const criteriaResult = ref<ReadResult<Criteria> | null>(null);
+    const candidatesResult = ref<ReadResult<Candidate[]> | null>(null);
 
     const refreshing = ref(false);
 
@@ -188,11 +190,12 @@ export const AppRoot = defineComponent({
       const applied = new Set(decided.value.keys());
       const committed = new Set(dropped.value.keys());
       const accessToken = readFor.accessToken;
-      const [queue, postings, companies, criteria] = await Promise.all([
+      const [queue, postings, companies, criteria, candidates] = await Promise.all([
         loadQueue(props.config, accessToken, props.httpFetch),
         loadPostings(props.config, accessToken, {}, props.httpFetch),
         loadCompanies(props.config, accessToken, props.httpFetch),
         loadCriteria(props.config, accessToken, props.httpFetch),
+        loadCandidates(props.config, accessToken, props.httpFetch),
       ]);
       // The same race as `refresh()`'s token check, one await later: a
       // sign-out on this tab while the four reads are in flight has already
@@ -203,12 +206,14 @@ export const AppRoot = defineComponent({
       postingsResult.value = postings;
       companiesResult.value = companies;
       criteriaResult.value = criteria;
-      if (queue.ok && postings.ok && companies.ok && criteria.ok) {
+      candidatesResult.value = candidates;
+      if (queue.ok && postings.ok && companies.ok && criteria.ok && candidates.ok) {
         saveReads(props.store, {
           queue: queue.value,
           postings: postings.value,
           companies: companies.value,
           criteria: criteria.value,
+          candidates: candidates.value,
         });
         const outstanding = new Map(decided.value);
         for (const key of applied) outstanding.delete(key);
@@ -284,6 +289,7 @@ export const AppRoot = defineComponent({
           cached.criteria === null
             ? { ok: false, reason: "No criteria row in the last round." }
             : { ok: true, value: cached.criteria };
+        candidatesResult.value = { ok: true, value: cached.candidates };
         void runRefresh(refreshing, refresh);
       } else {
         await refresh();
@@ -365,6 +371,9 @@ export const AppRoot = defineComponent({
       droppedWith(companiesResult.value?.ok ? companiesResult.value.value : [], dropped.value),
     );
     const criteria = computed(() => (criteriaResult.value?.ok ? criteriaResult.value.value : null));
+    const candidates = computed(() =>
+      candidatesResult.value?.ok ? candidatesResult.value.value : [],
+    );
 
     const queueError = computed(() =>
       queueResult.value && !queueResult.value.ok ? queueResult.value.reason : null,
@@ -377,6 +386,9 @@ export const AppRoot = defineComponent({
     );
     const criteriaError = computed(() =>
       criteriaResult.value && !criteriaResult.value.ok ? criteriaResult.value.reason : null,
+    );
+    const candidatesError = computed(() =>
+      candidatesResult.value && !candidatesResult.value.ok ? candidatesResult.value.reason : null,
     );
 
     const tabError = computed(() => {
@@ -410,6 +422,8 @@ export const AppRoot = defineComponent({
       waitingPostings,
       companies,
       criteria,
+      candidates,
+      candidatesError,
       tabError,
       TABS,
     };

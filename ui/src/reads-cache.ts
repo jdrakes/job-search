@@ -4,7 +4,7 @@
  * the store has been idle is seconds long. Beside the session in the same
  * store, so nothing new is trusted to the device; cleared on sign-out.
  */
-import type { Company, Criteria, PostingSummary } from "../../src/schema.ts";
+import type { Candidate, Company, Criteria, PostingSummary } from "../../src/schema.ts";
 import type { SessionStore } from "./auth.ts";
 
 export const READS_KEY = "job-search.reads";
@@ -14,6 +14,7 @@ export interface Reads {
   readonly postings: PostingSummary[];
   readonly companies: Company[];
   readonly criteria: Criteria | null;
+  readonly candidates: Candidate[];
 }
 
 /** The shape is checked, the rows are the store's own. */
@@ -29,8 +30,13 @@ export function loadReads(store: SessionStore): Reads | null {
   }
   if (typeof parsed !== "object" || parsed === null) return null;
   const record = parsed as Record<string, unknown>;
-  const { queue, postings, companies, criteria } = record;
-  if (!Array.isArray(queue) || !Array.isArray(postings) || !Array.isArray(companies)) {
+  const { queue, postings, companies, criteria, candidates } = record;
+  if (
+    !Array.isArray(queue) ||
+    !Array.isArray(postings) ||
+    !Array.isArray(companies) ||
+    !Array.isArray(candidates)
+  ) {
     store.removeItem(READS_KEY);
     return null;
   }
@@ -40,6 +46,7 @@ export function loadReads(store: SessionStore): Reads | null {
     postings: postings as PostingSummary[],
     companies: companies as Company[],
     criteria: criteria as Criteria | null,
+    candidates: candidates as Candidate[],
   };
 }
 

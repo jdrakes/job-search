@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { STATUSES } from "../../src/schema.ts";
+import { CANDIDATE_FIELDS, STATUSES } from "../../src/schema.ts";
 import {
   PAGE_SIZE,
+  addCandidate,
+  loadCandidates,
   loadCompanies,
   loadCriteria,
   loadPostings,
@@ -148,6 +150,16 @@ test("loadCompanies orders by name, the primary key, and adds no second term", a
 
   const url = new URL(calls[0]?.url ?? "");
   assert.equal(url.searchParams.get("order"), "name.asc");
+});
+
+test("loadCandidates orders newest first, with the primary key appended as the tiebreak", async () => {
+  const { calls, fetchImpl } = recordingFetch([jsonReply([])]);
+
+  await loadCandidates(CONFIG, ACCESS_TOKEN, fetchImpl);
+
+  const url = new URL(calls[0]?.url ?? "");
+  assert.equal(url.searchParams.get("order"), "added_at.desc,id.asc");
+  assert.equal(url.searchParams.get("select"), CANDIDATE_FIELDS.join(","));
 });
 
 test("loadCriteria returns the one row, unwrapped from the array PostgREST sends", async () => {
@@ -312,6 +324,87 @@ test("setCompanyDrop patches dropped_at and reason on the one company, never boa
     reason: "acquired, boards gone dark",
   });
   assert.deepEqual(result, { ok: true });
+});
+
+test("addCandidate posts name, url and evidence with origin set to james", async () => {
+  const { calls, fetchImpl } = recordingFetch([jsonReply([{ id: "new-1" }])]);
+
+  const result = await addCandidate(
+    CONFIG,
+    ACCESS_TOKEN,
+    { name: "Acme", url: "https://acme.example.com/careers", evidence: "a friend mentioned it" },
+    fetchImpl,
+  );
+
+  assert.equal(calls[0]?.method, "POST");
+  assert.equal(calls[0]?.url, `${CONFIG.url}/rest/v1/candidates`);
+  assert.equal(calls[0]?.headers.get("Prefer"), "return=representation");
+  assert.deepEqual(JSON.parse(calls[0]?.body ?? "{}"), {
+    name: "Acme",
+    url: "https://acme.example.com/careers",
+    evidence: "a friend mentioned it",
+    origin: "james",
+  });
+  assert.deepEqual(result, { ok: true });
+});
+
+test("addCandidate accepts a URL alone, with no name", async () => {
+  const { calls, fetchImpl } = recordingFetch([jsonReply([{ id: "new-2" }])]);
+
+  const result = await addCandidate(
+    CONFIG,
+    ACCESS_TOKEN,
+    { name: null, url: "https://acme.example.com", evidence: null },
+    fetchImpl,
+  );
+
+  assert.equal(calls.length, 1, "a valid URL alone is sent, not refused");
+  assert.deepEqual(result, { ok: true });
+});
+
+test("addCandidate refuses and sends nothing when both name and url are empty", async () => {
+  const { calls, fetchImpl } = recordingFetch([jsonReply([{ id: "unused" }])]);
+
+  const result = await addCandidate(
+    CONFIG,
+    ACCESS_TOKEN,
+    { name: null, url: null, evidence: null },
+    fetchImpl,
+  );
+
+  assert.equal(calls.length, 0, "refused before any request went out");
+  assert.equal(result.ok, false);
+  assert.match(!result.ok ? result.reason : "", /name or a URL/);
+});
+
+test("addCandidate refuses a url that new URL() cannot parse, when there is no name", async () => {
+  const { calls, fetchImpl } = recordingFetch([jsonReply([{ id: "unused" }])]);
+
+  const result = await addCandidate(
+    CONFIG,
+    ACCESS_TOKEN,
+    { name: null, url: "not a url", evidence: null },
+    fetchImpl,
+  );
+
+  assert.equal(calls.length, 0, "an unparseable url with no name is refused before sending");
+  assert.equal(result.ok, false);
+});
+
+test("addCandidate reports failure when the store refuses the insert", async () => {
+  const { fetchImpl } = recordingFetch([
+    statusReply(403, "new row violates row-level security policy"),
+  ]);
+
+  const result = await addCandidate(
+    CONFIG,
+    ACCESS_TOKEN,
+    { name: "Acme", url: null, evidence: null },
+    fetchImpl,
+  );
+
+  assert.equal(result.ok, false);
+  assert.match(!result.ok ? result.reason : "", /403/);
 });
 
 test("saveCriteria patches the row and stamps updated_at from the injected clock", async () => {

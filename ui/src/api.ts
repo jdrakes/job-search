@@ -10,9 +10,11 @@
  * failing leaves the others as they were.
  */
 import {
+  CANDIDATE_FIELDS,
   COMPANY_FIELDS,
   CRITERIA_FIELDS,
   POSTING_LIST_FIELDS,
+  type Candidate,
   type Company,
   type Criteria,
   type PostingSummary,
@@ -154,6 +156,18 @@ export async function loadCompanies(
   return selectAll<Company>(config, accessToken, "companies", params, httpFetch);
 }
 
+/** Newest first: `added_at.desc` with the primary key appended as the tiebreak. */
+export async function loadCandidates(
+  config: AppConfig,
+  accessToken: string,
+  httpFetch: typeof fetch = fetch,
+): Promise<ReadResult<Candidate[]>> {
+  const params = new URLSearchParams();
+  params.set("select", CANDIDATE_FIELDS.join(","));
+  params.set("order", totalOrder("candidates", "added_at.desc"));
+  return selectAll<Candidate>(config, accessToken, "candidates", params, httpFetch);
+}
+
 export async function loadCriteria(
   config: AppConfig,
   accessToken: string,
@@ -235,6 +249,64 @@ export async function setCompanyDrop(
   httpFetch: typeof fetch = fetch,
 ): Promise<WriteResult> {
   return patchOne(config, accessToken, "companies", "name", name, { ...patch }, httpFetch);
+}
+
+export type CandidateInput = Pick<Candidate, "name" | "url" | "evidence">;
+
+/**
+ * A value with nothing in it, once whitespace is stripped: `null`, `""` and
+ * `"  "` all count as absent.
+ */
+function isBlank(value: string | null): boolean {
+  return value === null || value.trim() === "";
+}
+
+/**
+ * The run parses a URL for real, at the boundary; this only catches an input
+ * that could not name anything at all before it is sent: no name, and either
+ * no URL or a URL `new URL()` itself refuses to parse.
+ */
+function refused(input: CandidateInput): boolean {
+  if (!isBlank(input.name)) return false;
+  if (isBlank(input.url)) return true;
+  try {
+    new URL(input.url as string);
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+/** James is the only source that adds from the list; discover adds as `peers`. */
+export async function addCandidate(
+  config: AppConfig,
+  accessToken: string,
+  input: CandidateInput,
+  httpFetch: typeof fetch = fetch,
+): Promise<WriteResult> {
+  if (refused(input)) {
+    return { ok: false, reason: "a candidate needs a name or a URL" };
+  }
+  const url = `${config.url}/rest/v1/candidates`;
+  try {
+    const response = await httpFetch(url, {
+      method: "POST",
+      headers: headers(config, accessToken, {
+        "Content-Type": "application/json",
+        Prefer: "return=representation",
+      }),
+      body: JSON.stringify({ ...input, origin: "james" }),
+    });
+    if (!response.ok) {
+      return {
+        ok: false,
+        reason: `candidates: HTTP ${response.status}: ${await errorDetail(response)}`,
+      };
+    }
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, reason: `candidates: ${messageOf(error)}` };
+  }
 }
 
 export type CriteriaPatch = Omit<Criteria, "id" | "updated_at">;
