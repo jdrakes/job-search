@@ -218,9 +218,12 @@ hundreds of megabytes, while the slice the list needs is under one.
   property of one deployment rather than of this repository, so the operator
   owns that step and nothing here holds those values.
 - `npm test` runs the store contract against the memory adapter always, and
-  against Postgres only when `.env` names one. With `JOB_SEARCH_DB_URL` unset
-  the Postgres half skips and prints why. Skipped there is correct, not
-  broken.
+  against Postgres only when `.env` names a test database. That is
+  `JOB_SEARCH_TEST_DB_URL`, never `JOB_SEARCH_DB_URL`: the suite writes and
+  deletes rows, so it gets a database of its own with the migrations applied
+  (`createdb job_search_test`, then each file in `supabase/migrations` in
+  order). With `JOB_SEARCH_TEST_DB_URL` unset the Postgres half skips and
+  prints why. Skipped there is correct, not broken.
 - The per-host delays in `src/net/http.ts` are not configurable and are not
   going to be. A delay there is a fact about a host, read off its robots.txt
   or measured against it, not a preference. As a setting it would be set to

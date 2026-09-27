@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readdirSync, readFileSync } from "node:fs";
 import process from "node:process";
 import { test } from "node:test";
 
@@ -309,8 +310,11 @@ const CONTRACT_TABLES = [
 // run never reads as "the database agreed". Cleanup goes around the adapter
 // under test (a raw `pg` query) so a broken `delete` cannot tidy up after
 // itself.
-const LOCAL_URL = process.env["JOB_SEARCH_DB_URL"] ?? "";
-const localSkip = LOCAL_URL === "" ? "JOB_SEARCH_DB_URL unset" : null;
+// Its own database, never the store of record: this suite writes and
+// deletes rows, and `JOB_SEARCH_DB_URL` names the store the run and the
+// list use.
+const LOCAL_URL = process.env["JOB_SEARCH_TEST_DB_URL"] ?? "";
+const localSkip = LOCAL_URL === "" ? "JOB_SEARCH_TEST_DB_URL unset" : null;
 
 let local: Store | null = null;
 function openLocal(): Store {
@@ -545,4 +549,19 @@ test("storeStats counts the adapter's statements, so a phase line can report the
   const after = storeStats();
   assert.equal(after.requests - before.requests, 1);
   assert.ok(after.ms >= before.ms);
+});
+
+test("no test reads JOB_SEARCH_DB_URL from the environment: the store of record is never a test database", () => {
+  const dirs = ["tests", "ui/tests"];
+  const offenders = dirs.flatMap((dir) =>
+    readdirSync(dir)
+      .filter((file) => file.endsWith(".test.ts"))
+      .map((file) => `${dir}/${file}`)
+      .filter((path) =>
+        /process\.env\[\s*["']JOB_SEARCH_DB_URL["']\s*\]|process\.env\.JOB_SEARCH_DB_URL/.test(
+          readFileSync(path, "utf8"),
+        ),
+      ),
+  );
+  assert.deepEqual(offenders, []);
 });
