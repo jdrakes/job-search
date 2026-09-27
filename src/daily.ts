@@ -4,7 +4,6 @@ import { dirname, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-import { boardsOf, readable } from "./companies.ts";
 import { loadCriteria } from "./criteria.ts";
 import { discover, type DiscoverResult, unbind, type Unbound } from "./discover.ts";
 import { builtInSource } from "./discovery/builtin.ts";
@@ -15,7 +14,7 @@ import type { DiscoverySource, Source } from "./discovery/source.ts";
 import { theMuseSource } from "./discovery/themuse.ts";
 import { weWorkRemotelySource } from "./discovery/weworkremotely.ts";
 import { describeError } from "./errors.ts";
-import { ingest, judgeAll } from "./ingest.ts";
+import { ingest, type IngestResult, judgeAll } from "./ingest.ts";
 import { phase } from "./phase.ts";
 import { loadSettings, type Settings } from "./settings.ts";
 import { openStore } from "./store/open.ts";
@@ -209,16 +208,21 @@ async function main(): Promise<number> {
     console.error(`discover failed, ingesting anyway: ${describeError(error)}`);
   }
 
-  // Read separately from `ingest`'s own call to `readable`: the only way to
-  // tell "every board failed" from "some boards listed zero postings".
-  const companies = await readable(store);
-  const totalBoards = companies.reduce((sum, company) => sum + boardsOf(company).length, 0);
-
-  const result = await phase("list", () => ingest(store, readers), console.log);
+  // `today` picks today's boards (`boardsToRead`, ingest.ts): Monday reads
+  // every board, another weekday only those that have ever produced or are
+  // new.
+  const result = await phase(
+    "list",
+    () => ingest(store, readers, { today: new Date() }),
+    console.log,
+  );
 
   console.log(
     `ingest: ${result.companies} companies, ${result.listed} listed, ${result.recorded} recorded, ` +
       `${result.errors.length} errors, ${result.gone.length} gone`,
+  );
+  console.log(
+    `list: ${result.boardsToday} boards today, ${result.boardsWaiting} waiting for Monday`,
   );
   for (const error of result.errors) {
     console.log(`  ${error}`);
@@ -246,9 +250,18 @@ async function main(): Promise<number> {
     console.log(`  ${error}`);
   }
 
-  // A silent nothing-happened must be visible. Listing errors only: judging
-  // has its own count above.
-  const everyBoardFailed = totalBoards > 0 && result.errors.length >= totalBoards;
+  return listExitCode(result);
+}
+
+// A silent nothing-happened must be visible. Listing errors only: judging
+// has its own count. `boardsToday` is the only way to tell "every board
+// failed" from "some boards listed zero postings": a board waiting for
+// Monday was never attempted, and it and `errors` are both counted per
+// company board, so a board two companies carry is two of each.
+export function listExitCode(
+  result: Pick<IngestResult, "companies" | "errors" | "boardsToday">,
+): number {
+  const everyBoardFailed = result.boardsToday > 0 && result.errors.length >= result.boardsToday;
   return result.companies === 0 || everyBoardFailed ? 1 : 0;
 }
 
