@@ -12,9 +12,11 @@
 // where they were written; a posting the hosted store lacks is copied whole,
 // since there is nothing of his there to keep. For a company only its
 // boards are copied: the drop and its reason are his. Criteria are not
-// copied: the hosted row is the original. Candidates are copied whole:
-// nothing writes a candidate to the hosted store yet, so the local rows are
-// the record.
+// copied: the hosted row is the original. Candidates are copied whole,
+// including a row both stores hold: nothing writes a candidate to the
+// hosted store yet (the list's Add box is not built), so the local rows are
+// the record, and the hosted copies are the #275 backfill's snapshot, whose
+// added_at came from each store's own companies.first_seen.
 import process from "node:process";
 
 import { describeError } from "../src/errors.ts";
@@ -25,6 +27,7 @@ import {
   type Company,
   type Posting,
 } from "../src/schema.ts";
+import { openStore } from "../src/store/open.ts";
 import { postgresStore } from "../src/store/postgres.ts";
 import type { Store } from "../src/store/store.ts";
 
@@ -88,17 +91,20 @@ export async function copyToHosted(local: Store, hosted: Store): Promise<CopySum
   };
 }
 
-function urlOf(name: string): string {
-  const url = process.env[name];
+// Read here rather than through `openHostedStore`, which the switchover
+// itself deletes (#285): the copy runs once, before that lands, and should
+// not depend on it.
+function hostedUrl(): string {
+  const url = process.env["SUPABASE_DB_URL"];
   if (url === undefined || url === "") {
-    throw new Error(`copy-to-hosted: ${name} is not set`);
+    throw new Error("copy-to-hosted: SUPABASE_DB_URL is not set");
   }
   return url;
 }
 
 async function main(): Promise<void> {
-  const local = postgresStore({ url: urlOf("JOB_SEARCH_DB_URL") });
-  const hosted = postgresStore({ url: urlOf("SUPABASE_DB_URL") });
+  const local = openStore();
+  const hosted = postgresStore({ url: hostedUrl() });
   const summary = await copyToHosted(local, hosted);
   console.log(
     `copy-to-hosted: ${summary.postings} postings, ${summary.candidates} candidates, ` +

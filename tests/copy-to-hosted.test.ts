@@ -145,3 +145,32 @@ test("copyToHosted: candidates are copied whole and criteria are left alone", as
   const [criteria] = await hosted.select<Criteria>("criteria", { id: 1 });
   assert.equal(criteria?.comp_floor, 200_000);
 });
+
+// Breaks if a candidate both stores hold keeps any hosted column: the local
+// row is the record, and the hosted copy is only the backfill's snapshot.
+test("copyToHosted: a candidate both stores hold takes every local column", async () => {
+  const local = memoryStore({
+    candidates: [
+      candidate({
+        id: "c2",
+        origin: "builtin.com",
+        added_at: "2026-09-10T00:00:00.000Z",
+        outcome: "watched",
+        company: "Acme",
+      }),
+    ],
+  });
+  const hosted = memoryStore({
+    candidates: [
+      candidate({ id: "c2", origin: "bootstrap", added_at: "2026-09-11T00:00:00.000Z" }),
+    ],
+  });
+
+  await copyToHosted(local, hosted);
+
+  const [row] = await hosted.select<Candidate>("candidates", { id: "c2" });
+  assert.equal(row?.origin, "builtin.com");
+  assert.equal(row?.added_at, "2026-09-10T00:00:00.000Z");
+  assert.equal(row?.outcome, "watched");
+  assert.equal(row?.company, "Acme");
+});
