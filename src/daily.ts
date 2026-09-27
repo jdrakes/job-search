@@ -4,7 +4,6 @@ import { dirname, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-import { boardsOf, readable } from "./companies.ts";
 import { loadCriteria } from "./criteria.ts";
 import { discover, type DiscoverResult, unbind, type Unbound } from "./discover.ts";
 import { builtInSource } from "./discovery/builtin.ts";
@@ -209,16 +208,23 @@ async function main(): Promise<number> {
     console.error(`discover failed, ingesting anyway: ${describeError(error)}`);
   }
 
-  // Read separately from `ingest`'s own call to `readable`: the only way to
-  // tell "every board failed" from "some boards listed zero postings".
-  const companies = await readable(store);
-  const totalBoards = companies.reduce((sum, company) => sum + boardsOf(company).length, 0);
-
-  const result = await phase("list", () => ingest(store, readers), console.log);
+  // `today` picks today's boards (`boardsToRead`, ingest.ts): Monday reads
+  // every board, another weekday only those that have ever produced or are
+  // new. `result.boardsToday` is then the only way to tell "every board
+  // failed" from "some boards listed zero postings", since a board waiting
+  // for Monday is neither.
+  const result = await phase(
+    "list",
+    () => ingest(store, readers, { today: new Date() }),
+    console.log,
+  );
 
   console.log(
     `ingest: ${result.companies} companies, ${result.listed} listed, ${result.recorded} recorded, ` +
       `${result.errors.length} errors, ${result.gone.length} gone`,
+  );
+  console.log(
+    `list: ${result.boardsToday} boards today, ${result.boardsWaiting} waiting for Monday`,
   );
   for (const error of result.errors) {
     console.log(`  ${error}`);
@@ -247,8 +253,9 @@ async function main(): Promise<number> {
   }
 
   // A silent nothing-happened must be visible. Listing errors only: judging
-  // has its own count above.
-  const everyBoardFailed = totalBoards > 0 && result.errors.length >= totalBoards;
+  // has its own count above. Counts today's boards only: a board waiting for
+  // Monday was never attempted, so it must not count as a failure.
+  const everyBoardFailed = result.boardsToday > 0 && result.errors.length >= result.boardsToday;
   return result.companies === 0 || everyBoardFailed ? 1 : 0;
 }
 

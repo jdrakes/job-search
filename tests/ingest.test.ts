@@ -3,7 +3,8 @@ import { createHash } from "node:crypto";
 import { test } from "node:test";
 
 import type { Listing, Reader } from "../src/ats/ats.ts";
-import { ingest, judgeAll } from "../src/ingest.ts";
+import { boardKey } from "../src/companies.ts";
+import { boardsToRead, ingest, judgeAll } from "../src/ingest.ts";
 import { HttpError } from "../src/net/http.ts";
 import type { Company, Criteria, Platform, Posting, Table } from "../src/schema.ts";
 import { memoryStore } from "../src/store/memory.ts";
@@ -3609,4 +3610,146 @@ test("judgeAll: a quick sweep logs no progress at all", async () => {
 
   assert.equal(judging.judged, 1);
   assert.equal(lines.length, 0);
+});
+
+// A local noon avoids any midnight-boundary flakiness from the runner's
+// time zone; 2026-09-28 is a Monday, 2026-09-29 the Tuesday right after it.
+const MONDAY = new Date("2026-09-28T12:00:00");
+const TUESDAY = new Date("2026-09-29T12:00:00");
+
+test("boardsToRead: Monday reads every board, whatever its postings say", () => {
+  const companies = [
+    company("Acme", {
+      boards: [
+        { platform: "greenhouse", id: "acme-producing" },
+        { platform: "greenhouse", id: "acme-failing" },
+      ],
+    }),
+    company("Globex", { boards: [{ platform: "lever", id: "globex-new" }] }),
+  ];
+  const postings = [
+    posting({
+      key: "greenhouse/acme-producing::1",
+      company: "Acme",
+      platform: "greenhouse",
+      board: "acme-producing",
+      title: "Staff Backend Engineer",
+    }),
+    posting({
+      key: "greenhouse/acme-failing::1",
+      company: "Acme",
+      platform: "greenhouse",
+      board: "acme-failing",
+      title: "Marketing Manager",
+    }),
+  ];
+
+  const result = boardsToRead(companies, postings, criteria(), MONDAY);
+
+  assert.deepEqual(
+    [...result].sort(),
+    [
+      boardKey({ platform: "greenhouse", id: "acme-producing" }),
+      boardKey({ platform: "greenhouse", id: "acme-failing" }),
+      boardKey({ platform: "lever", id: "globex-new" }),
+    ].sort(),
+  );
+});
+
+test("boardsToRead: a board with no stored posting is read on a non-Monday", () => {
+  const companies = [company("Acme", { boards: [{ platform: "greenhouse", id: "acme-new" }] })];
+
+  const result = boardsToRead(companies, [], criteria(), TUESDAY);
+
+  assert.ok(result.has(boardKey({ platform: "greenhouse", id: "acme-new" })));
+});
+
+test("boardsToRead: a board whose every posting fails level, role, excluded words or country is skipped on a non-Monday", () => {
+  const companies = [company("Acme", { boards: [{ platform: "greenhouse", id: "acme-failing" }] })];
+  const postings = [
+    posting({
+      key: "greenhouse/acme-failing::1",
+      company: "Acme",
+      platform: "greenhouse",
+      board: "acme-failing",
+      // No level word, no role word: fails both.
+      title: "Marketing Manager",
+    }),
+  ];
+
+  const result = boardsToRead(companies, postings, criteria(), TUESDAY);
+
+  assert.equal(result.has(boardKey({ platform: "greenhouse", id: "acme-failing" })), false);
+});
+
+test("boardsToRead: one posting whose title and place pass keeps its board reading even once it has aged out and is stored kept:false", () => {
+  const companies = [company("Acme", { boards: [{ platform: "greenhouse", id: "acme-old" }] })];
+  // Stored as aged out (`kept: false`, `reasons` naming only "age", the way
+  // #274 leaves it) to prove the check is re-derived from title and location
+  // under the current criteria, never read off the stored verdict.
+  const postings = [
+    posting({
+      key: "greenhouse/acme-old::1",
+      company: "Acme",
+      platform: "greenhouse",
+      board: "acme-old",
+      title: "Staff Backend Engineer",
+      posted_at: "2020-01-01T00:00:00.000Z",
+      kept: false,
+      reasons: [{ criterion: "age", verdict: "out", detail: "too old" }],
+    }),
+  ];
+
+  const result = boardsToRead(companies, postings, criteria({ max_age_days: 1 }), TUESDAY);
+
+  assert.ok(result.has(boardKey({ platform: "greenhouse", id: "acme-old" })));
+});
+
+test("ingest: a board with no producing posting waits for Monday and is never read; a producing board is", async () => {
+  const store = memoryStore({
+    companies: [
+      company("Acme", {
+        boards: [
+          { platform: "greenhouse", id: "acme-producing" },
+          { platform: "greenhouse", id: "acme-failing" },
+        ],
+      }),
+    ],
+    postings: [
+      posting({
+        key: "greenhouse/acme-producing::1",
+        company: "Acme",
+        platform: "greenhouse",
+        board: "acme-producing",
+        title: "Staff Backend Engineer",
+      }),
+      posting({
+        key: "greenhouse/acme-failing::1",
+        company: "Acme",
+        platform: "greenhouse",
+        board: "acme-failing",
+        title: "Marketing Manager",
+      }),
+    ],
+    criteria: [criteria()],
+  });
+
+  const readers: Partial<Record<Platform, Reader>> = {
+    greenhouse: {
+      platform: "greenhouse",
+      list: async (board) => {
+        if (board.id === "acme-failing") {
+          throw new Error("the waiting board must never be read");
+        }
+        return [listing("2", { title: "Staff Backend Engineer" })];
+      },
+    },
+  };
+
+  const result = await ingest(store, readers, { today: TUESDAY });
+
+  assert.equal(result.errors.length, 0, "the waiting board cost no error");
+  assert.equal(result.listed, 1, "only the producing board's listing was read");
+  assert.equal(result.boardsToday, 1);
+  assert.equal(result.boardsWaiting, 1);
 });

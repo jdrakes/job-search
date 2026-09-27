@@ -43,7 +43,11 @@ function matchesAny(
   return null;
 }
 
-function judgeLevel(title: string, compHigh: number | null, criteria: Criteria): Reason {
+// Exported so `boardsToRead` (ingest.ts) can ask, from a posting's title and
+// location alone, whether it would ever pass the listing criteria that
+// title and place decide, without duplicating the rule here and there
+// drifting apart.
+export function judgeLevel(title: string, compHigh: number | null, criteria: Criteria): Reason {
   const word = matchesAny(title, criteria.level_words);
   if (word !== null) {
     return { criterion: "level", verdict: "in", detail: `title carries level word "${word.term}"` };
@@ -123,7 +127,7 @@ export function admitsLevel(
   return judgeLevel(posting.title ?? "", posting.comp_high, criteria).verdict === "in";
 }
 
-function judgeRole(title: string, criteria: Criteria): Reason {
+export function judgeRole(title: string, criteria: Criteria): Reason {
   const word = matchesAny(title, criteria.role_words);
   if (word !== null) {
     const work = matchesAny(title, ENGINEERING_WORK_WORDS);
@@ -163,7 +167,7 @@ function roleEnd(title: string): number {
 // sits after the role part: "Staff Software Engineer, Customer
 // Administration" keeps "customer" there as a team. A word not on
 // `team_name_words` names an excluded discipline wherever it sits.
-function judgeExcludedWords(title: string, criteria: Criteria): Reason {
+export function judgeExcludedWords(title: string, criteria: Criteria): Reason {
   const boundary = roleEnd(title);
   const teamNames = new Set(criteria.team_name_words.map((word) => word.toLowerCase()));
 
@@ -188,7 +192,7 @@ function judgeExcludedWords(title: string, criteria: Criteria): Reason {
 // `country_restriction` in text.ts. Here rather than there because the
 // label is free and the body is not. A label naming only a city ("Seoul")
 // falls to the "names no country is in" default.
-function judgeCountry(location: string | null, criteria: Criteria): Reason {
+export function judgeCountry(location: string | null, criteria: Criteria): Reason {
   if (location === null || location.trim() === "") {
     return { criterion: "country", verdict: "in", detail: "posting names no location" };
   }

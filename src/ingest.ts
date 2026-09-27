@@ -6,11 +6,20 @@
 import { createHash } from "node:crypto";
 
 import { compInText, type Listing, type Reader } from "./ats/ats.ts";
-import { boardsOf, isGone, readable } from "./companies.ts";
+import { boardKey, boardsOf, isGone, readable } from "./companies.ts";
 import { loadCriteria } from "./criteria.ts";
 import { describeError } from "./errors.ts";
 import { judge, needsJudging, representativeByKey } from "./judge/judge.ts";
-import { type BoardIndex, boardIndex, judgeListing, NO_BOARDS } from "./judge/listing.ts";
+import {
+  type BoardIndex,
+  boardIndex,
+  judgeCountry,
+  judgeExcludedWords,
+  judgeLevel,
+  judgeListing,
+  judgeRole,
+  NO_BOARDS,
+} from "./judge/listing.ts";
 import {
   COMPANY_FIELDS,
   postingKey,
@@ -33,6 +42,13 @@ export interface IngestResult {
   // list phase writes postings only; discovery removes these boards
   // (`unbind`, discover.ts).
   readonly gone: readonly GoneBoard[];
+  // Set only when `options.today` is given (the daily run always gives it).
+  // `boardsToday` is every board `boardsToRead` picked; `boardsWaiting` is
+  // every other currently-readable board, left for Monday. Absent `today`,
+  // every readable board is listed, as before this feature, so `boardsToday`
+  // equals the total and `boardsWaiting` is 0.
+  readonly boardsToday: number;
+  readonly boardsWaiting: number;
 }
 
 export interface GoneBoard {
@@ -61,6 +77,10 @@ const PROGRESS_INTERVAL_MS = 30_000;
 
 export interface IngestOptions {
   readonly now?: () => string;
+  // The local date the run started, for `boardsToRead`. Left out, every
+  // readable board is listed, matching the run before this feature and every
+  // existing test that has no reason to care what day it is.
+  readonly today?: Date;
 }
 
 // The columns every written re-list carries. `first_seen` is not among
@@ -491,6 +511,77 @@ export async function judgeAll(
   return { judged, errors };
 }
 
+// The columns `boardsToRead` needs and nothing else: this select runs
+// against the hosted store over the network every weekday morning, so its
+// row is as small as the question ("has this board ever produced?") allows.
+const PRODUCING_COLUMNS = [
+  "platform",
+  "board",
+  "title",
+  "location",
+] as const satisfies readonly (keyof Posting)[];
+type ProducingPosting = Pick<Posting, (typeof PRODUCING_COLUMNS)[number]>;
+
+async function producingPostings(store: Store): Promise<readonly ProducingPosting[]> {
+  return store.select<ProducingPosting>("postings", undefined, PRODUCING_COLUMNS);
+}
+
+// The four listing criteria a title and a location alone decide: level,
+// role, excluded words and country. Not `comp_floor` (needs a comp figure
+// this select does not carry), not age, gone, unwatched or duplicate (all
+// board-read bookkeeping, not something a title says about the role). Run
+// with the judge's own criterion functions, never against stored `reasons`:
+// since #274 a posting past max age is rejected on age alone and its
+// reasons never record whether its title and place would also have passed,
+// so reading reasons back would count almost every board as producing (see
+// the plan's Rule).
+function passesTitleAndPlace(
+  posting: Pick<ProducingPosting, "title" | "location">,
+  criteria: Criteria,
+): boolean {
+  const title = posting.title ?? "";
+  return (
+    judgeLevel(title, null, criteria).verdict === "in" &&
+    judgeRole(title, criteria).verdict === "in" &&
+    judgeExcludedWords(title, criteria).verdict === "in" &&
+    judgeCountry(posting.location, criteria).verdict === "in"
+  );
+}
+
+// Which of today's readable boards get listed. A board is read when: it is
+// Monday (`today`'s local day; `today` is passed in so a test can fix it);
+// no criteria row exists yet (a fresh install lists everything, same as
+// `toRow`'s fallback); the board has never been listed before (a new board
+// is read at once); or any of its stored postings, judged fresh from its own
+// title and location, would pass level, role, excluded words and country
+// under the current criteria (a posting that later aged out still marks its
+// board as one that hires for the role). Every other board waits for
+// Monday. Pure: reads nothing itself, so a test can hand it fixed inputs.
+export function boardsToRead(
+  companies: readonly Company[],
+  postings: readonly ProducingPosting[],
+  criteria: Criteria | undefined,
+  today: Date,
+): Set<string> {
+  const allKeys = new Set(companies.flatMap((company) => boardsOf(company).map(boardKey)));
+  if (today.getDay() === 1 || criteria === undefined) return allKeys;
+
+  const seen = new Set<string>();
+  const producing = new Set<string>();
+  for (const posting of postings) {
+    if (posting.board === null) continue;
+    const key = boardKey({ platform: posting.platform, id: posting.board });
+    seen.add(key);
+    if (!producing.has(key) && passesTitleAndPlace(posting, criteria)) producing.add(key);
+  }
+
+  const result = new Set<string>();
+  for (const key of allKeys) {
+    if (!seen.has(key) || producing.has(key)) result.add(key);
+  }
+  return result;
+}
+
 interface ListedCompany {
   readonly listed: number;
   readonly recorded: number;
@@ -506,6 +597,7 @@ async function listCompany(
   stored: ReadonlyMap<string, StoredListing>,
   storedByBoard: ReadonlyMap<string, ReadonlySet<string>>,
   criteria: Criteria | undefined,
+  boardsForToday: ReadonlySet<string> | undefined,
 ): Promise<ListedCompany> {
   const errors: string[] = [];
   const gone: GoneBoard[] = [];
@@ -520,6 +612,9 @@ async function listCompany(
   const batch = new Map<string, ListedRow | GoneRow>();
 
   for (const board of boardsOf(company)) {
+    // Waiting for Monday: not read, not marked gone, no error. `undefined`
+    // means every board is read today (see `IngestOptions.today`).
+    if (boardsForToday !== undefined && !boardsForToday.has(boardKey(board))) continue;
     const reader = readers[board.platform];
     if (reader === undefined) {
       errors.push(
@@ -661,7 +756,9 @@ export async function ingest(
   options?: IngestOptions,
 ): Promise<IngestResult> {
   const now = options?.now ?? (() => new Date().toISOString());
+  const today = options?.today;
   const companies = await readable(store);
+  const totalBoards = companies.reduce((sum, company) => sum + boardsOf(company).length, 0);
 
   // A failed sweep read is one error line: an empty map means every body
   // gets written this run.
@@ -696,6 +793,17 @@ export async function ingest(
   const criteriaResult = await loadCriteria(store);
   const criteria = criteriaResult.ok ? criteriaResult.value : undefined;
 
+  // `undefined` (no `today` given) lists every readable board, as before
+  // this feature: every existing caller that does not pass `today` sees no
+  // change, and only `daily.ts` opts in. Given, this is the one select this
+  // feature adds, run once for the whole morning.
+  const boardsForToday =
+    today === undefined
+      ? undefined
+      : boardsToRead(companies, await producingPostings(store), criteria, today);
+  const boardsToday = boardsForToday === undefined ? totalBoards : boardsForToday.size;
+  const boardsWaiting = totalBoards - boardsToday;
+
   // One worker per platform, the platforms concurrently: no host is shared
   // between platforms, so `http.ts`'s per-host delay keeps its meaning and
   // hosts never wait on each other.
@@ -712,7 +820,16 @@ export async function ingest(
       const results: ListedCompany[] = [];
       for (const company of group) {
         results.push(
-          await listCompany(store, readers, company, now, stored, storedByBoard, criteria),
+          await listCompany(
+            store,
+            readers,
+            company,
+            now,
+            stored,
+            storedByBoard,
+            criteria,
+            boardsForToday,
+          ),
         );
       }
       return results;
@@ -727,6 +844,8 @@ export async function ingest(
     recorded: results.reduce((sum, result) => sum + result.recorded, 0),
     errors: [...errors, ...results.flatMap((result) => result.errors)],
     gone: results.flatMap((result) => result.gone),
+    boardsToday,
+    boardsWaiting,
   };
 }
 
