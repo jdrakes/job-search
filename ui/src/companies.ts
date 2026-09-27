@@ -14,11 +14,12 @@ import {
   type PropType,
 } from "vue";
 
-import type { Company, PostingSummary } from "../../src/schema.ts";
+import type { Candidate, Company, PostingSummary } from "../../src/schema.ts";
 import { setCompanyDrop, type CompanyDropPatch } from "./api.ts";
 import type { AppConfig } from "./config.ts";
 import { EmptyState } from "./empty-state.ts";
 import { focusAfterClose, trapFocus, type DialogClose } from "./focus-trap.ts";
+import { daysBetween } from "./posting.ts";
 import { Toast, useToast } from "./toast.ts";
 
 // Derived from the row, never stored: a company is read when it has a board
@@ -86,6 +87,42 @@ export function dropRefusal(reason: string): string | null {
   return reason.trim() === "" ? "Say why — dropping a company is a judgement, not a fact." : null;
 }
 
+/** How long a company stays under New once discover starts watching it. */
+const NEW_WINDOW_DAYS = 7;
+
+/**
+ * The candidate that opened `name`: the earliest one discover watched into
+ * it, so a later duplicate landing today does not re-open an old company's
+ * New window. Null if discover has never watched a candidate into it.
+ */
+function earliestWatched(candidates: readonly Candidate[], name: string): Candidate | null {
+  const watched = candidates
+    .filter((candidate) => candidate.company === name && candidate.outcome === "watched")
+    .sort((a, b) => a.added_at.localeCompare(b.added_at));
+  return watched[0] ?? null;
+}
+
+/**
+ * Companies discover started watching recently enough to call out before the
+ * state groups below: the one whose earliest watched candidate's
+ * `outcome_at` falls within the last week. Orthogonal to `groupOf` — a
+ * company here still appears in Read or No board too, the way #275 left
+ * them (Design, Companies: "the other groups as #275 left them").
+ */
+export function newCompanies(
+  companies: readonly Company[],
+  candidates: readonly Candidate[],
+  now: number,
+): Set<string> {
+  const names = new Set<string>();
+  for (const company of companies) {
+    const watched = earliestWatched(candidates, company.name);
+    if (watched === null || watched.outcome_at === null) continue;
+    if (daysBetween(watched.outcome_at, now) <= NEW_WINDOW_DAYS) names.add(company.name);
+  }
+  return names;
+}
+
 /**
  * What a committed Drop hands up. `AppRoot` lays the patch over the round it
  * holds, the way it does a posting's status, so the drop outlives this view:
@@ -102,6 +139,7 @@ export const CompaniesView = defineComponent({
   props: {
     companies: { type: Array as PropType<Company[]>, required: true },
     queue: { type: Array as PropType<PostingSummary[]>, required: true },
+    candidates: { type: Array as PropType<Candidate[]>, required: true },
     config: { type: Object as PropType<AppConfig>, required: true },
     accessToken: { type: String, required: true },
     // Seeds the drop dialog open, for an SSR test with no DOM to click.
@@ -154,6 +192,25 @@ export const CompaniesView = defineComponent({
     const groups = computed(() => groupCompanies(props.companies, counts.value));
     const queuedOf = (company: Company): string => queuedLabel(counts.value.get(company.name) ?? 0);
 
+    // Paired with the candidate that opened it, for the New group's second
+    // line (its origin and evidence). Recomputed with the same inputs
+    // `newCompanies` already filtered on, so a name in that set always has
+    // one here; sorted most recently watched first.
+    const newGroup = computed(() => {
+      const names = newCompanies(props.companies, props.candidates, Date.now());
+      return props.companies
+        .filter((company) => names.has(company.name))
+        .flatMap((company) => {
+          const candidate = earliestWatched(props.candidates, company.name);
+          if (candidate === null || candidate.outcome_at === null) return [];
+          return [{ company, candidate, outcomeAt: candidate.outcome_at }];
+        })
+        .sort(
+          (a, b) =>
+            b.outcomeAt.localeCompare(a.outcomeAt) || a.company.name.localeCompare(b.company.name),
+        );
+    });
+
     function openDrop(company: Company): void {
       closeKind = "dismissed";
       dropping.value = company;
@@ -194,6 +251,7 @@ export const CompaniesView = defineComponent({
 
     return {
       groups,
+      newGroup,
       counts,
       busy,
       dropping,
@@ -220,6 +278,23 @@ export const CompaniesView = defineComponent({
       aria-labelledby="tab-companies"
       tabindex="-1"
       ref="sectionRef">
+      <div>
+        <h2 class="group-head">New <span class="count">({{ newGroup.length }})</span></h2>
+        <EmptyState v-if="newGroup.length === 0" text="None." />
+        <div class="list" v-else>
+          <article class="card company new" v-for="entry in newGroup" :key="entry.company.name">
+            <div class="row">
+              <div class="head">
+                <span class="company">{{ entry.company.name }}</span>
+                <span class="board" v-if="entry.company.boards.length > 0">{{ boardLabel(entry.company) }}</span>
+                <span class="board none" v-else>no board yet</span>
+                <span class="origin">{{ entry.candidate.origin }}</span>
+                <span class="why" v-if="entry.candidate.evidence">{{ entry.candidate.evidence }}</span>
+              </div>
+            </div>
+          </article>
+        </div>
+      </div>
       <div v-for="group in groups" :key="group.key">
         <h2 class="group-head">{{ group.label }} <span class="count">({{ group.companies.length }})</span></h2>
         <EmptyState v-if="group.companies.length === 0" text="None." />

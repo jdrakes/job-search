@@ -44,6 +44,7 @@ import {
   type Session,
   type SessionStore,
 } from "./auth.ts";
+import { CandidatesView } from "./candidates.ts";
 import { CompaniesView, type DroppedCompany } from "./companies.ts";
 import { parseConfig, type AppConfig } from "./config.ts";
 import { CriteriaView } from "./criteria.ts";
@@ -125,7 +126,7 @@ function patchedWith(
 
 export const AppRoot = defineComponent({
   name: "AppRoot",
-  components: { SignIn, TabBar, QueueView, RecordView, CompaniesView, CriteriaView },
+  components: { SignIn, TabBar, QueueView, RecordView, CompaniesView, CandidatesView, CriteriaView },
   props: {
     config: { type: Object as PropType<AppConfig>, required: true },
     store: { type: Object as PropType<SessionStore>, required: true },
@@ -183,12 +184,23 @@ export const AppRoot = defineComponent({
       dropped.value = new Map(dropped.value).set(company.name, company.patch);
     }
 
+    // What James has added on this page, laid over the round's own
+    // candidates until a round reads them back, the same way a drop is laid
+    // over companies: the Candidates panel is a `v-if`, and a list kept
+    // there dies with it. `addCandidate` hands back no row to key on (the
+    // store assigns the id), so this holds the echo the form itself built.
+    const added = ref<readonly Candidate[]>([]);
+    function onCandidateAdded(candidate: Candidate): void {
+      added.value = [candidate, ...added.value];
+    }
+
     async function loadAll(readFor: Session): Promise<void> {
       // Taken before the reads are issued: a decision made while they are in
       // flight is not in their response, so dropping the whole map on
       // success would put the old status back on screen.
       const applied = new Set(decided.value.keys());
       const committed = new Set(dropped.value.keys());
+      const submitted = new Set(added.value.map((candidate) => candidate.id));
       const accessToken = readFor.accessToken;
       const [queue, postings, companies, criteria, candidates] = await Promise.all([
         loadQueue(props.config, accessToken, props.httpFetch),
@@ -221,6 +233,7 @@ export const AppRoot = defineComponent({
         const stillDropped = new Map(dropped.value);
         for (const name of committed) stillDropped.delete(name);
         dropped.value = stillDropped;
+        added.value = added.value.filter((candidate) => !submitted.has(candidate.id));
       }
     }
 
@@ -371,9 +384,10 @@ export const AppRoot = defineComponent({
       droppedWith(companiesResult.value?.ok ? companiesResult.value.value : [], dropped.value),
     );
     const criteria = computed(() => (criteriaResult.value?.ok ? criteriaResult.value.value : null));
-    const candidates = computed(() =>
-      candidatesResult.value?.ok ? candidatesResult.value.value : [],
-    );
+    const candidates = computed(() => [
+      ...added.value,
+      ...(candidatesResult.value?.ok ? candidatesResult.value.value : []),
+    ]);
 
     const queueError = computed(() =>
       queueResult.value && !queueResult.value.ok ? queueResult.value.reason : null,
@@ -396,6 +410,7 @@ export const AppRoot = defineComponent({
         queue: queueError.value,
         record: postingsError.value,
         companies: companiesError.value,
+        candidates: candidatesError.value,
         criteria: criteriaError.value,
       };
       return errorByTab[tab.value];
@@ -416,6 +431,7 @@ export const AppRoot = defineComponent({
       selectTab,
       onDecided,
       onDropped,
+      onCandidateAdded,
       queuePostings,
       allPostings,
       actedPostings,
@@ -478,9 +494,17 @@ export const AppRoot = defineComponent({
           v-if="tab === 'companies'"
           :companies="companies"
           :queue="waitingPostings"
+          :candidates="candidates"
           :config="config"
           :access-token="session.accessToken"
           @dropped="onDropped" />
+
+        <CandidatesView
+          v-if="tab === 'candidates'"
+          :candidates="candidates"
+          :config="config"
+          :access-token="session.accessToken"
+          @added="onCandidateAdded" />
 
         <CriteriaView
           v-if="tab === 'criteria' && criteria !== null"

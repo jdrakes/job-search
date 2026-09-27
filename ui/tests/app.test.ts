@@ -1324,7 +1324,7 @@ test("no view skips a heading level under the page's one h1", async () => {
     // for; a fixture that stopped rendering them would pass on the `h1`
     // alone and prove nothing.
     assert.equal(measured.get("queue"), 3, "the h1 and the Queue's two company bands");
-    assert.equal(measured.get("companies"), 4, "the h1 and the three groups");
+    assert.equal(measured.get("companies"), 5, "the h1, New, and the three state groups");
   } finally {
     app.unmount();
     restoreDom();
