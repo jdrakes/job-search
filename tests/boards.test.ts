@@ -8,6 +8,7 @@ import {
   boardUrl,
   pageTitle,
   parseBoardUrl,
+  readBoardName,
 } from "../src/discovery/boards.ts";
 import { HttpError } from "../src/net/http.ts";
 import { PLATFORMS, type Board } from "../src/schema.ts";
@@ -384,7 +385,7 @@ test("boardName: a 404 is an expected failure, read as no name rather than throw
 });
 
 // A 429 is the vendor declining to answer, not the page naming nobody; the
-// probe must not refuse a board on it.
+// name is asked for again next run.
 test("boardName: a 429 is thrown, not read as no name", async () => {
   const fetchImpl: typeof fetch = async () => new Response(null, { status: 429 });
 
@@ -409,4 +410,34 @@ test("boardName: a non-HttpError failure is not swallowed", async () => {
       { fetchImpl, userAgent: TEST_USER_AGENT, sleep: async () => {}, retries: 0 },
     ),
   );
+});
+
+// --- readBoardName -----------------------------------------------------
+
+// The probe's read: a page that did not answer is not a page naming nobody.
+// Breaks if readBoardName catches HttpError the way boardName does.
+for (const status of [403, 404, 503]) {
+  test(`readBoardName: a ${status} on the name page is thrown, not read as no name`, async () => {
+    const fetchImpl: typeof fetch = async () => new Response(null, { status });
+
+    await assert.rejects(
+      () =>
+        readBoardName(
+          { platform: "ashby", id: "acme" },
+          { fetchImpl, userAgent: TEST_USER_AGENT, sleep: async () => {}, retries: 0 },
+        ),
+      (error: unknown) => error instanceof HttpError && error.status === status,
+    );
+  });
+}
+
+test("readBoardName: a page that loads with no title names nobody", async () => {
+  const fetchImpl: typeof fetch = async () =>
+    new Response("<html><head><meta charset='utf-8'></head></html>", { status: 200 });
+
+  const name = await readBoardName(
+    { platform: "lever", id: "acme" },
+    { fetchImpl, userAgent: TEST_USER_AGENT, sleep: async () => {}, retries: 0 },
+  );
+  assert.equal(name, null);
 });

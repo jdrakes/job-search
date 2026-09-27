@@ -32,13 +32,15 @@
 // collision would file another company's postings under this one. Most
 // listings state that name. Where one does not (Ashby, Lever, and a
 // Greenhouse board with nothing open) the board's own page is read for it
-// (`boardName` in boards.ts), one extra request per answering slug. A board
-// that answers but names another company, or nobody, is refused and
-// returned as such, so discover.ts can tell "wrong company" from "no board".
+// (`readBoardName` in boards.ts), one extra request per answering slug. A
+// board that answers but names another company, or whose page loads and
+// names nobody, is refused and returned as such, so discover.ts can tell
+// "wrong company" from "no board". A page that does not answer throws
+// instead (`pageReported` says why).
 import { getJson, getText, HttpError, type HttpOptions } from "../net/http.ts";
 import { asArray, asRecord, asText } from "../ats/ats.ts";
 import type { Board } from "../schema.ts";
-import { avatureSiteName, boardName } from "./boards.ts";
+import { avatureSiteName, readBoardName } from "./boards.ts";
 
 export const SLUG_PLATFORMS = [
   "greenhouse",
@@ -153,13 +155,22 @@ async function greenhouseReported(
 ): Promise<Reported> {
   const first = asArray(asRecord(data)["jobs"])[0];
   const posted = first === undefined ? null : asText(asRecord(first)["company_name"]);
-  return { name: posted ?? (await boardName(board, options)) };
+  return { name: posted ?? (await readBoardName(board, options)) };
 }
 
 // Ashby and Lever state no company name anywhere in their listing; the
 // board page's <title> does.
+//
+// Here, and for Greenhouse above, a name page that fails to load (any HTTP
+// status, or a network error) throws out of `probe`, rather than refusing
+// the board as naming nobody: a refusal files the candidate as
+// wrong_company for good, and a probe runs with no retries, so a one-off
+// 503, or a 403 from the vendor's bot protection, would file a real company
+// wrongly. discover.ts's per-name catch leaves the candidate pending, and it
+// is probed again next run. That includes a 404 on a slug whose listing
+// just answered.
 async function pageReported(_data: unknown, board: Board, options: HttpOptions): Promise<Reported> {
-  return { name: await boardName(board, options) };
+  return { name: await readBoardName(board, options) };
 }
 
 // SmartRecruiters answers 200 with `content: []` for a slug that does not

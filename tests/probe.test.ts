@@ -206,9 +206,12 @@ test("probe: an Ashby slug whose page title names another company is refused", a
   assert.deepEqual(refused, [{ board: { platform: "ashby", id: "acme" }, reported: "Thyme Care" }]);
 });
 
-test("probe: an Ashby slug whose page cannot be read is refused as naming nobody", async () => {
+// Breaks if a page that loads with no name is let through or skipped
+// rather than refused.
+test("probe: an Ashby slug whose page loads with no title is refused as naming nobody", async () => {
   const fetchImpl = fakeFetch({
     "https://api.ashbyhq.com/posting-api/job-board/acme?includeCompensation=true": { jobs: [] },
+    "https://jobs.ashbyhq.com/acme": "<html><head><meta charset='utf-8'></head></html>",
   });
 
   const { boards, refused } = await probe("Acme", {
@@ -270,6 +273,60 @@ test("probe: a 429 on the board page throws rather than refusing the board", asy
   await assert.rejects(
     () => probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep }, ["lever"]),
     (error: unknown) => error instanceof HttpError && error.status === 429,
+  );
+});
+
+// Any other failure to load the name page is the same: a 403 from bot
+// protection, a one-off 503 (the probe does not retry), or a 404 on a slug
+// whose listing just answered. Breaks if the probe reads the name through
+// boardName, which turns these into a refusal naming nobody.
+for (const status of [403, 404, 503]) {
+  test(`probe: a ${status} on the board page throws rather than refusing the board`, async () => {
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = String(input);
+      if (url === "https://api.ashbyhq.com/posting-api/job-board/acme?includeCompensation=true") {
+        return new Response(JSON.stringify({ jobs: [] }));
+      }
+      if (url === "https://jobs.ashbyhq.com/acme") return new Response(null, { status });
+      return new Response(null, { status: 404 });
+    };
+
+    await assert.rejects(
+      () => probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep }, ["ashby"]),
+      (error: unknown) => error instanceof HttpError && error.status === status,
+    );
+  });
+}
+
+test("probe: a Greenhouse board with no jobs whose board endpoint answers 503 throws", async () => {
+  const fetchImpl: typeof fetch = async (input) => {
+    const url = String(input);
+    if (url === "https://boards-api.greenhouse.io/v1/boards/acme/jobs?content=true") {
+      return new Response(JSON.stringify({ jobs: [] }));
+    }
+    if (url === "https://boards-api.greenhouse.io/v1/boards/acme") {
+      return new Response(null, { status: 503 });
+    }
+    return new Response(null, { status: 404 });
+  };
+
+  await assert.rejects(
+    () => probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep }, ["greenhouse"]),
+    (error: unknown) => error instanceof HttpError && error.status === 503,
+  );
+});
+
+// Breaks if the probe's name read catches every failure, not only HttpError.
+test("probe: a network failure on the board page throws rather than refusing the board", async () => {
+  const fetchImpl: typeof fetch = async (input) => {
+    const url = String(input);
+    if (url === "https://api.lever.co/v0/postings/acme?mode=json") return new Response("[]");
+    if (url === "https://jobs.lever.co/acme") throw new TypeError("fetch failed");
+    return new Response(null, { status: 404 });
+  };
+
+  await assert.rejects(() =>
+    probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep }, ["lever"]),
   );
 });
 
