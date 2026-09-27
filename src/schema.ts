@@ -2,7 +2,7 @@
 // file's interfaces (`satisfies`) and the migration's column list
 // (tests/schema.test.ts), so a column can only drift if both are edited.
 
-export const TABLES = ["postings", "companies", "criteria", "reprobe_runs"] as const;
+export const TABLES = ["postings", "companies", "criteria", "reprobe_runs", "candidates"] as const;
 export type Table = (typeof TABLES)[number];
 
 export const PLATFORMS = [
@@ -152,6 +152,50 @@ export const COMPANY_FIELDS = [
   "alias_of",
 ] as const satisfies readonly (keyof Company)[];
 
+// What discover made of a candidate. `wrong_company` is reserved for a
+// board that answers under another employer's name.
+export const OUTCOMES = [
+  "watched",
+  "added",
+  "known",
+  "alias",
+  "no_board",
+  "wrong_company",
+  "gone",
+  "dropped",
+  "bad_url",
+] as const;
+export type Outcome = (typeof OUTCOMES)[number];
+
+// A name on its way in. `name`, `url`, `origin` and `evidence` are what the
+// input said (at least one of `name` and `url`); `outcome`, `outcome_at` and
+// `company` are discover's. `outcome` null is unresolved; `company` is set
+// when the outcome names one (watched, added, known when a company matched,
+// alias, dropped).
+export interface Candidate {
+  readonly id: string;
+  readonly name: string | null;
+  readonly url: string | null;
+  readonly origin: string;
+  readonly evidence: string | null;
+  readonly added_at: string;
+  readonly outcome: Outcome | null;
+  readonly outcome_at: string | null;
+  readonly company: string | null;
+}
+
+export const CANDIDATE_FIELDS = [
+  "id",
+  "name",
+  "url",
+  "origin",
+  "evidence",
+  "added_at",
+  "outcome",
+  "outcome_at",
+  "company",
+] as const satisfies readonly (keyof Candidate)[];
+
 export interface Criteria {
   readonly id: number;
   readonly level_words: readonly string[];
@@ -229,4 +273,5 @@ export const TABLE_FIELDS = {
   companies: COMPANY_FIELDS,
   criteria: CRITERIA_FIELDS,
   reprobe_runs: REPROBE_RUN_FIELDS,
+  candidates: CANDIDATE_FIELDS,
 } as const satisfies Record<Table, readonly string[]>;

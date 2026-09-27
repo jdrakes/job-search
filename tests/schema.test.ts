@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
+  CANDIDATE_FIELDS,
   COMPANY_FIELDS,
   COMPANY_STATES,
   CRITERIA_FIELDS,
+  OUTCOMES,
   PLATFORMS,
   POSTING_FIELDS,
   postingKey,
@@ -128,6 +130,10 @@ test("the migration's reprobe_runs columns match REPROBE_RUN_FIELDS, in order", 
   assert.deepEqual(columnsOf("reprobe_runs"), [...REPROBE_RUN_FIELDS]);
 });
 
+test("the migration's candidates columns match CANDIDATE_FIELDS, in order", () => {
+  assert.deepEqual(columnsOf("candidates"), [...CANDIDATE_FIELDS]);
+});
+
 test("the migrations' ADD COLUMN statements append to POSTING_FIELDS in order", () => {
   assert.deepEqual(columnsOf("postings").slice(-3), ["body_hash", "workplace", "gone_at"]);
 });
@@ -155,6 +161,10 @@ test("the migrations' postings.status CHECK matches STATUSES, in order", () => {
 
 test("the migrations' companies.state CHECK matches COMPANY_STATES, in order", () => {
   assert.deepEqual(vocabularyOf("companies", "state"), [...COMPANY_STATES]);
+});
+
+test("the migrations' candidates.outcome CHECK matches OUTCOMES, in order", () => {
+  assert.deepEqual(vocabularyOf("candidates", "outcome"), [...OUTCOMES]);
 });
 
 test("the last companies.state CHECK names discovered, watched, alias: a drop is no longer a state", () => {
