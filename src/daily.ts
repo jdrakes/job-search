@@ -18,9 +18,8 @@ import { describeError } from "./errors.ts";
 import { ingest, judgeAll } from "./ingest.ts";
 import { phase } from "./phase.ts";
 import { loadSettings, type Settings } from "./settings.ts";
-import { openHostedStore, openStore } from "./store/open.ts";
+import { openStore } from "./store/open.ts";
 import type { Store } from "./store/store.ts";
-import { publishSlice, pullDecisions } from "./sync.ts";
 
 import type { DetailRead, Reader } from "./ats/ats.ts";
 import { READERS, withDetailReads } from "./ats/readers.ts";
@@ -95,9 +94,9 @@ async function loadExtraSource(
 //
 // A criteria row that cannot be read is a runtime condition rather than an
 // operator's mistake, so the extra source is skipped and the reason logged
-// and the rest of the run proceeds. On a two-store install whose only row
-// lives in the hosted store, refusing here would stop discovery, ingestion
-// and judging over a row the next pull supplies. An unknown source name and
+// and the rest of the run proceeds; judging reports the missing row itself,
+// so refusing here would only stop discovery and ingestion as well. An
+// unknown source name and
 // a module path that will not resolve stay loud: neither is recoverable by
 // running again.
 export async function resolveSources(
@@ -176,25 +175,9 @@ async function main(): Promise<number> {
   const store = openStore();
   const settings = loadSettings();
 
-  // Before discovery: a company James dropped in the list has to be dropped
-  // locally before discovery decides what to watch. Not wrapped: a pull
-  // that fails stops the run here, loudly.
-  const hosted = openHostedStore();
-  if (hosted === null) {
-    console.log("pull: skipped, no second store to pull from");
-  } else {
-    const pulled = await phase("pull", () => pullDecisions(store, hosted), console.log);
-    console.log(
-      `pull: ${pulled.statuses} statuses, ${pulled.companies} company states, ` +
-        `criteria ${pulled.hasCriteria ? "pulled" : "absent"}, ${pulled.skipped} skipped`,
-    );
-  }
-
   // An extra source is searched for the criteria's level words, so the row is
-  // read here, after the pull that may have changed it. `ingest` reads it
-  // again for judging; two reads of one row beat threading it through. Read
-  // before the pull instead, an edit made in the Criteria view would not
-  // reach the extra source until the run after next.
+  // read here. `ingest` reads it again for judging; two reads of one row beat
+  // threading it through.
   const sources = await resolveSources(SOURCES, settings, store);
   const readers = await resolveReaders(settings);
 
@@ -240,29 +223,10 @@ async function main(): Promise<number> {
     console.log(`  ${error}`);
   }
 
-  // Last, because it publishes what judging just decided. Skipped with no
-  // second store: one store is already the one the list reads. Wrapped and
-  // reported rather than thrown: the day's work is already in the store of
-  // record, and a failed publish costs the list a day of freshness and the
-  // run its exit code.
-  let publishFailed = false;
-  if (hosted !== null) {
-    try {
-      const published = await phase("publish", () => publishSlice(store, hosted), console.log);
-      console.log(
-        `publish: ${published.postings} postings, ${published.companies} companies, ` +
-          `${published.removed} removed`,
-      );
-    } catch (error) {
-      publishFailed = true;
-      console.error(`publish failed, the list keeps yesterday's: ${describeError(error)}`);
-    }
-  }
-
   // A silent nothing-happened must be visible. Listing errors only: judging
   // has its own count above.
   const everyBoardFailed = totalBoards > 0 && result.errors.length >= totalBoards;
-  return result.companies === 0 || everyBoardFailed || publishFailed ? 1 : 0;
+  return result.companies === 0 || everyBoardFailed ? 1 : 0;
 }
 
 // The one place that catches: a run whose first store read times out

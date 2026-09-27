@@ -66,8 +66,8 @@ export function memoryStore(seed?: Partial<Record<Table, readonly object[]>>): S
       }
       rows.sort((left, right) => compare(field(left, key), field(right, key), true));
       // Filtering and ordering run over the whole row, then the caller's
-      // columns come back, the primary key always among them: `src/sync.ts`
-      // maps every row it reads by that key.
+      // columns come back, the primary key always among them, as Postgres
+      // returns it when the caller names it: a caller may map rows by it.
       const kept = columns === undefined || columns.includes(key) ? columns : [...columns, key];
       const narrowed =
         kept === undefined

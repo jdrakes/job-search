@@ -179,7 +179,7 @@ const CASES: readonly ContractCase[] = [
     },
   },
   {
-    // `src/sync.ts` maps every row it reads by that key.
+    // A caller may map every row it reads by that key.
     name: "select returns the columns the caller named plus the primary key",
     run: async (store, prefix) => {
       const key = `${prefix}::123`;
