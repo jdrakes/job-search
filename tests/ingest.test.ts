@@ -1502,11 +1502,13 @@ test("ingest: with no criteria row every listed body is stored with no error lin
 // exemption does not keep this body either.
 const TEXT_OUT_BODY = "5+ years of production Delphi required.";
 
-// Breaks if `toRow` decides with the full `judge()`: it drops the body on
-// the text criterion, `judgeAll`'s listing-only `wantsBody` still asks for
-// it, a one-phase board has nothing to refetch, and the empty text judges
-// the posting back in.
-test("ingest then judgeAll: a one-phase listing out only on a text criterion stays out", async () => {
+// Breaks if `toRow` decides with the full `judge()`, or if `judgeAll`
+// clears a one-phase body it read back from the store: either way the body
+// is gone, `judgeAll`'s listing-only `wantsBody` still asks for it at the
+// next re-judge, a one-phase board has nothing to refetch, and the empty
+// text judges the posting back in. The second pass has no `ingest()`
+// before it: a day the board's read failed, so `toRow` never relisted it.
+test("ingest then judgeAll: a one-phase listing out only on a text criterion stays out across re-judges", async () => {
   const store = memoryStore({ companies: [ACME], criteria: [criteria()] });
   const readers = oneBoard([
     listing("b1", {
@@ -1523,10 +1525,23 @@ test("ingest then judgeAll: a one-phase listing out only on a text criterion sta
 
   assert.deepEqual(judging.errors, []);
   assert.equal(judging.judged, 1);
-  const [row] = await store.select<Posting>("postings", { key: KEY });
-  assert.equal(row?.kept, false);
-  assert.equal(row?.body, null, "judgeAll clears the body once its verdict is out");
-  assert.equal(row?.body_hash, null);
+  const [first] = await store.select<Posting>("postings", { key: KEY });
+  assert.equal(first?.kept, false);
+  assert.equal(first?.body, TEXT_OUT_BODY, "a one-phase body has no refetch, so it stays");
+  assert.equal(first?.body_hash, hashOf(TEXT_OUT_BODY));
+
+  const edited = await store.update("criteria", "1", { updated_at: "2026-09-15T00:00:00Z" });
+  assert.equal(edited.ok, true);
+  const rejudging = await judgeAll(store, readers);
+
+  assert.deepEqual(rejudging.errors, []);
+  assert.equal(rejudging.judged, 1);
+  const [second] = await store.select<Posting>("postings", { key: KEY });
+  assert.equal(second?.judged_with, "2026-09-15T00:00:00Z");
+  assert.equal(second?.kept, false);
+  assert.deepEqual(second?.reasons, first?.reasons);
+  assert.equal(second?.body, TEXT_OUT_BODY);
+  assert.equal(second?.body_hash, hashOf(TEXT_OUT_BODY));
 });
 
 // Breaks if the `remote`/`onsite` exemption is missing from `toRow`:

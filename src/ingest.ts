@@ -129,7 +129,7 @@ function toRow(
   // for a body on the listing criteria alone, and a one-phase board has no
   // detail to refetch it from, so a body dropped here on a text criterion
   // would be judged back in as empty text. A text rejection keeps its body
-  // here and `judgeAll` clears it once its own verdict says out.
+  // for good: `judgeAll` never clears a one-phase body either.
   // `NO_BOARDS` and an empty representative map leave gone, unwatched and
   // duplicate "in"; real context can only drop more, so an "out" here is one
   // `wantsBody` also reaches. Decided before the unchanged-hash check, so a
@@ -407,14 +407,20 @@ export async function judgeAll(
     // posting kept, acted on (`row.status`, read before this pass's write,
     // so a posting acted on this same run still counts), or stating
     // `remote` or `onsite` (`scripts/score-remote.ts`). A body read back
-    // from the store is cleared the same way, so a text rejection `toRow`
-    // stored, or a criteria edit that newly drops a stored body, frees it.
+    // from the store is cleared the same way only on a two-phase board,
+    // whose reader fetches the detail again if a later re-judge asks for
+    // it. A one-phase board's body comes back only with a fresh listing, and
+    // a re-judge can run without one (the board's read failed that day, or
+    // a criteria edit alone); `wantsBody` would still ask for the body on
+    // the listing criteria, find none, and judge the empty text back in.
+    // So a one-phase body is cleared only by `toRow`, on a listing "out"
+    // `wantsBody` agrees with, and a one-phase text rejection keeps its body.
     const workplaceScored = workplace === "remote" || workplace === "onsite";
     const keepBody = judgment.kept || row.status !== null || workplaceScored;
     let toPush: VerdictRow = verdict;
     if (fetched) {
       toPush = { ...verdict, body: keepBody ? body : null, workplace };
-    } else if (body !== null && !keepBody) {
+    } else if (twoPhase && body !== null && !keepBody) {
       toPush = { ...verdict, body: null, body_hash: null };
     }
     pending.push(toPush);
