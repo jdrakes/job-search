@@ -56,7 +56,7 @@ function posting(overrides: Partial<Posting> & Pick<Posting, "key" | "company">)
 function company(name: string, overrides: Partial<Company> = {}): Company {
   return {
     name,
-    boards: [{ platform: "greenhouse", id: "board", last_read: "2026-09-16T06:00:00.000Z" }],
+    boards: [{ platform: "greenhouse", id: "board" }],
     reason: null,
     dropped_at: null,
     ...overrides,
@@ -154,7 +154,7 @@ test("explainPosting: a two-phase posting with no stored body is told apart from
     criteria: [criteria()],
     companies: [
       company("Acme", {
-        boards: [{ platform: "workday", id: "board", last_read: "2026-09-16T06:00:00.000Z" }],
+        boards: [{ platform: "workday", id: "board" }],
       }),
     ],
   });

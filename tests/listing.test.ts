@@ -820,7 +820,7 @@ test("boardIndex: an undropped company's boards are readable, and its name is on
   const index = boardIndex([
     company("Acme", {
       boards: [
-        { platform: "greenhouse", id: "acme-gh", last_read: "2026-09-16T06:00:00.000Z" },
+        { platform: "greenhouse", id: "acme-gh" },
         { platform: "lever", id: "acme-lv" },
       ],
     }),
@@ -842,7 +842,7 @@ test("boardIndex: a dropped company is in dropped, and its boards are not readab
   const index = boardIndex([
     company("Gone", {
       dropped_at: "2026-09-18T17:17:00.000Z",
-      boards: [{ platform: "greenhouse", id: "gone-gh", last_read: "2026-09-16T06:00:00.000Z" }],
+      boards: [{ platform: "greenhouse", id: "gone-gh" }],
     }),
     company("Acme", { boards: [{ platform: "lever", id: "acme-lv" }] }),
   ]);

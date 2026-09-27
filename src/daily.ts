@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { boardsOf, readable } from "./companies.ts";
 import { loadCriteria } from "./criteria.ts";
-import { discover, suggestAgain, type DiscoverResult } from "./discover.ts";
+import { discover, type DiscoverResult, unbind, type Unbound } from "./discover.ts";
 import { builtInSource } from "./discovery/builtin.ts";
 import { commonCrawlSource } from "./discovery/commoncrawl.ts";
 import { hnSource } from "./discovery/hn.ts";
@@ -15,7 +15,7 @@ import type { DiscoverySource, Source } from "./discovery/source.ts";
 import { theMuseSource } from "./discovery/themuse.ts";
 import { weWorkRemotelySource } from "./discovery/weworkremotely.ts";
 import { describeError } from "./errors.ts";
-import { type GoneBoard, ingest, judgeAll } from "./ingest.ts";
+import { ingest, judgeAll } from "./ingest.ts";
 import { phase } from "./phase.ts";
 import { loadSettings, type Settings } from "./settings.ts";
 import { openStore } from "./store/open.ts";
@@ -171,17 +171,15 @@ export function discoverLine(result: DiscoverResult): string {
   );
 }
 
-// Wrapped, like discovery and publish: a refused candidates write costs the
-// morning its re-suggestions, not its judging and publish.
-export async function suggestGone(
-  store: Store,
-  gone: readonly GoneBoard[],
-): Promise<{ ok: true; value: number } | { ok: false; reason: string }> {
-  try {
-    return { ok: true, value: await suggestAgain(store, gone) };
-  } catch (error) {
-    return { ok: false, reason: describeError(error) };
-  }
+// The count line, then each company left with no board (what the list
+// phase's old `returned:` line named), then each refused removal.
+export function unbindLines(result: Unbound): string[] {
+  return [
+    `unbind: ${result.removed} boards removed, ${result.suggested} suggested, ` +
+      `${result.errors.length} errors`,
+    ...result.boardless.map((name) => `  no board left: ${name}`),
+    ...result.errors.map((error) => `  ${error}`),
+  ];
 }
 
 async function main(): Promise<number> {
@@ -220,22 +218,25 @@ async function main(): Promise<number> {
 
   console.log(
     `ingest: ${result.companies} companies, ${result.listed} listed, ${result.recorded} recorded, ` +
-      `${result.errors.length} errors, ${result.returned.length} returned`,
+      `${result.errors.length} errors, ${result.gone.length} gone`,
   );
   for (const error of result.errors) {
     console.log(`  ${error}`);
   }
-  for (const line of result.returned) {
-    console.log(`  returned: ${line}`);
-  }
 
-  // A company that lost a board this run is suggested again by name, so it
-  // is probed fresh the next morning like any other candidate
-  // (`resolveName`, discover.ts) instead of staying unwatched for good.
-  if (result.gone.length > 0) {
-    const suggested = await suggestGone(store, result.gone);
-    if (suggested.ok) console.log(`gone: ${suggested.value} candidates suggested`);
-    else console.error(`gone: suggesting again failed, judging anyway: ${suggested.reason}`);
+  // Before judging, so the Gone and Unwatched criteria see the boards as
+  // they now stand. A company that lost a board is suggested again by name
+  // before any board is removed, so it is probed fresh the next morning like
+  // any other candidate (`resolveName`, discover.ts) instead of staying
+  // unwatched for good. Every failure is returned, never thrown, so it costs
+  // the morning its unbinding, not its judging: a refused suggestion removes
+  // nothing, and a refused removal leaves that one company's boards bound.
+  // A board left bound answers gone again tomorrow and is handed back again.
+  const unbound = await phase("unbind", () => unbind(store, result.gone), console.log);
+  if (unbound.ok) {
+    for (const line of unbindLines(unbound.value)) console.log(line);
+  } else {
+    console.error(`unbind failed, every board left bound, judging anyway: ${unbound.reason}`);
   }
 
   // Every HTTP request this phase makes is a body fetch.

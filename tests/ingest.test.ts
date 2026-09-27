@@ -246,25 +246,23 @@ function goneReader(platform: Platform, status: number): Reader {
   };
 }
 
-test("ingest: a board that 404s is removed at once, its company reported returned and no longer read", async () => {
+// Breaks if ingest goes back to removing the board itself: the removal is
+// discovery's (`unbind`, discover.ts).
+test("ingest: a board that 404s is an error line and reported gone, and its company keeps it", async () => {
   const store = memoryStore({
     companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "acme-gh" }] })],
     criteria: [criteria()],
   });
   const readers: Partial<Record<Platform, Reader>> = { greenhouse: goneReader("greenhouse", 404) };
 
-  const first = await ingest(store, readers);
-  assert.deepEqual(first.returned, ["Acme greenhouse/acme-gh"]);
-  assert.deepEqual(first.gone, [
+  const result = await ingest(store, readers);
+
+  assert.deepEqual(result.gone, [
     { company: "Acme", board: { platform: "greenhouse", id: "acme-gh" } },
   ]);
-  assert.deepEqual(first.errors, ["Acme greenhouse/acme-gh: HTTP 404"]);
-  const [afterFirst] = await store.select<Company>("companies", { name: "Acme" });
-  assert.deepEqual(afterFirst, company("Acme"), "the row stays, with no board");
-
-  // Nothing left to walk.
-  const second = await ingest(store, readers);
-  assert.equal(second.companies, 0);
+  assert.deepEqual(result.errors, ["Acme greenhouse/acme-gh: HTTP 404"]);
+  const [row] = await store.select<Company>("companies", { name: "Acme" });
+  assert.deepEqual(row?.boards, [{ platform: "greenhouse", id: "acme-gh" }]);
 });
 
 test("ingest: a board answering 429 is an error line every run and is never removed", async () => {
@@ -278,13 +276,12 @@ test("ingest: a board answering 429 is an error line every run and is never remo
   const result = await ingest(store, readers);
 
   assert.deepEqual(result.errors, ["Acme greenhouse/acme-gh: HTTP 429"]);
-  assert.deepEqual(result.returned, []);
   assert.deepEqual(result.gone, []);
   const [row] = await store.select<Company>("companies", { name: "Acme" });
   assert.deepEqual(row?.boards, [{ platform: "greenhouse", id: "acme-gh" }]);
 });
 
-test("ingest: a workday board answering 400 is removed at once; a greenhouse board answering 400 is not", async () => {
+test("ingest: a workday board answering 400 is reported gone; a greenhouse board answering 400 is not", async () => {
   const store = memoryStore({
     companies: [
       company("Acme", { boards: [{ platform: "workday", id: "acme/site" }] }),
@@ -299,16 +296,14 @@ test("ingest: a workday board answering 400 is removed at once; a greenhouse boa
 
   const result = await ingest(store, readers);
 
-  assert.deepEqual(result.returned, ["Acme workday/acme/site"]);
-  const [acme] = await store.select<Company>("companies", { name: "Acme" });
-  assert.deepEqual(acme?.boards, []);
-  const [bolt] = await store.select<Company>("companies", { name: "Bolt" });
-  assert.deepEqual(bolt?.boards, [{ platform: "greenhouse", id: "bolt" }]);
+  assert.deepEqual(result.gone, [
+    { company: "Acme", board: { platform: "workday", id: "acme/site" } },
+  ]);
 });
 
-// Breaks if only the board that emptied the company is reported, or if the
+// Breaks if only one of a company's gone boards is reported, or if the
 // company's name is reported as a label to be parsed back.
-test("ingest: every board removed this run is reported gone with its company's full name", async () => {
+test("ingest: every board that answered gone this run is reported with its company's full name", async () => {
   const store = memoryStore({
     companies: [
       company("Wellspring Health", {
@@ -331,45 +326,45 @@ test("ingest: every board removed this run is reported gone with its company's f
     { company: "Wellspring Health", board: { platform: "greenhouse", id: "wellspring" } },
     { company: "Wellspring Health", board: { platform: "lever", id: "wellspring" } },
   ]);
-  assert.deepEqual(result.returned, ["Wellspring Health lever/wellspring"]);
 });
 
-test("ingest: a company with two boards loses only the dead one and is not returned", async () => {
-  const store = memoryStore({
-    companies: [
-      company("Acme", {
-        boards: [
-          { platform: "greenhouse", id: "acme-gh" },
-          { platform: "lever", id: "acme-lv" },
-        ],
-      }),
-    ],
-    criteria: [criteria()],
-  });
+// Breaks if the list phase writes `companies` again for any answer a board
+// gives: gone, a failure, or a listing (the old per-run `last_read`).
+test("ingest: a run with a gone, a failing and a listing board makes no companies write", async () => {
+  const before = [
+    company("Acme", {
+      boards: [
+        { platform: "greenhouse", id: "acme-gh" },
+        { platform: "lever", id: "acme-lv" },
+      ],
+    }),
+    company("Bolt", { boards: [{ platform: "ashby", id: "bolt" }] }),
+  ];
+  const { store, upserts, updates } = recording(
+    memoryStore({ companies: before, criteria: [criteria()] }),
+  );
   const readers: Partial<Record<Platform, Reader>> = {
     greenhouse: goneReader("greenhouse", 404),
     lever: { platform: "lever", list: async (board) => [listing(`${board.id}-1`)] },
+    ashby: goneReader("ashby", 500),
   };
 
-  const first = await ingest(store, readers, { now: () => "2026-09-15T06:00:00.000Z" });
   const result = await ingest(store, readers, { now: () => "2026-09-16T06:00:00.000Z" });
 
-  // Reported gone all the same, so the company is suggested again.
-  assert.deepEqual(first.gone, [
+  assert.deepEqual(result.gone, [
     { company: "Acme", board: { platform: "greenhouse", id: "acme-gh" } },
   ]);
-  assert.deepEqual(first.returned, []);
-  assert.deepEqual(result.gone, []);
-  assert.deepEqual(result.returned, []);
-  assert.equal(result.listed, 1);
-  const [row] = await store.select<Company>("companies", { name: "Acme" });
-  assert.deepEqual(row?.boards, [
-    { platform: "lever", id: "acme-lv", last_read: "2026-09-16T06:00:00.000Z" },
-  ]);
+  assert.equal(result.recorded, 1);
+  assert.deepEqual(
+    upserts.map((call) => call.table),
+    ["postings"],
+  );
+  assert.deepEqual(updates, []);
+  assert.deepEqual(await store.select<Company>("companies"), before);
 });
 
 // Seconds from 06:00 on the day, one per call: the run's first reading is
-// the board's `last_read` and the `gone_at` of any posting it marks gone.
+// the `gone_at` of any posting it marks gone.
 function tickingClockFrom(day: string): () => string {
   let seconds = 0;
   return () => {
@@ -383,24 +378,6 @@ function tickingClockFrom(day: string): () => string {
 function tickingClock(): () => string {
   return tickingClockFrom("2026-09-18");
 }
-
-test("ingest: the board that listed carries the run's first clock reading as last_read", async () => {
-  const store = memoryStore({
-    companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "acme-gh" }] })],
-    criteria: [criteria()],
-  });
-  const readers: Partial<Record<Platform, Reader>> = {
-    greenhouse: { platform: "greenhouse", list: async () => [listing("1"), listing("2")] },
-  };
-
-  const result = await ingest(store, readers, { now: tickingClock() });
-
-  assert.deepEqual(result.errors, []);
-  const [row] = await store.select<Company>("companies", { name: "Acme" });
-  assert.deepEqual(row?.boards, [
-    { platform: "greenhouse", id: "acme-gh", last_read: "2026-09-18T06:00:00.000Z" },
-  ]);
-});
 
 test("ingest: every row a run lists is recorded not gone", async () => {
   const store = memoryStore({
@@ -430,99 +407,6 @@ test("ingest: every row a run lists is recorded not gone", async () => {
       ["lever/acme-lv::3", null],
     ],
   );
-});
-
-test("ingest: a board whose reader throws carries no last_read while its answering sibling does", async () => {
-  const store = memoryStore({
-    companies: [
-      company("Acme", {
-        boards: [
-          { platform: "greenhouse", id: "acme-gh" },
-          { platform: "lever", id: "acme-lv" },
-        ],
-      }),
-    ],
-    criteria: [criteria()],
-  });
-  const readers: Partial<Record<Platform, Reader>> = {
-    greenhouse: goneReader("greenhouse", 500),
-    lever: { platform: "lever", list: async (board) => [listing(`${board.id}-1`)] },
-  };
-
-  const result = await ingest(store, readers, { now: () => "2026-09-18T06:00:00.000Z" });
-
-  assert.deepEqual(result.errors, ["Acme greenhouse/acme-gh: HTTP 500"]);
-  const [row] = await store.select<Company>("companies", { name: "Acme" });
-  assert.deepEqual(row?.boards, [
-    { platform: "greenhouse", id: "acme-gh" },
-    { platform: "lever", id: "acme-lv", last_read: "2026-09-18T06:00:00.000Z" },
-  ]);
-});
-
-test("ingest: a reader answering an empty listing is a read and sets last_read", async () => {
-  const store = memoryStore({
-    companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "acme-gh" }] })],
-    criteria: [criteria()],
-  });
-  const readers: Partial<Record<Platform, Reader>> = {
-    greenhouse: { platform: "greenhouse", list: async () => [] },
-  };
-
-  const result = await ingest(store, readers, { now: () => "2026-09-18T06:00:00.000Z" });
-
-  assert.deepEqual(result.errors, []);
-  assert.equal(result.listed, 0);
-  const [row] = await store.select<Company>("companies", { name: "Acme" });
-  assert.deepEqual(row?.boards, [
-    { platform: "greenhouse", id: "acme-gh", last_read: "2026-09-18T06:00:00.000Z" },
-  ]);
-});
-
-test("ingest: a refused postings upsert leaves last_read unset", async () => {
-  const inner = memoryStore({
-    companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "acme-gh" }] })],
-    criteria: [criteria()],
-  });
-  const store: Store = {
-    ...inner,
-    async upsert(table, rows) {
-      if (table === "postings") throw new Error("refused");
-      return inner.upsert(table, rows);
-    },
-  };
-  const readers: Partial<Record<Platform, Reader>> = {
-    greenhouse: { platform: "greenhouse", list: async () => [listing("1")] },
-  };
-
-  const result = await ingest(store, readers, { now: () => "2026-09-18T06:00:00.000Z" });
-
-  assert.deepEqual(result.errors, ["Acme: recording 1 postings: refused"]);
-  const [row] = await inner.select<Company>("companies", { name: "Acme" });
-  assert.deepEqual(row?.boards, [{ platform: "greenhouse", id: "acme-gh" }]);
-});
-
-test("ingest: a refused board-read write is an error line and the postings still land", async () => {
-  const inner = memoryStore({
-    companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "acme-gh" }] })],
-    criteria: [criteria()],
-  });
-  const store: Store = {
-    ...inner,
-    async upsert(table, rows) {
-      if (table === "companies") throw new Error("refused");
-      return inner.upsert(table, rows);
-    },
-  };
-  const readers: Partial<Record<Platform, Reader>> = {
-    greenhouse: { platform: "greenhouse", list: async () => [listing("1")] },
-  };
-
-  const result = await ingest(store, readers, { now: () => "2026-09-18T06:00:00.000Z" });
-
-  assert.deepEqual(result.errors, ["Acme: recording board reads: refused"]);
-  assert.equal(result.recorded, 1);
-  const [row] = await inner.select<Company>("companies", { name: "Acme" });
-  assert.deepEqual(row?.boards, [{ platform: "greenhouse", id: "acme-gh" }]);
 });
 
 test("ingest: a board whose reader throws a chained network error names the cause in its error line", async () => {
@@ -3171,8 +3055,6 @@ test("ingest then judgeAll: a posting the board stops listing is gone after one 
   };
   assert.deepEqual(await run("2026-09-17"), ["Acme greenhouse/acme-gh: HTTP 500"]);
   assert.deepEqual(await verdicts(), [true, false]);
-  const [board] = await store.select<Company>("companies", { name: "Acme" });
-  assert.equal(board?.boards[0]?.last_read, "2026-09-16T06:00:00.000Z");
 });
 
 test("judgeAll: a kept posting whose company has no board is judged out unwatched; a status survives the same way", async () => {

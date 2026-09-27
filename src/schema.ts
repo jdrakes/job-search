@@ -33,15 +33,13 @@ export type Status = (typeof STATUSES)[number];
 export const WORKPLACES = ["remote", "hybrid", "onsite"] as const;
 export type Workplace = (typeof WORKPLACES)[number];
 
-// Never derived from the company's name. `last_read` is the start of the
-// last run that listed and recorded this board; absent until one has.
-// Identity is `platform` and `id` alone. A board that answers "not here"
-// (`isGone` in companies.ts) is removed from its company at once
-// (`boardGone`, companies.ts), never marked.
+// Never derived from the company's name. Identity is `platform` and `id`
+// alone. A board that answers "not here" (`isGone` in companies.ts) is
+// reported by the list phase and removed from its company the same run
+// (`unbind`, discover.ts), never marked.
 export interface Board {
   readonly platform: Platform;
   readonly id: string;
-  readonly last_read?: string;
 }
 
 // `platform/board::id`: two employers can share an ATS listing id, and a

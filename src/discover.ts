@@ -1,8 +1,9 @@
 // Discovery in two steps. Sources suggest: every name or board a source
 // offers becomes a candidate row, and no source writes `companies`. Then
 // the run resolves: each candidate with no outcome yet is resolved once to
-// one outcome, and this module is the only writer of `companies` a
-// candidate reaches. A candidate's input columns (name, url, origin,
+// one outcome. This module is the daily run's only writer of `companies`:
+// resolving a candidate adds boards, and `unbind` takes off a board the
+// list phase found gone. A candidate's input columns (name, url, origin,
 // evidence, added_at) are written once, when it is suggested; resolving
 // writes only outcome, outcome_at and company.
 //
@@ -410,23 +411,98 @@ async function addFound(
   return { outcome: "added", company: name };
 }
 
-// Called once, after the list phase, with every board ingest removed this
-// run (`IngestResult`'s `gone`, ingest.ts). One unresolved candidate per
-// company, however many of its boards went, so it is probed again the next
-// morning like any other name; `origin` `"gone"` is read by `resolveName`
-// above to skip the known-name arm a company already on file would
-// otherwise take.
-export async function suggestAgain(store: Store, gone: readonly GoneBoard[]): Promise<number> {
-  const byCompany = new Map<string, Board[]>();
+function byCompany(gone: readonly GoneBoard[]): Map<string, Board[]> {
+  const grouped = new Map<string, Board[]>();
   for (const { company, board } of gone) {
-    const boards = byCompany.get(company);
-    if (boards === undefined) byCompany.set(company, [board]);
+    const boards = grouped.get(company);
+    if (boards === undefined) grouped.set(company, [board]);
     else boards.push(board);
   }
-  if (byCompany.size === 0) return 0;
+  return grouped;
+}
+
+export type Unbound = {
+  readonly removed: number;
+  readonly suggested: number;
+  // Each company this call took the last board from.
+  readonly boardless: readonly string[];
+  // One line per company whose removal was refused; its boards stay bound.
+  readonly errors: readonly string[];
+};
+
+// Called once, after the list phase, with every board that answered gone
+// this run (`IngestResult`'s `gone`, ingest.ts): the list phase writes
+// postings only, so this is where a gone board leaves its company, at once
+// and never marked. A company whose row is missing by now is neither
+// written nor suggested; every other is suggested again (`suggestAgain`),
+// whether this call or an earlier one took the board.
+//
+// Suggest first, remove second, so no failure strands a company: a
+// boardless company never answers gone again, so a removal without its
+// candidate loses the company for good. A refused read or candidates write
+// removes nothing and is the reason returned; every board stays bound,
+// answers gone tomorrow and is handed back again. A refused removal is one
+// error line and the rest go ahead; that board stays bound too, and
+// tomorrow's second `gone` candidate for it resolves `known`, harmless.
+export async function unbind(
+  store: Store,
+  gone: readonly GoneBoard[],
+): Promise<{ ok: true; value: Unbound } | { ok: false; reason: string }> {
+  let affected: Affected[];
+  let suggested: number;
+  try {
+    affected = await affectedRows(store, gone);
+    suggested = await suggestAgain(
+      store,
+      affected.flatMap(({ name, boards }) => boards.map((board) => ({ company: name, board }))),
+    );
+  } catch (error) {
+    return { ok: false, reason: describeError(error) };
+  }
+
+  let removed = 0;
+  const boardless: string[] = [];
+  const errors: string[] = [];
+  for (const { name, current, boards } of affected) {
+    const dead = new Set(boards.map(boardKey));
+    const kept = current.boards.filter((board) => !dead.has(boardKey(board)));
+    if (kept.length === current.boards.length) continue;
+    try {
+      await store.upsert("companies", [{ ...current, boards: kept }]);
+    } catch (error) {
+      const labels = boards.map((board) => `${board.platform}/${board.id}`).join(" ");
+      errors.push(`${name}: removing ${labels}: ${describeError(error)}`);
+      continue;
+    }
+    removed += current.boards.length - kept.length;
+    if (kept.length === 0) boardless.push(name);
+  }
+  return { ok: true, value: { removed, suggested, boardless, errors } };
+}
+
+type Affected = { name: string; current: Company; boards: readonly Board[] };
+
+// One read per company, however many of its boards went, so two gone
+// boards of one company cost one write, not two read-modify-writes.
+async function affectedRows(store: Store, gone: readonly GoneBoard[]): Promise<Affected[]> {
+  const affected: Affected[] = [];
+  for (const [name, boards] of byCompany(gone)) {
+    const [current] = await store.select<Company>("companies", { name });
+    if (current !== undefined) affected.push({ name, current, boards });
+  }
+  return affected;
+}
+
+// One unresolved candidate per company, however many of its boards went,
+// so it is probed again the next morning like any other name; `origin`
+// `"gone"` is read by `resolveName` above to skip the known-name arm a
+// company already on file would otherwise take.
+export async function suggestAgain(store: Store, gone: readonly GoneBoard[]): Promise<number> {
+  const grouped = byCompany(gone);
+  if (grouped.size === 0) return 0;
 
   const now = new Date().toISOString();
-  const rows: Candidate[] = [...byCompany].map(([company, boards]) => ({
+  const rows: Candidate[] = [...grouped].map(([company, boards]) => ({
     id: randomUUID(),
     name: company,
     url: null,
@@ -455,8 +531,8 @@ async function writeCompany(
   for (const board of boards) registry.carriers.set(carrierKey(board), name);
 }
 
-// The row is read back rather than taken from the index: a board removed
-// or read since the run began (ingest.ts) would be undone by a stale copy.
+// The row is read back rather than taken from the index, which holds names
+// and board carriers, not a company's board list.
 // Existing boards are kept and a board already there is not added twice.
 // False when no row has the name, so nothing was written.
 async function addBoards(store: Store, name: string, boards: readonly Board[]): Promise<boolean> {
