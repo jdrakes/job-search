@@ -615,6 +615,7 @@ interface RootProps {
   readonly store: SessionStore;
   readonly httpFetch: typeof fetch;
   readonly now: () => number;
+  readonly watchSession?: (onChange: () => void) => void;
 }
 
 /** `AppRoot`'s async `setup()` needs the `<Suspense>` boundary `mountApp` gives it in the browser. */
@@ -637,6 +638,107 @@ function storeWithRound(
   saveReads(store, { queue, postings, companies, criteria: CRITERIA_ROW });
   return store;
 }
+
+test("noticing another tab's sign-in shows its saved round immediately", async () => {
+  // The tab that consumed the emailed link is the one that ran `saveSession`
+  // and `saveReads`; this tab only ever hears "look again", never what to
+  // look for — so the test writes them into the store itself, standing in
+  // for that other tab, before firing the callback `mountApp` would have
+  // wired to a `storage` event.
+  const restoreDom = stubDom();
+  const store = memoryStore();
+  const watch = { onChange: () => {} };
+  const app = mountRoot({
+    config: CONFIG,
+    store,
+    httpFetch: unanswered,
+    now: () => NOW,
+    watchSession: (cb) => {
+      watch.onChange = cb;
+    },
+  });
+  try {
+    await settled();
+    assert.equal(
+      elementsWithClass(app.root, "sign-in").length > 0,
+      true,
+      "starts on the sign-in form",
+    );
+
+    store.setItem(SESSION_KEY, sessionJson());
+    saveReads(store, {
+      queue: [QUEUE_ROW],
+      postings: [QUEUE_ROW],
+      companies: [],
+      criteria: CRITERIA_ROW,
+    });
+    watch.onChange();
+    await settled();
+
+    assert.equal(elementsWithClass(app.root, "sign-in").length, 0, "left the sign-in form");
+    assert.match(textOf(app.root), /Acme/);
+  } finally {
+    app.unmount();
+    restoreDom();
+  }
+});
+
+test("noticing storage with no session there yet leaves the sign-in form alone", async () => {
+  const { calls, fetchImpl } = recordingFetch([]);
+  const watch = { onChange: () => {} };
+  const app = mountRoot({
+    config: CONFIG,
+    store: memoryStore(),
+    httpFetch: fetchImpl,
+    now: () => NOW,
+    watchSession: (cb) => {
+      watch.onChange = cb;
+    },
+  });
+  try {
+    await settled();
+    watch.onChange();
+    await settled();
+
+    assert.equal(calls.length, 0, "no session to adopt, so nothing was requested");
+    assert.equal(elementsWithClass(app.root, "sign-in").length > 0, true);
+  } finally {
+    app.unmount();
+  }
+});
+
+test("noticing a session while already signed in does nothing", async () => {
+  const restoreDom = stubDom();
+  const { calls, fetchImpl } = recordingFetch([
+    jsonReply([QUEUE_ROW]),
+    jsonReply([QUEUE_ROW]),
+    jsonReply([]),
+    jsonReply([CRITERIA_ROW]),
+  ]);
+  const watch = { onChange: () => {} };
+  const app = mountRoot({
+    config: CONFIG,
+    store: storeWithRound([QUEUE_ROW], [QUEUE_ROW]),
+    httpFetch: fetchImpl,
+    now: () => NOW,
+    watchSession: (cb) => {
+      watch.onChange = cb;
+    },
+  });
+  try {
+    await settled();
+    await settled();
+    assert.equal(calls.length, 4, "the usual background refresh from mounting already signed in");
+
+    watch.onChange();
+    await settled();
+
+    assert.equal(calls.length, 4, "already signed in, noticing a session again asks for nothing");
+  } finally {
+    app.unmount();
+    restoreDom();
+  }
+});
 
 /** A watched company with nothing in the queue, for the drop tests. */
 const WATCHED_COMPANY: Company = {
