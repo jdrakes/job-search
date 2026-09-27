@@ -43,6 +43,10 @@ const ROW_COLUMNS = [
   "reasons",
 ] as const satisfies readonly (keyof Posting)[];
 
+// `gone_at` is not yet a `Posting` column (it lands with the gone_at
+// migration) and `ROW_COLUMNS` does not select it, so it stands in as null
+// below: this run's gone criterion is dark until that migration lands, the
+// same stand-in `src/ingest.ts`'s `judgeAll` uses.
 type ExplainedRow = Pick<Posting, (typeof ROW_COLUMNS)[number]>;
 
 // The columns `representativeByKey` needs across every posting in the
@@ -57,7 +61,6 @@ const REPRESENTATIVE_COLUMNS = [
   "location",
   "title",
   "first_seen",
-  "last_seen",
 ] as const satisfies readonly (keyof Posting)[];
 
 type RepresentativeRow = Pick<Posting, (typeof REPRESENTATIVE_COLUMNS)[number]>;
@@ -110,13 +113,17 @@ export async function explainPosting(store: Store, key: string): Promise<Explain
     undefined,
     REPRESENTATIVE_COLUMNS,
   );
-  const representative = representativeByKey(postings, criteria, boards);
+  // `gone_at` stands in as null; see the comment on `ExplainedRow`.
+  const representative = representativeByKey(
+    postings.map((posting) => ({ ...posting, gone_at: null as string | null })),
+    criteria,
+  );
 
   const twoPhase = READERS[row.platform].body !== undefined;
   const judgedBody: JudgedBody = !twoPhase ? "listing" : row.body === null ? "absent" : "stored";
 
   const { kept, reasons } = fullJudgment(
-    row,
+    { ...row, gone_at: null },
     criteria,
     new Date().toISOString(),
     boards,

@@ -294,26 +294,23 @@ export function judgeAge(postedAt: string | null, criteria: Criteria, now: strin
 }
 
 // What the judging sweep knows about the boards it judges against, read
-// once from `companies` (`judgeAll`, ingest.ts). `lastRead` and `watched`
-// are keyed by `boardKey` and built from `watched`, undropped rows only;
-// `stateOf` carries every company by name, `dropped` the names with
-// `dropped_at` set. `NO_BOARDS` finds nothing gone.
+// once from `companies` (`judgeAll`, ingest.ts). `watched` is keyed by
+// `boardKey`, built from undropped, watched rows only; `stateOf` carries
+// every company by name, `dropped` the names with `dropped_at` set.
+// `NO_BOARDS` finds nothing unwatched.
 export interface BoardIndex {
-  readonly lastRead: ReadonlyMap<string, string>;
   readonly watched: ReadonlySet<string>;
   readonly stateOf: ReadonlyMap<string, Pick<Company, "state" | "alias_of">>;
   readonly dropped: ReadonlySet<string>;
 }
 
 export const NO_BOARDS: BoardIndex = {
-  lastRead: new Map(),
   watched: new Set(),
   stateOf: new Map(),
   dropped: new Set(),
 };
 
 export function boardIndex(companies: readonly Company[]): BoardIndex {
-  const lastRead = new Map<string, string>();
   const watched = new Set<string>();
   const stateOf = new Map<string, Pick<Company, "state" | "alias_of">>();
   const dropped = new Set<string>();
@@ -323,70 +320,33 @@ export function boardIndex(companies: readonly Company[]): BoardIndex {
     // A dropped company's boards are not read, so nothing asks after them.
     if (company.state !== "watched" || company.dropped_at !== null) continue;
     for (const board of company.boards) {
-      const key = boardKey(board);
-      watched.add(key);
-      if (board.last_read !== undefined) lastRead.set(key, board.last_read);
+      watched.add(boardKey(board));
     }
   }
-  return { lastRead, watched, stateOf, dropped };
+  return { watched, stateOf, dropped };
 }
 
-// The board's `last_read`, or null for a posting with no board or a board
-// with no recorded read.
-function lastReadOf(
-  posting: Pick<Posting, "platform" | "board">,
-  boards: BoardIndex,
-): string | null {
-  if (posting.board === null) return null;
-  return boards.lastRead.get(boardKey({ platform: posting.platform, id: posting.board })) ?? null;
+// `gone_at` is not yet a `Posting` column (its migration is Task 3 of the
+// gone_at plan); stated inline here rather than through `Pick<Posting,
+// "gone_at">` until it lands.
+type GoneAtColumn = { readonly gone_at: string | null };
+
+// True once a posting is on record as gone: `gone_at` is set the first time
+// a board's successful read no longer lists it (`listCompany`, ingest.ts),
+// and cleared the first time a later read lists it again. `judge.ts` reads
+// this for the duplicate representative, so the two agree.
+export function goneBy(posting: GoneAtColumn): boolean {
+  return posting.gone_at !== null;
 }
 
-// True when the board has been read since the posting was last seen: the
-// board listed without it. Both values are `toISOString()` output (the
-// store's timestamptz parser, postgres.ts; `now()` in ingest.ts), so the
-// string comparison is chronological. `judge.ts` reads this for the
-// re-judge trigger and the duplicate representative, so the two agree.
-export function goneBy(
-  posting: Pick<Posting, "platform" | "board" | "last_seen">,
-  boards: BoardIndex,
-): boolean {
-  const lastRead = lastReadOf(posting, boards);
-  return lastRead !== null && posting.last_seen < lastRead;
-}
-
-// True when the board has been read and the posting was seen at that read:
-// the board listed it. Not `goneBy`'s negation: a board with no read on
-// record is neither, and says nothing about the posting. `judge.ts` reads
-// this for the gone re-judge trigger's reverse arm, so a watched board
-// whose read failed never pulls its gone-out rows back in.
-export function listedBy(
-  posting: Pick<Posting, "platform" | "board" | "last_seen">,
-  boards: BoardIndex,
-): boolean {
-  const lastRead = lastReadOf(posting, boards);
-  return lastRead !== null && posting.last_seen >= lastRead;
-}
-
-function judgeGone(
-  posting: Pick<Posting, "platform" | "board" | "last_seen">,
-  boards: BoardIndex,
-): Reason {
-  const lastRead = lastReadOf(posting, boards);
-  if (lastRead === null) {
-    return { criterion: "gone", verdict: "in", detail: "board has no recorded read" };
-  }
-  const lastReadDay = lastRead.slice(0, 10);
-  if (goneBy(posting, boards)) {
-    return {
-      criterion: "gone",
-      verdict: "out",
-      detail: `last seen ${posting.last_seen.slice(0, 10)}, board read ${lastReadDay} without it`,
-    };
+function judgeGone(posting: GoneAtColumn): Reason {
+  if (posting.gone_at === null) {
+    return { criterion: "gone", verdict: "in", detail: "listed at the board's last read" };
   }
   return {
     criterion: "gone",
-    verdict: "in",
-    detail: `listed at the board's last read ${lastReadDay}`,
+    verdict: "out",
+    detail: `gone since ${posting.gone_at.slice(0, 10)}`,
   };
 }
 
@@ -542,16 +502,9 @@ function judgeDuplicate(
 export function judgeListing(
   posting: Pick<
     Posting,
-    | "key"
-    | "company"
-    | "platform"
-    | "board"
-    | "title"
-    | "location"
-    | "comp_high"
-    | "posted_at"
-    | "last_seen"
-  >,
+    "key" | "company" | "platform" | "board" | "title" | "location" | "comp_high" | "posted_at"
+  > &
+    GoneAtColumn,
   criteria: Criteria,
   now: string = new Date().toISOString(),
   boards: BoardIndex = NO_BOARDS,
@@ -566,7 +519,7 @@ export function judgeListing(
     judgeCountry(posting.location, criteria),
     judgeCompFloor(posting, criteria),
     judgeAge(posting.posted_at, criteria, now),
-    judgeGone(posting, boards),
+    judgeGone(posting),
     judgeUnwatched(posting, boards),
     judgeDuplicate(posting, criteria, representativeByKey),
   ];

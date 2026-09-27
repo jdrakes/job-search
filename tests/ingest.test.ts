@@ -2732,6 +2732,9 @@ test("ingest: the judging pass reads every posting without its body", async () =
     "kept",
     "reasons",
     "status",
+    // Not yet a schema column; requested beside the rest until its
+    // migration lands (see the comment on `JudgingRow`, ingest.ts).
+    "gone_at",
   ]);
   assert.deepEqual(
     selects.filter((call) => call.table === "postings" && call.eq !== undefined),
@@ -2997,86 +3000,83 @@ test("judgeAll: a kept posting that has aged past the max is re-judged; one stil
   assert.deepEqual(recent?.evidence, {}, "a posting still within the max age is left alone");
 });
 
-// A kept posting whose board has been read since it was last seen was
-// listed without it; a posting seen at or after the read is untouched.
-test("judgeAll: a kept posting last seen before its board's last read is dropped as gone; the others are untouched", async () => {
-  const seenOn = (key: string, day: string): Posting =>
+// A kept posting a board's read marked gone (`gone_at` set, `judged_with`
+// cleared by `listCompany`) is re-judged out; a posting `judged_with`
+// stays untouched for is left alone.
+test("judgeAll: a kept posting marked gone is dropped as gone; the others are untouched", async () => {
+  const seenOn = (key: string, judgedWith: string | null): Posting =>
     posting({
       key,
       company: "Acme",
       title: "Staff Backend Engineer",
       comp_high: 250_000,
-      last_seen: `${day}T06:00:00.000Z`,
       kept: true,
-      judged_with: "2026-09-14T00:00:00Z",
+      judged_with: judgedWith,
     });
-  const store = memoryStore({
-    companies: [
-      company("Acme", {
-        boards: [{ platform: "greenhouse", id: "board", last_read: "2026-09-16T06:00:00.000Z" }],
-      }),
-    ],
-    postings: [
-      seenOn("Acme::oldest", "2026-09-15"),
-      seenOn("Acme::middle", "2026-09-16"),
-      seenOn("Acme::latest", "2026-09-17"),
-    ],
-    criteria: [criteria({ updated_at: "2026-09-14T00:00:00Z" })],
-  });
+  const { store } = withGoneAt(
+    memoryStore({
+      companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "board" }] })],
+      postings: [
+        seenOn("Acme::gone", null),
+        seenOn("Acme::middle", "2026-09-14T00:00:00Z"),
+        seenOn("Acme::latest", "2026-09-14T00:00:00Z"),
+      ],
+      criteria: [criteria({ updated_at: "2026-09-14T00:00:00Z" })],
+    }),
+    { "Acme::gone": "2026-09-17T06:00:00.000Z", "Acme::middle": null, "Acme::latest": null },
+  );
 
   const judging = await judgeAll(store, {});
 
-  assert.equal(judging.judged, 1, "only the posting unseen since the board's read is re-judged");
-  const [oldest] = await store.select<Posting>("postings", { key: "Acme::oldest" });
-  assert.equal(oldest?.kept, false);
-  assert.deepEqual(oldest?.reasons, ["gone"]);
+  assert.equal(judging.judged, 1, "only the row judged_with was cleared for is re-judged");
+  const [gone] = await store.select<Posting>("postings", { key: "Acme::gone" });
+  assert.equal(gone?.kept, false);
+  assert.deepEqual(gone?.reasons, ["gone"]);
   const [middle] = await store.select<Posting>("postings", { key: "Acme::middle" });
   assert.equal(middle?.kept, true);
-  assert.deepEqual(middle?.evidence, {}, "a posting seen at the board's read is left alone");
+  assert.deepEqual(middle?.evidence, {}, "a posting not re-judged is left alone");
   const [latest] = await store.select<Posting>("postings", { key: "Acme::latest" });
   assert.equal(latest?.kept, true);
   assert.deepEqual(latest?.evidence, {});
 });
 
-// Without the reverse trigger a posting its board lists again stays gone
-// until the next criteria edit.
-test("judgeAll: a posting judged gone on one run and listed again on the next is judged back in", async () => {
-  const seenOn = (key: string, day: string): Posting =>
+// Without the staleness trigger (`judged_with` cleared, `listCompany`'s job
+// once it clears `gone_at`) a posting stays gone until the next criteria
+// edit.
+test("judgeAll: a posting judged gone on one run and marked back by the next read is judged back in", async () => {
+  const kept = (key: string, judgedWith: string | null): Posting =>
     posting({
       key,
       company: "Acme",
       title: "Staff Backend Engineer",
       comp_high: 250_000,
-      last_seen: `${day}T06:00:00.000Z`,
       body: "This is a fully remote position open to candidates anywhere in the US.",
       kept: true,
-      judged_with: "2026-09-14T00:00:00Z",
+      judged_with: judgedWith,
     });
-  // Dropped on its level two runs back: the row a fresh `last_seen` must
-  // not pull back in.
+  // Dropped on its level two runs back: a cleared `judged_with` alone must
+  // not pull it back in.
   const levelOut = posting({
     key: "Acme::junior",
     company: "Acme",
     title: "Backend Engineer",
-    last_seen: "2026-09-16T06:00:00.000Z",
     kept: false,
     reasons: ["level"],
     evidence: {},
     judged_with: "2026-09-14T00:00:00Z",
   });
-  const store = memoryStore({
-    companies: [
-      company("Acme", {
-        boards: [{ platform: "greenhouse", id: "board", last_read: "2026-09-16T06:00:00.000Z" }],
-      }),
-    ],
-    postings: [
-      seenOn("Acme::lapsed", "2026-09-15"),
-      seenOn("Acme::steady", "2026-09-17"),
-      levelOut,
-    ],
-    criteria: [criteria({ updated_at: "2026-09-14T00:00:00Z" })],
-  });
+  const { store } = withGoneAt(
+    memoryStore({
+      companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "board" }] })],
+      postings: [
+        kept("Acme::lapsed", null),
+        kept("Acme::steady", "2026-09-14T00:00:00Z"),
+        levelOut,
+      ],
+      criteria: [criteria({ updated_at: "2026-09-14T00:00:00Z" })],
+    }),
+    { "Acme::lapsed": "2026-09-17T06:00:00.000Z", "Acme::steady": null },
+  );
 
   const firstRun = await judgeAll(store, {});
   assert.equal(firstRun.judged, 1);
@@ -3084,44 +3084,37 @@ test("judgeAll: a posting judged gone on one run and listed again on the next is
   assert.equal(gone?.kept, false);
   assert.deepEqual(gone?.reasons, ["gone"]);
 
-  // The partial rows `ingest` writes on a re-list, and the board read it
-  // records once they land.
+  // The next read lists it again: `listCompany` (ingest.ts) clears
+  // `gone_at` and `judged_with` together, in one upsert.
   await store.upsert("postings", [
-    { key: "Acme::lapsed", company: "Acme", last_seen: "2026-09-18T06:00:01.000Z" },
-    { key: "Acme::steady", company: "Acme", last_seen: "2026-09-18T06:00:01.000Z" },
-  ]);
-  await store.upsert("companies", [
-    company("Acme", {
-      boards: [{ platform: "greenhouse", id: "board", last_read: "2026-09-18T06:00:00.000Z" }],
-    }),
+    { key: "Acme::lapsed", company: "Acme", judged_with: null, gone_at: null },
   ]);
 
   const secondRun = await judgeAll(store, {});
   assert.equal(secondRun.judged, 1, "only the re-listed gone posting is judged again");
   const [back] = await store.select<Posting>("postings", { key: "Acme::lapsed" });
   assert.equal(back?.kept, true);
-  assert.equal(back?.evidence["gone"], "listed at the board's last read 2026-09-18");
+  assert.equal(back?.evidence["gone"], "listed at the board's last read");
   const [steady] = await store.select<Posting>("postings", { key: "Acme::steady" });
-  assert.deepEqual(steady?.evidence, {}, "a kept posting seen every run is never re-judged");
+  assert.deepEqual(steady?.evidence, {}, "a posting not re-judged is left alone");
   const [junior] = await store.select<Posting>("postings", { key: "Acme::junior" });
   assert.equal(junior?.kept, false, "a posting dropped on another criterion stays dropped");
 });
 
-test("judgeAll: a board with no recorded read marks nothing gone", async () => {
-  const seenLongAgo = (key: string): Posting =>
+test("judgeAll: a posting never marked gone stays kept once re-judged for another reason", async () => {
+  const stale = (key: string): Posting =>
     posting({
       key,
       company: "Acme",
       title: "Staff Backend Engineer",
       comp_high: 250_000,
-      last_seen: "2020-01-01T00:00:00.000Z",
       body: "This is a fully remote position open to candidates anywhere in the US.",
       kept: true,
       judged_with: "2026-09-01T00:00:00Z", // stale, so this run still judges it
     });
   const store = memoryStore({
     companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "board" }] })],
-    postings: [seenLongAgo("Acme::a"), seenLongAgo("Acme::b")],
+    postings: [stale("Acme::a"), stale("Acme::b")],
     criteria: [criteria({ updated_at: "2026-09-14T00:00:00Z" })],
   });
 
@@ -3130,7 +3123,7 @@ test("judgeAll: a board with no recorded read marks nothing gone", async () => {
   assert.equal(judging.judged, 2);
   const [a] = await store.select<Posting>("postings", { key: "Acme::a" });
   assert.equal(a?.kept, true);
-  assert.equal(a?.evidence["gone"], "board has no recorded read");
+  assert.equal(a?.evidence["gone"], "listed at the board's last read");
 });
 
 // A gone-out row's board with no read on record: the morning's read failed,
@@ -3166,30 +3159,42 @@ test("judgeAll: a gone posting on a watched board with no recorded read stays go
   assert.deepEqual(a?.reasons, ["gone"]);
 });
 
-test("judgeAll: a gone posting whose board was removed from its company is judged out unwatched once, then left alone", async () => {
+// The gone-reverse branch that used to fold `unwatchedBy` in as a fallback
+// trigger for a gone-out row is retired (Ruling 2, the gone_at plan): a
+// dropped board no longer pulls a gone-out row back in for a fresh
+// unwatched verdict on its own.
+test("judgeAll: a gone posting whose board was removed from its company is left alone", async () => {
   const store = memoryStore({
     companies: [company("Acme", { boards: [] })],
     postings: [goneOut("Acme::a")],
     criteria: [criteria({ updated_at: "2026-09-14T00:00:00Z" })],
   });
 
-  const firstRun = await judgeAll(store, {});
-  assert.equal(firstRun.judged, 1);
+  const judging = await judgeAll(store, {});
+
+  assert.equal(judging.judged, 0, "nothing triggers a re-judge for an already-gone, unstale row");
   const [a] = await store.select<Posting>("postings", { key: "Acme::a" });
   assert.equal(a?.kept, false);
-  assert.deepEqual(a?.reasons, ["unwatched"]);
-
-  const secondRun = await judgeAll(store, {});
-  assert.equal(secondRun.judged, 0, "the unwatched verdict holds without another judging");
+  assert.deepEqual(
+    a?.reasons,
+    ["gone"],
+    "the stored gone reason stands, not replaced by unwatched",
+  );
 });
 
 // One run, no grace: a board read without a posting judges it gone that
 // run, and a board whose read fails judges nothing.
 test("ingest then judgeAll: a posting the board stops listing is gone after one run; a failed read moves nothing", async () => {
-  const store = memoryStore({
-    companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "acme-gh" }] })],
-    criteria: [criteria()],
-  });
+  // `gone_at` is not yet a schema column, so the memory store cannot round
+  // trip what `ingest`'s real gone-marking write path sets; wrapped here so
+  // `judgeAll`'s select reads it back, the same as `withGoneAt`'s own tests.
+  const { store } = withGoneAt(
+    memoryStore({
+      companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "acme-gh" }] })],
+      criteria: [criteria()],
+    }),
+    {},
+  );
   const kept = (id: string): Listing =>
     listing(id, {
       title: "Staff Backend Engineer",
@@ -3339,12 +3344,7 @@ test("judgeAll: the six-title Pragmatike shape keeps two and marks four out as d
 // reason survives one run where nothing moves, then clears once
 // `Pragmatike::1` falls behind.
 test("judgeAll: a duplicate-out row is judged in once its representative twin goes gone", async () => {
-  const pragmatike = (
-    key: string,
-    title: string,
-    lastSeenDay: string,
-    extra: Partial<Posting>,
-  ): Posting =>
+  const pragmatike = (key: string, title: string, extra: Partial<Posting>): Posting =>
     posting({
       key,
       company: "Pragmatike",
@@ -3354,53 +3354,50 @@ test("judgeAll: a duplicate-out row is judged in once its representative twin go
       location: "San Francisco",
       comp_high: 400_000,
       posted_at: "2026-08-14",
-      last_seen: `${lastSeenDay}T00:00:00Z`,
       body: "This is a fully remote position open to candidates anywhere in the US.",
       judged_with: "2026-09-14T00:00:00Z",
       ...extra,
     });
   // The representative: the later `first_seen`.
-  const representative = pragmatike(
-    "Pragmatike::1",
-    "Staff Founding Product Engineer",
-    "2026-09-16",
-    {
-      first_seen: "2026-08-15T00:00:00.000Z",
-      kept: true,
-      reasons: [],
-      evidence: {},
-    },
-  );
+  const representative = pragmatike("Pragmatike::1", "Staff Founding Product Engineer", {
+    first_seen: "2026-08-15T00:00:00.000Z",
+    kept: true,
+    reasons: [],
+    evidence: {},
+  });
   // The duplicate: represents the key only once the row above is gone.
-  const duplicate = pragmatike("Pragmatike::2", "Lead Product Engineer", "2026-09-16", {
+  const duplicate = pragmatike("Pragmatike::2", "Lead Product Engineer", {
     first_seen: "2026-08-14T00:00:00.000Z",
     kept: false,
     reasons: ["duplicate"],
     evidence: {},
   });
-  const pragmatikeBoard = (lastRead: string): Company =>
-    company("Pragmatike", {
-      boards: [{ platform: "ashby", id: "pragmatike", last_read: lastRead }],
-    });
-  const store = memoryStore({
-    companies: [pragmatikeBoard("2026-09-16T00:00:00Z")],
-    postings: [representative, duplicate],
-    criteria: [criteria({ role_words: ["product"], updated_at: "2026-09-14T00:00:00Z" })],
-  });
+  const { store } = withGoneAt(
+    memoryStore({
+      companies: [company("Pragmatike", { boards: [{ platform: "ashby", id: "pragmatike" }] })],
+      postings: [representative, duplicate],
+      criteria: [criteria({ role_words: ["product"], updated_at: "2026-09-14T00:00:00Z" })],
+    }),
+    { "Pragmatike::1": null, "Pragmatike::2": null },
+  );
 
   const firstRun = await judgeAll(store, {});
-  assert.equal(firstRun.judged, 0, "the representative row was seen at the board's last read");
+  assert.equal(firstRun.judged, 0, "neither row is stale or gone");
   const [stillRepresentative] = await store.select<Posting>("postings", { key: "Pragmatike::1" });
   assert.equal(stillRepresentative?.kept, true);
   const [stillDuplicate] = await store.select<Posting>("postings", { key: "Pragmatike::2" });
   assert.equal(stillDuplicate?.kept, false);
 
-  // The board is read again and lists the duplicate but not the
-  // representative: the shape `goneBy` reads as gone.
+  // The next read marks the representative gone: `listCompany` (ingest.ts)
+  // sets `gone_at` and clears `judged_with` together, in one upsert.
   await store.upsert("postings", [
-    { key: "Pragmatike::2", company: "Pragmatike", last_seen: "2026-09-18T00:00:01Z" },
+    {
+      key: "Pragmatike::1",
+      company: "Pragmatike",
+      judged_with: null,
+      gone_at: "2026-09-18T00:00:00Z",
+    },
   ]);
-  await store.upsert("companies", [pragmatikeBoard("2026-09-18T00:00:00Z")]);
 
   await judgeAll(store, {});
   const [gone] = await store.select<Posting>("postings", { key: "Pragmatike::1" });

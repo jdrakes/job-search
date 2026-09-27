@@ -37,9 +37,6 @@ function posting(overrides: Partial<Posting> & Pick<Posting, "key" | "company">)
     comp_high: 250_000,
     posted_at: null,
     first_seen: "2020-01-01T00:00:00.000Z",
-    // Matches the fixture company's board `last_read` below, so the `gone`
-    // criterion reads "in": a `last_seen` before the last read would read
-    // this posting as dropped from a board that has since been checked.
     last_seen: "2026-09-16T06:00:00.000Z",
     live: null,
     body: "This is a fully remote position.",
@@ -87,7 +84,10 @@ test("explainPosting: returns the same Reason[] a direct fullJudgment call reach
   if (!result.ok) return;
 
   const boards = boardIndex([testCompany]);
-  const direct = fullJudgment(row, testCriteria, undefined, boards);
+  // `gone_at` is not yet a `Posting` column, and `explainPosting` stands it
+  // in as null (see its `ExplainedRow` comment); matched here so this
+  // direct call judges the same posting.
+  const direct = fullJudgment({ ...row, gone_at: null }, testCriteria, undefined, boards);
   // `fullJudgment` also takes `representativeByKey`, computed by
   // `explainPosting` from every posting in the store; with one posting on
   // file it maps this row to itself, which does not change the verdict

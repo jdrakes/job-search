@@ -110,7 +110,9 @@ export async function clearUnreadBodies(store: Store): Promise<ClearResult> {
         location: row.location,
         comp_high: row.comp_high,
         posted_at: row.posted_at,
-        last_seen: row.last_seen,
+        // Not selected below (not yet a schema column); `NO_BOARDS` already
+        // read every posting as not gone here, same as `gone_at: null` does.
+        gone_at: null,
       },
       criteria,
       now,

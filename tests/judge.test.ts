@@ -24,7 +24,12 @@ function criteria(overrides: Partial<Criteria> = {}): Criteria {
   };
 }
 
-function posting(overrides: Partial<Posting> = {}): Posting {
+// `gone_at` is not yet a `Posting` column (it lands with the gone_at
+// migration), so it is carried here as an ad hoc extra field, the same way
+// `listing.ts`'s `GoneAtColumn` stands in for it.
+function posting(
+  overrides: Partial<Posting> & { readonly gone_at?: string | null } = {},
+): Posting & { readonly gone_at: string | null } {
   return {
     key: "acme::1",
     company: "Acme",
@@ -50,6 +55,7 @@ function posting(overrides: Partial<Posting> = {}): Posting {
     note: null,
     body_hash: null,
     workplace: null,
+    gone_at: null,
     ...overrides,
   };
 }
@@ -74,11 +80,6 @@ const READ_ON_16TH = boardIndex([
   company("Acme", {
     boards: [{ platform: "greenhouse", id: "board", last_read: "2026-09-16T06:00:00.000Z" }],
   }),
-]);
-
-// The same board, never read.
-const NEVER_READ = boardIndex([
-  company("Acme", { boards: [{ platform: "greenhouse", id: "board" }] }),
 ]);
 
 test("fullJudgment: text criteria are not consulted for a posting the listing criteria dropped", () => {
@@ -243,7 +244,7 @@ test("judge: a posting out but acted on keeps the evidence of every criterion th
     country: "posting names no location",
     comp_floor: "comp_high 90000 is below the floor 120000",
     age: "no max age set",
-    gone: "board has no recorded read",
+    gone: "listed at the board's last read",
     unwatched: "company not on record",
     duplicate: "no later, level-admitted posting shares its board, date, band, place and title",
   });
@@ -425,102 +426,17 @@ test("needsJudging: a kept posting the board gave no date for never ages out", (
   );
 });
 
-test("needsJudging: a kept posting last seen before its board's last read needs judging again", () => {
-  const behind = posting({
-    judged_with: "2026-09-14T00:00:00Z",
+// The gone criterion has no check of its own in `needsJudging` any more:
+// `listCompany` (ingest.ts) already sets `judged_with: null` on every row
+// whose `gone_at` changes, gone or returned, so this is caught by the
+// staleness check alone, the same as any other stored verdict gone stale.
+test("needsJudging: a kept posting with gone_at newly set and judged_with cleared is re-judged", () => {
+  const justMarkedGone = posting({
+    judged_with: null,
     kept: true,
-    last_seen: "2026-09-15T06:00:00.000Z",
+    gone_at: "2026-09-17T06:00:00.000Z",
   });
-  assert.equal(needsJudging(behind, criteria(), "2026-09-17T00:00:00Z", READ_ON_16TH), true);
-});
-
-test("needsJudging: a kept posting last seen at its board's last read does not need judging again", () => {
-  const current = posting({
-    judged_with: "2026-09-14T00:00:00Z",
-    kept: true,
-    last_seen: "2026-09-16T06:00:00.000Z",
-  });
-  assert.equal(needsJudging(current, criteria(), "2026-09-17T00:00:00Z", READ_ON_16TH), false);
-});
-
-test("needsJudging: a kept posting on a board with no recorded read does not need judging, however old last_seen", () => {
-  const unread = posting({
-    judged_with: "2026-09-14T00:00:00Z",
-    kept: true,
-    last_seen: "2020-01-01T00:00:00.000Z",
-  });
-  assert.equal(needsJudging(unread, criteria(), "2026-09-17T00:00:00Z", NEVER_READ), false);
-  assert.equal(needsJudging(unread, criteria(), "2026-09-17T00:00:00Z", NO_BOARDS), false);
-});
-
-test("needsJudging: a dropped posting last seen before its board's last read does not need judging again", () => {
-  const dropped = posting({
-    judged_with: "2026-09-14T00:00:00Z",
-    kept: false,
-    last_seen: "2026-09-15T06:00:00.000Z",
-  });
-  assert.equal(needsJudging(dropped, criteria(), "2026-09-17T00:00:00Z", READ_ON_16TH), false);
-});
-
-// Only its stored gone-out reason marks a re-listed posting out from the
-// rest of the dropped set.
-const GONE_OUT = "gone";
-
-test("needsJudging: a gone posting listed again at or after the board's last read needs judging again", () => {
-  const relisted = posting({
-    judged_with: "2026-09-14T00:00:00Z",
-    kept: false,
-    reasons: [GONE_OUT],
-    last_seen: "2026-09-16T06:00:00.000Z",
-  });
-  assert.equal(needsJudging(relisted, criteria(), "2026-09-17T00:00:00Z", READ_ON_16TH), true);
-});
-
-test("needsJudging: a gone posting still unseen since the board's last read does not need judging again", () => {
-  const stillGone = posting({
-    judged_with: "2026-09-14T00:00:00Z",
-    kept: false,
-    reasons: [GONE_OUT],
-    last_seen: "2026-09-13T06:00:00.000Z",
-  });
-  assert.equal(needsJudging(stillGone, criteria(), "2026-09-17T00:00:00Z", READ_ON_16TH), false);
-});
-
-// A board with no read on record says nothing about any posting: a read
-// that failed this morning must not pull the board's gone-out rows back
-// into the queue.
-test("needsJudging: a gone posting on a board with no recorded read does not need judging again", () => {
-  const stillGone = posting({
-    judged_with: "2026-09-14T00:00:00Z",
-    kept: false,
-    reasons: [GONE_OUT],
-    last_seen: "2026-09-13T06:00:00.000Z",
-  });
-  assert.equal(needsJudging(stillGone, criteria(), "2026-09-17T00:00:00Z", NEVER_READ), false);
-  assert.equal(needsJudging(stillGone, criteria(), "2026-09-17T00:00:00Z", NO_BOARDS), false);
-});
-
-// A removed board has no read on record either, but it is not a failed
-// read: the row is judged once more so its reason reads unwatched.
-test("needsJudging: a gone posting whose board was removed from its watched company needs judging again", () => {
-  const orphaned = posting({
-    judged_with: "2026-09-14T00:00:00Z",
-    kept: false,
-    reasons: [GONE_OUT],
-    last_seen: "2026-09-13T06:00:00.000Z",
-  });
-  const boardRemoved = boardIndex([company("Acme", { boards: [] })]);
-  assert.equal(needsJudging(orphaned, criteria(), "2026-09-17T00:00:00Z", boardRemoved), true);
-});
-
-test("needsJudging: a posting dropped on another criterion is not re-judged for a fresh last_seen", () => {
-  const levelOut = posting({
-    judged_with: "2026-09-14T00:00:00Z",
-    kept: false,
-    reasons: ["level"],
-    last_seen: "2026-09-17T06:00:00.000Z",
-  });
-  assert.equal(needsJudging(levelOut, criteria(), "2026-09-17T00:00:00Z", READ_ON_16TH), false);
+  assert.equal(needsJudging(justMarkedGone, criteria(), "2026-09-17T00:00:00Z"), true);
 });
 
 test("needsJudging: a kept posting whose company is now an alias needs judging again", () => {
@@ -713,36 +629,15 @@ test("representativeByKey: a gone representative is skipped, so the next latest 
     title: "Staff Product Engineer",
     posted_at: "2026-08-14",
     first_seen: "2026-08-15T00:00:00.000Z",
-    last_seen: "2026-09-15T06:00:00.000Z",
+    gone_at: "2026-09-16T06:00:00.000Z",
   });
   const earlierStillHere = posting({
     key: "acme::2",
     title: "Lead Product Engineer",
     posted_at: "2026-08-14",
     first_seen: "2026-08-14T00:00:00.000Z",
-    last_seen: "2026-09-16T06:00:00.000Z",
   });
-  const map = representativeByKey([latestButGone, earlierStillHere], criteria(), READ_ON_16TH);
+  const map = representativeByKey([latestButGone, earlierStillHere], criteria());
   assert.equal(map.size, 1);
   assert.equal([...map.values()][0], "acme::2");
-});
-
-test("representativeByKey: a board with no recorded read skips nothing", () => {
-  const latest = posting({
-    key: "acme::1",
-    title: "Staff Product Engineer",
-    posted_at: "2026-08-14",
-    first_seen: "2026-08-15T00:00:00.000Z",
-    last_seen: "2020-01-01T00:00:00.000Z",
-  });
-  const earlier = posting({
-    key: "acme::2",
-    title: "Lead Product Engineer",
-    posted_at: "2026-08-14",
-    first_seen: "2026-08-14T00:00:00.000Z",
-    last_seen: "2026-09-16T06:00:00.000Z",
-  });
-  const map = representativeByKey([latest, earlier], criteria(), NEVER_READ);
-  assert.equal(map.size, 1);
-  assert.equal([...map.values()][0], "acme::1");
 });

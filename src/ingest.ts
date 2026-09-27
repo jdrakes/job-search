@@ -163,7 +163,8 @@ function toRow(
     workplaceScored ||
     criteria === undefined ||
     judgeListing(
-      { ...fields, comp_high: row.comp_high ?? null },
+      // A listing just read this run: not gone by definition.
+      { ...fields, comp_high: row.comp_high ?? null, gone_at: null },
       criteria,
       timestamp,
       NO_BOARDS,
@@ -205,21 +206,33 @@ const JUDGING_COLUMNS = [
   "comp_high",
   "comp_low",
   "workplace",
-  // Read by the gone criterion against the board's `last_read`.
+  // Carried back into every upsert unchanged: the column is NOT NULL with
+  // no default, so Postgres's ON CONFLICT tuple needs a value even though
+  // the row already has one.
   "last_seen",
   // Every row in the sweep can be a key's representative.
   "first_seen",
   "judged_with",
-  // `needsJudging` reads both: the age verdict moves with time only for a
-  // kept posting, and a gone-dropped posting listed again is told apart by
-  // its stored reason.
+  // `needsJudging` reads it: the age verdict moves with time only for a
+  // kept posting.
   "kept",
   "reasons",
   // Read by `judge()` to decide age alone for a posting not acted on.
   "status",
 ] as const satisfies readonly (keyof Posting)[];
 
-type JudgingRow = Pick<Posting, (typeof JUDGING_COLUMNS)[number]>;
+// `gone_at` is not yet a `Posting` column (it lands with the gone_at
+// migration), so it is requested here beside `JUDGING_COLUMNS` rather than
+// through it, the same way `storedListings` reads it. Against Postgres this
+// select fails until that migration adds the column, the same caveat
+// `storedListings` carries. `?? null` in `judgeAll` below covers the memory
+// store, which drops any column not in `TABLE_FIELDS` (`gone_at` among
+// them until its migration) and hands back `undefined` for it instead.
+const JUDGING_SELECT = [...JUDGING_COLUMNS, "gone_at"] as const;
+
+type JudgingRow = Pick<Posting, (typeof JUDGING_COLUMNS)[number]> & {
+  readonly gone_at?: string | null;
+};
 
 async function storedBody(store: Store, key: string): Promise<string | null> {
   const rows = await store.select<Pick<Posting, "body">>("postings", { key }, ["body"]);
@@ -280,16 +293,12 @@ async function writeVerdicts(store: Store, rows: readonly VerdictRow[]): Promise
 function wantsBody(
   posting: Pick<
     Posting,
-    | "key"
-    | "company"
-    | "platform"
-    | "board"
-    | "title"
-    | "location"
-    | "comp_high"
-    | "posted_at"
-    | "last_seen"
-  >,
+    "key" | "company" | "platform" | "board" | "title" | "location" | "comp_high" | "posted_at"
+  > & {
+    // Not yet selected by `JUDGING_COLUMNS` (the column lands with the
+    // gone_at migration); see the comment on that constant.
+    readonly gone_at: string | null;
+  },
   criteria: Criteria,
   now: string,
   reader: Reader | undefined,
@@ -318,7 +327,7 @@ export async function judgeAll(
 ): Promise<JudgeResult> {
   const now = options?.now ?? (() => new Date().toISOString());
   const errors: string[] = [];
-  const postings = await store.select<JudgingRow>("postings", undefined, JUDGING_COLUMNS);
+  const postings = await store.select<JudgingRow>("postings", undefined, JUDGING_SELECT);
   if (postings.length === 0) return { judged: 0, errors };
 
   const criteriaResult = await loadCriteria(store);
@@ -332,12 +341,14 @@ export async function judgeAll(
   // otherwise change them mid-sweep.
   const companies = await store.select<Company>("companies", undefined, COMPANY_FIELDS);
   const boards = boardIndex(companies);
-  const representative = representativeByKey(postings, criteria, boards);
+  // `?? null` covers the memory store; see the comment on `JudgingRow`.
+  const rowsForJudging = postings.map((row) => ({ ...row, gone_at: row.gone_at ?? null }));
+  const representative = representativeByKey(rowsForJudging, criteria);
 
   let judged = 0;
   let pending: VerdictRow[] = [];
 
-  for (const row of postings) {
+  for (const row of rowsForJudging) {
     // One clock reading per posting: two readings could pick a posting up
     // for aging out and then judge it as still within the max.
     const judgedAt = now();
