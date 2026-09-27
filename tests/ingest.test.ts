@@ -1702,7 +1702,11 @@ test("ingest: a two-phase detail stating its comp writes the stated band, not th
   assert.equal(row?.comp_high, 165_000);
 });
 
-test("judgeAll: a stored posting not acted on past the max age skips the body fetch on a two-phase board", async () => {
+// The listing criteria already refuse a posting past the max age, so
+// `wantsBody` never fetches its body; `judge()` alone makes the verdict
+// age-only. Breaks if `judge()` stops short-circuiting on age (the reasons
+// grow to the full sweep) or if `wantsBody` starts fetching (the reader fails).
+test("judgeAll: a stored posting not acted on past the max age is judged on age alone, with no body fetch", async () => {
   const { store, upserts } = recording(
     memoryStore({
       companies: [company("Acme", { boards: [{ platform: "workday", id: "acme-wd" }] })],
@@ -1750,6 +1754,7 @@ test("judgeAll: a stored posting not acted on past the max age skips the body fe
   );
 });
 
+// Breaks if `judge()`'s age-only short-circuit stops checking `status`.
 test("judgeAll: a stored posting acted on past the max age still runs the full judgment", async () => {
   const { store } = recording(
     memoryStore({
