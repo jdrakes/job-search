@@ -40,7 +40,6 @@ function company(name: string, overrides: Partial<Company> = {}): Company {
     source: null,
     reason: null,
     first_seen: "2026-09-15T00:00:00Z",
-    last_seen: "2026-09-15T00:00:00Z",
     dropped_at: null,
     alias_of: null,
     ...overrides,
@@ -61,8 +60,6 @@ function queued(companyName: string, id: string): Posting {
     comp_high: null,
     posted_at: null,
     first_seen: "2026-09-15T00:00:00Z",
-    last_seen: "2026-09-15T00:00:00Z",
-    live: null,
     body: null,
     kept: true,
     reasons: [],
@@ -74,6 +71,7 @@ function queued(companyName: string, id: string): Posting {
     note: null,
     body_hash: null,
     workplace: null,
+    gone_at: null,
   };
 }
 

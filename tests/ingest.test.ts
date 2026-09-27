@@ -67,7 +67,6 @@ function company(name: string, overrides: Partial<Company> = {}): Company {
     source: "test",
     reason: null,
     first_seen: "2026-09-15T00:00:00.000Z",
-    last_seen: "2026-09-15T00:00:00.000Z",
     dropped_at: null,
     alias_of: null,
     ...overrides,
@@ -122,8 +121,6 @@ function posting(overrides: Partial<Posting> & Pick<Posting, "key" | "company">)
     comp_high: null,
     posted_at: null,
     first_seen: "2020-01-01T00:00:00.000Z",
-    last_seen: "2020-01-01T00:00:00.000Z",
-    live: null,
     body: null,
     kept: null,
     reasons: [],
@@ -135,6 +132,7 @@ function posting(overrides: Partial<Posting> & Pick<Posting, "key" | "company">)
     note: null,
     body_hash: null,
     workplace: null,
+    gone_at: null,
     ...overrides,
   };
 }
@@ -380,7 +378,7 @@ test("ingest: a company with two boards loses only the dead one and stays watche
 });
 
 // Seconds from 06:00 on the day, one per call: the run's first reading is
-// the board's `last_read` and every later one is a row's `last_seen`.
+// the board's `last_read` and the `gone_at` of any posting it marks gone.
 function tickingClockFrom(day: string): () => string {
   let seconds = 0;
   return () => {
@@ -413,7 +411,7 @@ test("ingest: the board that listed carries the run's first clock reading as las
   ]);
 });
 
-test("ingest: every row a run records has last_seen at or after its board's last_read", async () => {
+test("ingest: every row a run lists is recorded not gone", async () => {
   const store = memoryStore({
     companies: [
       company("Acme", {
@@ -432,18 +430,15 @@ test("ingest: every row a run records has last_seen at or after its board's last
 
   await ingest(store, readers, { now: tickingClock() });
 
-  const [row] = await store.select<Company>("companies", { name: "Acme" });
-  const lastRead = new Map(row?.boards.map((board) => [board.platform, board.last_read]));
   const postings = await store.select<Posting>("postings");
-  assert.equal(postings.length, 3);
-  for (const posting of postings) {
-    const read = lastRead.get(posting.platform);
-    assert.ok(read !== undefined, `${posting.platform} board has a last_read`);
-    assert.ok(
-      posting.last_seen >= read,
-      `${posting.key}: last_seen ${posting.last_seen} is not before last_read ${read}`,
-    );
-  }
+  assert.deepEqual(
+    postings.map((posting) => [posting.key, posting.gone_at]),
+    [
+      ["greenhouse/acme-gh::1", null],
+      ["greenhouse/acme-gh::2", null],
+      ["lever/acme-lv::3", null],
+    ],
+  );
 });
 
 test("ingest: a board whose reader throws carries no last_read while its answering sibling does", async () => {
@@ -644,7 +639,7 @@ test("ingest: a board whose platform has no reader is an error line, not a crash
   assert.equal(result.recorded, 0);
 });
 
-test("ingest: a re-listed posting keeps its first_seen and updates last_seen and fields", async () => {
+test("ingest: a re-listed posting keeps its first_seen and updates its fields", async () => {
   const store = memoryStore({
     companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "acme-gh" }] })],
     postings: [
@@ -675,7 +670,6 @@ test("ingest: a re-listed posting keeps its first_seen and updates last_seen and
   const [row] = await store.select<Posting>("postings", { key: "greenhouse/acme-gh::123" });
   assert.ok(row);
   assert.equal(row?.first_seen, "2020-01-01T00:00:00.000Z");
-  assert.equal(row?.last_seen, "2026-09-15T12:00:00.000Z");
   assert.equal(row?.title, "New Title");
   // A listing that carries a comp still rewrites it, so a reader fix
   // corrects every stored posting on the next run.
@@ -745,7 +739,6 @@ test("ingest: a re-list omits first_seen, leaving it to the column default", asy
     "board",
     "company",
     "key",
-    "last_seen",
     "location",
     "platform",
     "posted_at",
@@ -1361,7 +1354,7 @@ test("ingest: a failed hash read logs an error and lists with every body written
     ) {
       if (
         table === "postings" &&
-        columns?.join(",") === "key,body_hash,comp_high,workplace,status,last_seen,gone_at"
+        columns?.join(",") === "key,body_hash,comp_high,workplace,status,gone_at"
       ) {
         throw new Error("column postings.body_hash does not exist");
       }
@@ -2480,8 +2473,8 @@ test("ingest: a two-phase posting with a stored body and no comp keeps null on r
     },
   };
 
-  // Before the stored posting's last_seen, so the board's fresh last_read
-  // does not judge it gone: this run is testing the re-judge, not gone.
+  // The stored key's `Acme` prefix is not this board's, so the empty read
+  // marks nothing gone: this run is testing the re-judge, not gone.
   await ingest(store, readers, { now: () => "2019-01-01T00:00:00.000Z" });
   const judging = await judgeAll(store, readers);
 
@@ -2726,15 +2719,12 @@ test("ingest: the judging pass reads every posting without its body", async () =
     "comp_high",
     "comp_low",
     "workplace",
-    "last_seen",
+    "gone_at",
     "first_seen",
     "judged_with",
     "kept",
     "reasons",
     "status",
-    // Not yet a schema column; requested beside the rest until its
-    // migration lands (see the comment on `JudgingRow`, ingest.ts).
-    "gone_at",
   ]);
   assert.deepEqual(
     selects.filter((call) => call.table === "postings" && call.eq !== undefined),
@@ -2772,8 +2762,8 @@ test("ingest: reads a stored body only for the postings the listing criteria kep
     },
   };
 
-  // Before the stored postings' last_seen, so the board's fresh last_read
-  // does not judge them gone: this run is testing the body select, not gone.
+  // The stored keys' `Acme` prefix is not this board's, so the empty read
+  // marks nothing gone: this run is testing the body select, not gone.
   await ingest(store, readers, { now: () => "2019-01-01T00:00:00.000Z" });
   const judging = await judgeAll(store, readers);
 
@@ -2787,7 +2777,7 @@ test("ingest: reads a stored body only for the postings the listing criteria kep
   );
 });
 
-test("ingest: the judging pass writes the verdict columns with key, company and last_seen, and a body only when it fetched one", async () => {
+test("ingest: the judging pass writes the verdict columns with key and company, and a body only when it fetched one", async () => {
   const { store, upserts } = recording(
     memoryStore({
       companies: [company("Acme", { boards: [{ platform: "workday", id: "acme-wd" }] })],
@@ -2828,7 +2818,6 @@ test("ingest: the judging pass writes the verdict columns with key, company and 
     "judged_with",
     "kept",
     "key",
-    "last_seen",
     "reasons",
   ]);
   assert.deepEqual(written.get("workday/acme-wd::swe1"), [
@@ -2840,7 +2829,6 @@ test("ingest: the judging pass writes the verdict columns with key, company and 
     "judged_with",
     "kept",
     "key",
-    "last_seen",
     "reasons",
     "workplace",
   ]);
@@ -3013,18 +3001,15 @@ test("judgeAll: a kept posting marked gone is dropped as gone; the others are un
       kept: true,
       judged_with: judgedWith,
     });
-  const { store } = withGoneAt(
-    memoryStore({
-      companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "board" }] })],
-      postings: [
-        seenOn("Acme::gone", null),
-        seenOn("Acme::middle", "2026-09-14T00:00:00Z"),
-        seenOn("Acme::latest", "2026-09-14T00:00:00Z"),
-      ],
-      criteria: [criteria({ updated_at: "2026-09-14T00:00:00Z" })],
-    }),
-    { "Acme::gone": "2026-09-17T06:00:00.000Z", "Acme::middle": null, "Acme::latest": null },
-  );
+  const store = memoryStore({
+    companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "board" }] })],
+    postings: [
+      { ...seenOn("Acme::gone", null), gone_at: "2026-09-17T06:00:00.000Z" },
+      seenOn("Acme::middle", "2026-09-14T00:00:00Z"),
+      seenOn("Acme::latest", "2026-09-14T00:00:00Z"),
+    ],
+    criteria: [criteria({ updated_at: "2026-09-14T00:00:00Z" })],
+  });
 
   const judging = await judgeAll(store, {});
 
@@ -3065,18 +3050,15 @@ test("judgeAll: a posting judged gone on one run and marked back by the next rea
     evidence: {},
     judged_with: "2026-09-14T00:00:00Z",
   });
-  const { store } = withGoneAt(
-    memoryStore({
-      companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "board" }] })],
-      postings: [
-        kept("Acme::lapsed", null),
-        kept("Acme::steady", "2026-09-14T00:00:00Z"),
-        levelOut,
-      ],
-      criteria: [criteria({ updated_at: "2026-09-14T00:00:00Z" })],
-    }),
-    { "Acme::lapsed": "2026-09-17T06:00:00.000Z", "Acme::steady": null },
-  );
+  const store = memoryStore({
+    companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "board" }] })],
+    postings: [
+      { ...kept("Acme::lapsed", null), gone_at: "2026-09-17T06:00:00.000Z" },
+      kept("Acme::steady", "2026-09-14T00:00:00Z"),
+      levelOut,
+    ],
+    criteria: [criteria({ updated_at: "2026-09-14T00:00:00Z" })],
+  });
 
   const firstRun = await judgeAll(store, {});
   assert.equal(firstRun.judged, 1);
@@ -3136,7 +3118,6 @@ const goneOut = (key: string, overrides: Partial<Posting> = {}): Posting =>
     title: "Staff Backend Engineer",
     comp_high: 250_000,
     body: "This is a fully remote position open to candidates anywhere in the US.",
-    last_seen: "2026-09-10T06:00:00.000Z",
     kept: false,
     reasons: ["gone"],
     evidence: {},
@@ -3185,16 +3166,10 @@ test("judgeAll: a gone posting whose board was removed from its company is left 
 // One run, no grace: a board read without a posting judges it gone that
 // run, and a board whose read fails judges nothing.
 test("ingest then judgeAll: a posting the board stops listing is gone after one run; a failed read moves nothing", async () => {
-  // `gone_at` is not yet a schema column, so the memory store cannot round
-  // trip what `ingest`'s real gone-marking write path sets; wrapped here so
-  // `judgeAll`'s select reads it back, the same as `withGoneAt`'s own tests.
-  const { store } = withGoneAt(
-    memoryStore({
-      companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "acme-gh" }] })],
-      criteria: [criteria()],
-    }),
-    {},
-  );
+  const store = memoryStore({
+    companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "acme-gh" }] })],
+    criteria: [criteria()],
+  });
   const kept = (id: string): Listing =>
     listing(id, {
       title: "Staff Backend Engineer",
@@ -3293,7 +3268,6 @@ test("judgeAll: the six-title Pragmatike shape keeps two and marks four out as d
       comp_high: 400_000,
       posted_at: "2026-08-14",
       first_seen: firstSeen,
-      last_seen: "2026-09-17T00:00:00.000Z",
       body: "This is a fully remote position open to candidates anywhere in the US.",
     });
   const store = memoryStore({
@@ -3372,14 +3346,11 @@ test("judgeAll: a duplicate-out row is judged in once its representative twin go
     reasons: ["duplicate"],
     evidence: {},
   });
-  const { store } = withGoneAt(
-    memoryStore({
-      companies: [company("Pragmatike", { boards: [{ platform: "ashby", id: "pragmatike" }] })],
-      postings: [representative, duplicate],
-      criteria: [criteria({ role_words: ["product"], updated_at: "2026-09-14T00:00:00Z" })],
-    }),
-    { "Pragmatike::1": null, "Pragmatike::2": null },
-  );
+  const store = memoryStore({
+    companies: [company("Pragmatike", { boards: [{ platform: "ashby", id: "pragmatike" }] })],
+    postings: [representative, duplicate],
+    criteria: [criteria({ role_words: ["product"], updated_at: "2026-09-14T00:00:00Z" })],
+  });
 
   const firstRun = await judgeAll(store, {});
   assert.equal(firstRun.judged, 0, "neither row is stale or gone");
@@ -3410,45 +3381,17 @@ test("judgeAll: a duplicate-out row is judged in once its representative twin go
   );
 });
 
-// `gone_at` is not among `TABLE_FIELDS` until its migration lands, so the
-// memory store drops it from every select. This keeps it beside the store:
-// seeded from the fixture, followed through every postings upsert, and
-// handed back on any select that asks for it. Goes once the column is in
-// `POSTING_FIELDS`.
-function withGoneAt(
-  inner: Store,
-  seed: Readonly<Record<string, string | null>>,
-): { store: Store; goneAt: (key: string) => string | null | undefined } {
-  const goneAt = new Map<string, string | null>(Object.entries(seed));
-  const store: Store = {
-    ...inner,
-    async select<T>(
-      table: Table,
-      eq?: Partial<Record<string, unknown>>,
-      columns?: readonly string[],
-    ) {
-      const rows = await inner.select<Record<string, unknown>>(table, eq, columns);
-      if (table !== "postings" || (columns !== undefined && !columns.includes("gone_at"))) {
-        return rows as T[];
-      }
-      return rows.map((row) => ({ ...row, gone_at: goneAt.get(String(row["key"])) ?? null }) as T);
-    },
-    async upsert(table, rows) {
-      if (table === "postings") {
-        for (const row of rows as readonly Record<string, unknown>[]) {
-          if ("gone_at" in row) goneAt.set(String(row["key"]), row["gone_at"] as string | null);
-        }
-      }
-      return inner.upsert(table, rows);
-    },
-  };
-  return { store, goneAt: (key) => goneAt.get(key) };
+// The stored `gone_at` of one posting, as the next run's reads see it.
+async function goneAtOf(store: Store, key: string): Promise<string | null | undefined> {
+  const [row] = await store.select<Pick<Posting, "gone_at">>("postings", { key }, ["gone_at"]);
+  return row?.gone_at;
 }
 
 const GONE_A = "greenhouse/acme-gh::a";
 const GONE_B = "greenhouse/acme-gh::b";
 
-function goneFixture(): Posting[] {
+// `b` starts with the given mark; `a` is never marked.
+function goneFixture(goneAtB: string | null = null): Posting[] {
   return ["a", "b"].map((id) =>
     posting({
       key: `greenhouse/acme-gh::${id}`,
@@ -3456,8 +3399,8 @@ function goneFixture(): Posting[] {
       platform: "greenhouse",
       board: "acme-gh",
       title: `Title ${id}`,
-      last_seen: "2026-09-10T00:00:00.000Z",
       judged_with: "2026-09-14T00:00:00Z",
+      gone_at: id === "b" ? goneAtB : null,
     }),
   );
 }
@@ -3471,36 +3414,37 @@ function listedPostingKeys(upserts: readonly UpsertCall[]): string[] {
 // Breaks if the vanished set is not computed per board, or the mark is not
 // stamped with the read's own clock reading.
 test("ingest: a stored posting its board's read no longer lists is marked gone at that read and re-judged", async () => {
-  const { store, goneAt } = withGoneAt(
-    memoryStore({ companies: [ACME], postings: goneFixture(), criteria: [criteria()] }),
-    { [GONE_A]: null, [GONE_B]: null },
-  );
+  const store = memoryStore({
+    companies: [ACME],
+    postings: goneFixture(),
+    criteria: [criteria()],
+  });
 
   const result = await ingest(store, oneBoard([listing("a")]), { now: tickingClock() });
 
   assert.deepEqual(result.errors, []);
-  assert.equal(goneAt(GONE_B), "2026-09-18T06:00:00.000Z", "the read's timestamp");
-  assert.equal(goneAt(GONE_A), null, "a listed posting is not marked");
+  assert.equal(await goneAtOf(store, GONE_B), "2026-09-18T06:00:00.000Z", "the read's timestamp");
+  assert.equal(await goneAtOf(store, GONE_A), null, "a listed posting is not marked");
   const [b] = await store.select<Posting>("postings", { key: GONE_B });
   assert.equal(b?.judged_with, null);
-  assert.equal(b?.last_seen, "2026-09-10T00:00:00.000Z", "last_seen is carried back, not moved");
   const [a] = await store.select<Posting>("postings", { key: GONE_A });
   assert.equal(a?.judged_with, "2026-09-14T00:00:00Z");
 });
 
 // Breaks if `toRow` stops clearing `gone_at` on a posting listed again.
 test("ingest: a posting marked gone on one run and listed again on the next is back, and re-judged", async () => {
-  const { store, goneAt } = withGoneAt(
-    memoryStore({ companies: [ACME], postings: goneFixture(), criteria: [criteria()] }),
-    { [GONE_A]: null, [GONE_B]: null },
-  );
+  const store = memoryStore({
+    companies: [ACME],
+    postings: goneFixture(),
+    criteria: [criteria()],
+  });
   let listings = [listing("a")];
   const readers: Partial<Record<Platform, Reader>> = {
     greenhouse: { platform: "greenhouse", list: async () => listings },
   };
 
   await ingest(store, readers, { now: tickingClockFrom("2026-09-18") });
-  assert.equal(goneAt(GONE_B), "2026-09-18T06:00:00.000Z");
+  assert.equal(await goneAtOf(store, GONE_B), "2026-09-18T06:00:00.000Z");
   await store.upsert("postings", [
     { key: GONE_B, company: "Acme", judged_with: "2026-09-18T07:00:00.000Z" },
   ]);
@@ -3509,7 +3453,7 @@ test("ingest: a posting marked gone on one run and listed again on the next is b
   const result = await ingest(store, readers, { now: tickingClockFrom("2026-09-19") });
 
   assert.deepEqual(result.errors, []);
-  assert.equal(goneAt(GONE_B), null);
+  assert.equal(await goneAtOf(store, GONE_B), null);
   const [b] = await store.select<Posting>("postings", { key: GONE_B });
   assert.equal(b?.judged_with, null, "a returning posting needs a fresh verdict");
 });
@@ -3527,12 +3471,9 @@ test("ingest: a returning posting whose band and body are unchanged still clears
     body,
     body_hash: hashOf(body),
     judged_with: "2026-09-14T00:00:00Z",
+    gone_at: "2026-09-12T00:00:00.000Z",
   });
-  const { store, upserts } = recording(
-    withGoneAt(memoryStore({ companies: [ACME], postings: [stored] }), {
-      [GONE_B]: "2026-09-12T00:00:00.000Z",
-    }).store,
-  );
+  const { store, upserts } = recording(memoryStore({ companies: [ACME], postings: [stored] }));
 
   await ingest(store, oneBoard([listing("b", { compHigh: 250_000, body })]), {
     now: () => "2026-09-18T06:00:00.000Z",
@@ -3550,25 +3491,21 @@ test("ingest: a returning posting whose band and body are unchanged still clears
 // Breaks if an already-marked posting is re-stamped: an unchanged fact is
 // no write.
 test("ingest: a posting already marked gone that the read still does not list gets no write", async () => {
-  const { store: goneStore, goneAt } = withGoneAt(
-    memoryStore({ companies: [ACME], postings: goneFixture() }),
-    { [GONE_A]: null, [GONE_B]: "2026-09-12T00:00:00.000Z" },
+  const { store, upserts } = recording(
+    memoryStore({ companies: [ACME], postings: goneFixture("2026-09-12T00:00:00.000Z") }),
   );
-  const { store, upserts } = recording(goneStore);
 
   await ingest(store, oneBoard([listing("a")]), { now: tickingClock() });
 
   assert.deepEqual(listedPostingKeys(upserts), [GONE_A]);
-  assert.equal(goneAt(GONE_B), "2026-09-12T00:00:00.000Z", "the first mark stands");
+  assert.equal(await goneAtOf(store, GONE_B), "2026-09-12T00:00:00.000Z", "the first mark stands");
 });
 
 // Breaks if the vanished set is computed for a board whose read failed.
 test("ingest: a board whose read fails marks none of its postings gone and clears no mark", async () => {
-  const { store: goneStore, goneAt } = withGoneAt(
-    memoryStore({ companies: [ACME], postings: goneFixture() }),
-    { [GONE_A]: null, [GONE_B]: "2026-09-12T00:00:00.000Z" },
+  const { store, upserts } = recording(
+    memoryStore({ companies: [ACME], postings: goneFixture("2026-09-12T00:00:00.000Z") }),
   );
-  const { store, upserts } = recording(goneStore);
   const readers: Partial<Record<Platform, Reader>> = {
     greenhouse: {
       platform: "greenhouse",
@@ -3582,6 +3519,6 @@ test("ingest: a board whose read fails marks none of its postings gone and clear
 
   assert.equal(result.errors.length, 1);
   assert.deepEqual(listedPostingKeys(upserts), []);
-  assert.equal(goneAt(GONE_A), null);
-  assert.equal(goneAt(GONE_B), "2026-09-12T00:00:00.000Z");
+  assert.equal(await goneAtOf(store, GONE_A), null);
+  assert.equal(await goneAtOf(store, GONE_B), "2026-09-12T00:00:00.000Z");
 });

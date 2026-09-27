@@ -24,7 +24,6 @@ function company(name: string, overrides: Partial<Company> = {}): Company {
     source: "test",
     reason: null,
     first_seen: "2026-09-15T00:00:00Z",
-    last_seen: "2026-09-15T00:00:00Z",
     dropped_at: null,
     alias_of: null,
     ...overrides,
@@ -75,24 +74,18 @@ test("seen: a board the company already carries is not duplicated", async () => 
 });
 
 test("seen: an alias stays an alias and gains nothing", async () => {
-  const store = memoryStore({
-    companies: [
-      company("Acme", {
-        state: "alias",
-        alias_of: "Acme Inc",
-        boards: [],
-        last_seen: "2026-01-01T00:00:00Z",
-      }),
-    ],
+  const alias = company("Acme", {
+    state: "alias",
+    alias_of: "Acme Inc",
+    boards: [],
   });
+  const store = memoryStore({ companies: [alias] });
 
   await seen(store, "Acme", "discovery", [{ platform: "greenhouse", id: "acme" }]);
 
   const [row] = await store.select<Company>("companies", { name: "Acme" });
-  assert.equal(row?.state, "alias");
-  assert.deepEqual(row?.boards, []);
-  // Even last_seen does not move.
-  assert.equal(row?.last_seen, "2026-01-01T00:00:00Z");
+  // No column moves at all.
+  assert.deepEqual(row, alias);
 });
 
 test("watched: returns only watched, undropped companies that carry at least one board", async () => {
@@ -118,7 +111,7 @@ test("watched: returns only watched, undropped companies that carry at least one
   );
 });
 
-test("seen: a dropped company's boards merge and last_seen moves; the drop stays as it was", async () => {
+test("seen: a dropped company's boards merge; the drop stays as it was", async () => {
   const store = memoryStore({
     companies: [
       company("Acme", {
@@ -126,7 +119,6 @@ test("seen: a dropped company's boards merge and last_seen moves; the drop stays
         boards: [{ platform: "greenhouse", id: "acme" }],
         dropped_at: "2026-09-18T12:17:00.000Z",
         reason: "no remote roles",
-        last_seen: "2026-01-01T00:00:00Z",
       }),
     ],
   });
@@ -139,7 +131,6 @@ test("seen: a dropped company's boards merge and last_seen moves; the drop stays
     { platform: "greenhouse", id: "acme" },
     { platform: "lever", id: "acme-inc" },
   ]);
-  assert.notEqual(row?.last_seen, "2026-01-01T00:00:00Z");
   assert.equal(row?.dropped_at, "2026-09-18T12:17:00.000Z");
   assert.equal(row?.reason, "no remote roles");
 });

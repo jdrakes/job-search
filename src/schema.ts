@@ -73,8 +73,6 @@ export interface Posting {
   readonly comp_high: number | null;
   readonly posted_at: string | null;
   readonly first_seen: string;
-  readonly last_seen: string;
-  readonly live: boolean | null;
   readonly body: string | null;
   readonly kept: boolean | null;
   readonly reasons: readonly unknown[];
@@ -88,6 +86,9 @@ export interface Posting {
   readonly body_hash: string | null;
   // The board's stated workplace where a system states one; null otherwise.
   readonly workplace: Workplace | null;
+  // When a board's successful read first stopped listing the posting; null
+  // while its latest successful read lists it (`listCompany`, ingest.ts).
+  readonly gone_at: string | null;
 }
 
 export const POSTING_FIELDS = [
@@ -102,8 +103,6 @@ export const POSTING_FIELDS = [
   "comp_high",
   "posted_at",
   "first_seen",
-  "last_seen",
-  "live",
   "body",
   "kept",
   "reasons",
@@ -115,15 +114,17 @@ export const POSTING_FIELDS = [
   "note",
   "body_hash",
   "workplace",
+  "gone_at",
 ] as const satisfies readonly (keyof Posting)[];
 
 // Never the body: most of the bytes, on a page that renders the evidence.
-// `body_hash` is listing's bookkeeping; `workplace` is already named by the
-// remote reason.
+// `body_hash` and `gone_at` are listing's bookkeeping; `workplace` is
+// already named by the remote reason.
 export const POSTING_LIST_FIELDS = POSTING_FIELDS.filter(
-  (field) => field !== "body" && field !== "body_hash" && field !== "workplace",
+  (field) =>
+    field !== "body" && field !== "body_hash" && field !== "workplace" && field !== "gone_at",
 );
-export type PostingSummary = Omit<Posting, "body" | "body_hash" | "workplace">;
+export type PostingSummary = Omit<Posting, "body" | "body_hash" | "workplace" | "gone_at">;
 
 // `state`, `boards`, `source`, `alias_of` and the timestamps are the
 // processor's; `dropped_at` and `reason` are the operator's and no publish writes
@@ -135,7 +136,6 @@ export interface Company {
   readonly source: string | null;
   readonly reason: string | null;
   readonly first_seen: string;
-  readonly last_seen: string;
   readonly dropped_at: string | null;
   // The owning company's name when `state` is `alias`; null otherwise.
   readonly alias_of: string | null;
@@ -148,7 +148,6 @@ export const COMPANY_FIELDS = [
   "source",
   "reason",
   "first_seen",
-  "last_seen",
   "dropped_at",
   "alias_of",
 ] as const satisfies readonly (keyof Company)[];

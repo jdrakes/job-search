@@ -43,8 +43,8 @@ export interface PullResult {
 
 // `update`, not `upsert`: Postgres checks a NOT NULL constraint while it
 // forms the tuple, before `ON CONFLICT` can route the row to its update, and
-// `postings.company` and both tables' `first_seen`/`last_seen` are NOT NULL
-// with no DEFAULT. An UPDATE names only what it sets.
+// `postings.company` and `companies.first_seen` are NOT NULL with no
+// DEFAULT. An UPDATE names only what it sets.
 async function pullColumns(
   local: Store,
   hosted: Store,

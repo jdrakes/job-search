@@ -326,20 +326,15 @@ export function boardIndex(companies: readonly Company[]): BoardIndex {
   return { watched, stateOf, dropped };
 }
 
-// `gone_at` is not yet a `Posting` column (its migration is Task 3 of the
-// gone_at plan); stated inline here rather than through `Pick<Posting,
-// "gone_at">` until it lands.
-type GoneAtColumn = { readonly gone_at: string | null };
-
 // True once a posting is on record as gone: `gone_at` is set the first time
 // a board's successful read no longer lists it (`listCompany`, ingest.ts),
 // and cleared the first time a later read lists it again. `judge.ts` reads
 // this for the duplicate representative, so the two agree.
-export function goneBy(posting: GoneAtColumn): boolean {
+export function goneBy(posting: Pick<Posting, "gone_at">): boolean {
   return posting.gone_at !== null;
 }
 
-function judgeGone(posting: GoneAtColumn): Reason {
+function judgeGone(posting: Pick<Posting, "gone_at">): Reason {
   if (posting.gone_at === null) {
     return { criterion: "gone", verdict: "in", detail: "listed at the board's last read" };
   }
@@ -502,9 +497,16 @@ function judgeDuplicate(
 export function judgeListing(
   posting: Pick<
     Posting,
-    "key" | "company" | "platform" | "board" | "title" | "location" | "comp_high" | "posted_at"
-  > &
-    GoneAtColumn,
+    | "key"
+    | "company"
+    | "platform"
+    | "board"
+    | "title"
+    | "location"
+    | "comp_high"
+    | "posted_at"
+    | "gone_at"
+  >,
   criteria: Criteria,
   now: string = new Date().toISOString(),
   boards: BoardIndex = NO_BOARDS,

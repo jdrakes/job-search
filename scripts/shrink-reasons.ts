@@ -42,7 +42,6 @@ import type { Store } from "../src/store/store.ts";
 const CANDIDATE_COLUMNS = [
   "key",
   "company",
-  "last_seen",
   "kept",
   "status",
   "reasons",
@@ -52,11 +51,10 @@ const CANDIDATE_COLUMNS = [
 type CandidateRow = Pick<Posting, (typeof CANDIDATE_COLUMNS)[number]>;
 
 // Postgres builds the INSERT tuple before it finds the conflict, so every
-// NOT NULL column without a default (`company`, `last_seen`) has to be in
-// the payload even though the row exists; they are carried back as read,
-// the same as `src/ingest.ts`'s `VerdictRow` and
+// NOT NULL column without a default (`company`) has to be in the payload
+// even though the row exists; it is carried back as read, the same as `src/ingest.ts`'s `VerdictRow` and
 // `scripts/clear-unread-bodies.ts`'s `ClearedRow`.
-type ShrunkRow = Pick<Posting, "key" | "company" | "last_seen" | "reasons" | "evidence">;
+type ShrunkRow = Pick<Posting, "key" | "company" | "reasons" | "evidence">;
 
 // Same size `clearUnreadBodies` (#272) flushes at: small enough that a
 // failed batch, on a one-off run like this one, loses little.
@@ -107,7 +105,7 @@ export async function shrinkReasons(store: Store): Promise<ShrinkSummary> {
       .map((reason) => reason.criterion);
     const evidence = row.kept === true || row.status !== null ? row.evidence : {};
 
-    batch.push({ key: row.key, company: row.company, last_seen: row.last_seen, reasons, evidence });
+    batch.push({ key: row.key, company: row.company, reasons, evidence });
     converted += 1;
     if (batch.length >= SHRINK_FLUSH) {
       await flush(store, batch);

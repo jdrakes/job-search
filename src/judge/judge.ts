@@ -50,12 +50,8 @@ type JudgedColumns = Pick<
   | "body"
   | "workplace"
   | "status"
-> & {
-  // Not yet a `Posting` column (Task 3 of the gone_at plan adds it); stated
-  // inline the way `listing.ts`'s `GoneAtColumn` is, since `judgeListing`
-  // now requires it.
-  readonly gone_at: string | null;
-};
+  | "gone_at"
+>;
 
 // The complete verdict, a `Reason` for every criterion that ran, before
 // `judge` trims it for storage. Judging is deterministic, so this explains
@@ -201,13 +197,18 @@ function hasReasonOut(reasons: unknown, criterion: string): boolean {
 // both filters gets no entry: every member reads "in" on duplicate and the
 // level criterion drops each on its own.
 export function representativeByKey(
-  rows: readonly (Pick<
+  rows: readonly Pick<
     Posting,
-    "key" | "platform" | "board" | "posted_at" | "comp_high" | "location" | "title" | "first_seen"
-  > & {
-    // Not yet a `Posting` column; see `JudgedColumns` above.
-    readonly gone_at: string | null;
-  })[],
+    | "key"
+    | "platform"
+    | "board"
+    | "posted_at"
+    | "comp_high"
+    | "location"
+    | "title"
+    | "first_seen"
+    | "gone_at"
+  >[],
   criteria: Criteria,
 ): Map<string, string> {
   const latest = new Map<string, Pick<Posting, "key" | "first_seen">>();

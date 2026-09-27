@@ -48,15 +48,7 @@ export interface IngestOptions {
 // column default records the first insert.
 type ListedFields = Pick<
   Posting,
-  | "key"
-  | "company"
-  | "platform"
-  | "board"
-  | "title"
-  | "url"
-  | "location"
-  | "posted_at"
-  | "last_seen"
+  "key" | "company" | "platform" | "board" | "title" | "url" | "location" | "posted_at"
 >;
 
 // The rest of what a re-list can write; `toRow` leaves each out where there
@@ -74,15 +66,11 @@ interface ListedRow extends ListedFields {
 }
 
 // A stored posting its board's successful read no longer lists: marked gone
-// once, at that read, and re-judged. `last_seen` is the stored value carried
-// back for the column's NOT NULL (see `VerdictRow`), never this read's time:
-// the gone criterion still compares it with the board's `last_read` until
-// it reads `gone_at`. The column goes with `gone_at`'s migration, and this
-// field with it.
+// once, at that read, and re-judged. `company` is carried for the column's
+// NOT NULL (see `VerdictRow`).
 interface GoneRow {
   readonly key: string;
   readonly company: string;
-  readonly last_seen: string;
   readonly gone_at: string;
   readonly judged_with: null;
 }
@@ -109,7 +97,6 @@ function toRow(
     url: listing.url,
     location: listing.location,
     posted_at: listing.postedAt,
-    last_seen: timestamp,
   };
   const statesWorkplace = listing.body !== null || listing.workplace !== null;
   // A posting on record as gone that this read lists again: back, and its
@@ -206,10 +193,8 @@ const JUDGING_COLUMNS = [
   "comp_high",
   "comp_low",
   "workplace",
-  // Carried back into every upsert unchanged: the column is NOT NULL with
-  // no default, so Postgres's ON CONFLICT tuple needs a value even though
-  // the row already has one.
-  "last_seen",
+  // Read by the gone criterion.
+  "gone_at",
   // Every row in the sweep can be a key's representative.
   "first_seen",
   "judged_with",
@@ -221,18 +206,7 @@ const JUDGING_COLUMNS = [
   "status",
 ] as const satisfies readonly (keyof Posting)[];
 
-// `gone_at` is not yet a `Posting` column (it lands with the gone_at
-// migration), so it is requested here beside `JUDGING_COLUMNS` rather than
-// through it, the same way `storedListings` reads it. Against Postgres this
-// select fails until that migration adds the column, the same caveat
-// `storedListings` carries. `?? null` in `judgeAll` below covers the memory
-// store, which drops any column not in `TABLE_FIELDS` (`gone_at` among
-// them until its migration) and hands back `undefined` for it instead.
-const JUDGING_SELECT = [...JUDGING_COLUMNS, "gone_at"] as const;
-
-type JudgingRow = Pick<Posting, (typeof JUDGING_COLUMNS)[number]> & {
-  readonly gone_at?: string | null;
-};
+type JudgingRow = Pick<Posting, (typeof JUDGING_COLUMNS)[number]>;
 
 async function storedBody(store: Store, key: string): Promise<string | null> {
   const rows = await store.select<Pick<Posting, "body">>("postings", { key }, ["body"]);
@@ -240,23 +214,15 @@ async function storedBody(store: Store, key: string): Promise<string | null> {
 }
 
 // Postgres builds the INSERT tuple before it finds the conflict, so every
-// NOT NULL column without a default (`company`, `last_seen`) has to be in
-// the payload even though the row exists; they are carried back as read.
+// NOT NULL column without a default (`company`) has to be in the payload
+// even though the row exists; it is carried back as read.
 // `comp_low`/`comp_high` travel the same way: listing and judging are
 // sequential in `daily.ts`, so nothing changes a comp between the read and
 // the write. `body` and `workplace` stay out unless the judging pass
 // fetched a detail, so the stored values, if any, survive.
 interface VerdictRow extends Pick<
   Posting,
-  | "key"
-  | "company"
-  | "last_seen"
-  | "comp_low"
-  | "comp_high"
-  | "kept"
-  | "reasons"
-  | "evidence"
-  | "judged_with"
+  "key" | "company" | "comp_low" | "comp_high" | "kept" | "reasons" | "evidence" | "judged_with"
 > {
   readonly body?: string | null;
   readonly workplace?: Workplace | null;
@@ -293,12 +259,16 @@ async function writeVerdicts(store: Store, rows: readonly VerdictRow[]): Promise
 function wantsBody(
   posting: Pick<
     Posting,
-    "key" | "company" | "platform" | "board" | "title" | "location" | "comp_high" | "posted_at"
-  > & {
-    // Not yet selected by `JUDGING_COLUMNS` (the column lands with the
-    // gone_at migration); see the comment on that constant.
-    readonly gone_at: string | null;
-  },
+    | "key"
+    | "company"
+    | "platform"
+    | "board"
+    | "title"
+    | "location"
+    | "comp_high"
+    | "posted_at"
+    | "gone_at"
+  >,
   criteria: Criteria,
   now: string,
   reader: Reader | undefined,
@@ -327,7 +297,7 @@ export async function judgeAll(
 ): Promise<JudgeResult> {
   const now = options?.now ?? (() => new Date().toISOString());
   const errors: string[] = [];
-  const postings = await store.select<JudgingRow>("postings", undefined, JUDGING_SELECT);
+  const postings = await store.select<JudgingRow>("postings", undefined, JUDGING_COLUMNS);
   if (postings.length === 0) return { judged: 0, errors };
 
   const criteriaResult = await loadCriteria(store);
@@ -341,14 +311,12 @@ export async function judgeAll(
   // otherwise change them mid-sweep.
   const companies = await store.select<Company>("companies", undefined, COMPANY_FIELDS);
   const boards = boardIndex(companies);
-  // `?? null` covers the memory store; see the comment on `JudgingRow`.
-  const rowsForJudging = postings.map((row) => ({ ...row, gone_at: row.gone_at ?? null }));
-  const representative = representativeByKey(rowsForJudging, criteria);
+  const representative = representativeByKey(postings, criteria);
 
   let judged = 0;
   let pending: VerdictRow[] = [];
 
-  for (const row of rowsForJudging) {
+  for (const row of postings) {
     // One clock reading per posting: two readings could pick a posting up
     // for aging out and then judge it as still within the max.
     const judgedAt = now();
@@ -422,7 +390,6 @@ export async function judgeAll(
     const verdict: VerdictRow = {
       key: row.key,
       company: row.company,
-      last_seen: row.last_seen,
       comp_low: compLow,
       comp_high: compHigh,
       kept: judgment.kept,
@@ -486,10 +453,8 @@ async function listCompany(
   const read: Board[] = [];
   let listed = 0;
 
-  // Taken before any board is listed: every listed row recorded below gets
-  // its `last_seen` from a later `now()`, so no row this run lists can read
-  // as unseen since the board's `last_read`. It is also the `gone_at` of
-  // every posting a board's read here no longer lists.
+  // Taken before any board is listed: the `gone_at` of every posting a
+  // board's read here no longer lists.
   const readAt = now();
 
   // Postgres refuses an upsert batch naming one key twice, so the batch is
@@ -554,7 +519,6 @@ async function listCompany(
       batch.set(key, {
         key,
         company: company.name,
-        last_seen: before.last_seen,
         gone_at: readAt,
         judged_with: null,
       });
@@ -589,26 +553,13 @@ interface StoredListing {
   readonly workplace: Workplace | null;
   readonly status: Status | null;
   readonly gone_at: string | null;
-  // Carried back on a gone mark; see `GoneRow`.
-  readonly last_seen: string;
 }
 
-// One select of small columns for the whole run. `gone_at` is not on
-// `Posting` until its migration lands, so its type is stated here.
+// One select of small columns for the whole run.
 async function storedListings(store: Store): Promise<Map<string, StoredListing>> {
   const rows = await store.select<
-    Pick<Posting, "key" | "body_hash" | "comp_high" | "workplace" | "status" | "last_seen"> & {
-      readonly gone_at: string | null;
-    }
-  >("postings", undefined, [
-    "key",
-    "body_hash",
-    "comp_high",
-    "workplace",
-    "status",
-    "last_seen",
-    "gone_at",
-  ]);
+    Pick<Posting, "key" | "body_hash" | "comp_high" | "workplace" | "status" | "gone_at">
+  >("postings", undefined, ["key", "body_hash", "comp_high", "workplace", "status", "gone_at"]);
   return new Map(
     rows.map((row) => [
       row.key,
@@ -617,8 +568,7 @@ async function storedListings(store: Store): Promise<Map<string, StoredListing>>
         comp_high: row.comp_high,
         workplace: row.workplace,
         status: row.status,
-        gone_at: row.gone_at ?? null,
-        last_seen: row.last_seen,
+        gone_at: row.gone_at,
       },
     ]),
   );

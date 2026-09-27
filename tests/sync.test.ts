@@ -42,8 +42,6 @@ function posting(key: string, overrides: Partial<Posting> = {}): Posting {
     comp_high: 250000,
     posted_at: "2026-09-10",
     first_seen: "2026-09-10T00:00:00.000Z",
-    last_seen: "2026-09-17T00:00:00.000Z",
-    live: true,
     body: "the body",
     kept: true,
     reasons: [],
@@ -55,6 +53,7 @@ function posting(key: string, overrides: Partial<Posting> = {}): Posting {
     note: null,
     body_hash: "abc",
     workplace: null,
+    gone_at: null,
     ...overrides,
   };
 }
@@ -67,7 +66,6 @@ function company(name: string, overrides: Partial<Company> = {}): Company {
     source: "hn",
     reason: null,
     first_seen: "2026-09-10T00:00:00.000Z",
-    last_seen: "2026-09-17T00:00:00.000Z",
     dropped_at: null,
     alias_of: null,
     ...overrides,
@@ -121,7 +119,7 @@ test("pullDecisions: the processor's own columns are not pulled back over the lo
   const local = memoryStore({ postings: [posting("Acme::1", { title: "Staff Engineer" })] });
   const hosted = memoryStore({
     postings: [
-      posting("Acme::1", { status: "applied", title: "stale title", kept: false, live: false }),
+      posting("Acme::1", { status: "applied", title: "stale title", kept: false, comp_high: 1 }),
     ],
   });
 
@@ -130,7 +128,7 @@ test("pullDecisions: the processor's own columns are not pulled back over the lo
   const [pulled] = await local.select<Posting>("postings");
   assert.equal(pulled?.title, "Staff Engineer");
   assert.equal(pulled?.kept, true);
-  assert.equal(pulled?.live, true);
+  assert.equal(pulled?.comp_high, 250000);
 });
 
 test("pullDecisions: a hosted posting with no status does not clear a local one", async () => {
@@ -327,6 +325,21 @@ test("publishSlice never sends a posting's body or its hash", async () => {
   assert.equal(published["body_hash"] ?? null, null);
 });
 
+// Breaks if `gone_at` leaves POSTING_LIST_FIELDS' exclusions: it is the
+// processor's bookkeeping, and the list never reads it.
+test("publishSlice never sends a posting's gone_at", async () => {
+  const local = memoryStore({
+    postings: [posting("kept::1", { kept: true, gone_at: "2026-09-18T06:00:00.000Z" })],
+  });
+  const hosted = memoryStore();
+
+  await publishSlice(local, hosted);
+
+  const [published] = await hosted.select<Record<string, unknown>>("postings");
+  assert.ok(published !== undefined);
+  assert.equal(published["gone_at"], null);
+});
+
 test("publishSlice does not write the four columns James authors", async () => {
   // The local store is stale here, and publishing must not carry that
   // staleness up.
@@ -363,7 +376,6 @@ test("publishSlice does not write the two company columns James authors", async 
           { platform: "greenhouse", id: "acme", last_read: "2026-09-18T17:10:00.000Z" },
           { platform: "lever", id: "acme-inc" },
         ],
-        last_seen: "2026-09-18T17:10:00.000Z",
       }),
     ],
   });
@@ -388,7 +400,6 @@ test("publishSlice does not write the two company columns James authors", async 
     { platform: "greenhouse", id: "acme", last_read: "2026-09-18T17:10:00.000Z" },
     { platform: "lever", id: "acme-inc" },
   ]);
-  assert.equal(after.last_seen, "2026-09-18T17:10:00.000Z");
   assert.equal(result.companies, 1);
 });
 

@@ -49,14 +49,13 @@ const CANDIDATE_COLUMNS = [
   "comp_high",
   "posted_at",
   "body",
-  "last_seen",
   "workplace",
   "status",
 ] as const satisfies readonly (keyof Posting)[];
 
 type CandidateRow = Pick<Posting, (typeof CANDIDATE_COLUMNS)[number]>;
 
-type ClearedRow = Pick<Posting, "key" | "company" | "last_seen" | "body" | "body_hash">;
+type ClearedRow = Pick<Posting, "key" | "company" | "body" | "body_hash">;
 
 // Same size `writeVerdicts` (src/ingest.ts) flushes at: small enough that a
 // failed batch, on a one-off run like this one, loses little.
@@ -110,8 +109,8 @@ export async function clearUnreadBodies(store: Store): Promise<ClearResult> {
         location: row.location,
         comp_high: row.comp_high,
         posted_at: row.posted_at,
-        // Not selected below (not yet a schema column); `NO_BOARDS` already
-        // read every posting as not gone here, same as `gone_at: null` does.
+        // Not gone, as `toRow` (src/ingest.ts) judges a listing it just
+        // read: the body is cleared on the listing criteria alone.
         gone_at: null,
       },
       criteria,
@@ -127,7 +126,6 @@ export async function clearUnreadBodies(store: Store): Promise<ClearResult> {
     batch.push({
       key: row.key,
       company: row.company,
-      last_seen: row.last_seen,
       body: null,
       body_hash: null,
     });

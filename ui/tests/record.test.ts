@@ -51,8 +51,6 @@ function posting(key: string, overrides: Partial<Posting> = {}): Posting {
     comp_high: null,
     posted_at: null,
     first_seen: "2026-09-15T00:00:00Z",
-    last_seen: "2026-09-15T00:00:00Z",
-    live: null,
     body: null,
     kept: true,
     reasons: [],
@@ -64,6 +62,7 @@ function posting(key: string, overrides: Partial<Posting> = {}): Posting {
     note: null,
     body_hash: null,
     workplace: null,
+    gone_at: null,
     ...overrides,
   };
 }

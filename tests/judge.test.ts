@@ -24,12 +24,7 @@ function criteria(overrides: Partial<Criteria> = {}): Criteria {
   };
 }
 
-// `gone_at` is not yet a `Posting` column (it lands with the gone_at
-// migration), so it is carried here as an ad hoc extra field, the same way
-// `listing.ts`'s `GoneAtColumn` stands in for it.
-function posting(
-  overrides: Partial<Posting> & { readonly gone_at?: string | null } = {},
-): Posting & { readonly gone_at: string | null } {
+function posting(overrides: Partial<Posting> = {}): Posting {
   return {
     key: "acme::1",
     company: "Acme",
@@ -42,8 +37,6 @@ function posting(
     comp_high: null,
     posted_at: null,
     first_seen: "2020-01-01T00:00:00.000Z",
-    last_seen: "2020-01-01T00:00:00.000Z",
-    live: null,
     body: null,
     kept: null,
     reasons: [],
@@ -68,7 +61,6 @@ function company(name: string, overrides: Partial<Company> = {}): Company {
     source: "test",
     reason: null,
     first_seen: "2026-09-15T00:00:00.000Z",
-    last_seen: "2026-09-15T00:00:00.000Z",
     dropped_at: null,
     alias_of: null,
     ...overrides,

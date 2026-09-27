@@ -61,16 +61,34 @@ function statementsOf(): string[] {
     .split(";");
 }
 
-// The CREATE TABLE columns, then every column a later migration adds with
-// `ALTER TABLE "<table>" ADD COLUMN [IF NOT EXISTS] "<name>"`, in
-// migration filename order.
+// The table's columns after every statement has applied, in the order the
+// CLI applies them: a CREATE TABLE sets the list to its own column lines
+// (so the last CREATE wins, as `columnLinesOf` finds it); `ALTER TABLE
+// "<table>" ADD COLUMN [IF NOT EXISTS] "<name>"` appends; `ALTER TABLE
+// "<table>" DROP COLUMN [IF EXISTS] "<name>"` removes. One pass, so a
+// column added and later dropped nets out.
 function columnsOf(table: string): string[] {
-  const created = columnLinesOf(table).map(nameOf);
+  const created = `CREATE TABLE IF NOT EXISTS "${table}" (`;
   const added = new RegExp(`ALTER TABLE "${table}" ADD COLUMN( IF NOT EXISTS)? "([^"]+)"`);
-  const appended = statementsOf()
-    .map((statement) => statement.match(added)?.[2])
-    .filter((name): name is string => name !== undefined);
-  return [...created, ...appended];
+  const dropped = new RegExp(`ALTER TABLE "${table}" DROP COLUMN( IF EXISTS)? "([^"]+)"`);
+  let columns: string[] = [];
+  for (const statement of statementsOf()) {
+    const createdAt = statement.indexOf(created);
+    if (createdAt !== -1) {
+      columns = statement
+        .slice(createdAt + created.length)
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.startsWith('"'))
+        .map(nameOf);
+      continue;
+    }
+    const addedName = statement.match(added)?.[2];
+    if (addedName !== undefined) columns.push(addedName);
+    const droppedName = statement.match(dropped)?.[2];
+    if (droppedName !== undefined) columns = columns.filter((name) => name !== droppedName);
+  }
+  return columns;
 }
 
 function primaryKeyOf(table: string): string {
@@ -111,7 +129,16 @@ test("the migration's reprobe_runs columns match REPROBE_RUN_FIELDS, in order", 
 });
 
 test("the migrations' ADD COLUMN statements append to POSTING_FIELDS in order", () => {
-  assert.equal(columnsOf("postings").at(-1), "workplace");
+  assert.deepEqual(columnsOf("postings").slice(-3), ["body_hash", "workplace", "gone_at"]);
+});
+
+test("the gone_at migration's DROP COLUMN statements remove postings.last_seen and live", () => {
+  // Pinned by hand: both were CREATE TABLE columns of three_stores, so a
+  // columnsOf that ignored DROP COLUMN would still list them.
+  const postings = columnsOf("postings");
+  assert.equal(postings.includes("last_seen"), false);
+  assert.equal(postings.includes("live"), false);
+  assert.equal(columnsOf("companies").includes("last_seen"), false);
 });
 
 test("the migrations' ADD COLUMN statements append to CRITERIA_FIELDS in order", () => {
