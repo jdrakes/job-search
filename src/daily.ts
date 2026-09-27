@@ -8,9 +8,10 @@ import { boardsOf, watched } from "./companies.ts";
 import { loadCriteria } from "./criteria.ts";
 import { discover } from "./discover.ts";
 import { builtInSource } from "./discovery/builtin.ts";
+import { commonCrawlSource } from "./discovery/commoncrawl.ts";
 import { hnSource } from "./discovery/hn.ts";
 import { remoteOkSource } from "./discovery/remoteok.ts";
-import type { Source } from "./discovery/source.ts";
+import type { DiscoverySource, Source } from "./discovery/source.ts";
 import { theMuseSource } from "./discovery/themuse.ts";
 import { weWorkRemotelySource } from "./discovery/weworkremotely.ts";
 import { describeError } from "./errors.ts";
@@ -25,7 +26,14 @@ import type { DetailRead, Reader } from "./ats/ats.ts";
 import { READERS, withDetailReads } from "./ats/readers.ts";
 import type { Platform } from "./schema.ts";
 
-const SOURCES = [hnSource, remoteOkSource, weWorkRemotelySource, builtInSource, theMuseSource];
+const SOURCES: readonly DiscoverySource[] = [
+  hnSource,
+  remoteOkSource,
+  weWorkRemotelySource,
+  builtInSource,
+  theMuseSource,
+  commonCrawlSource,
+];
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 // Absent `discoverySources` runs every source, matching the tree before
@@ -34,9 +42,9 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 // valid names rather than running a shorter list than the operator asked
 // for.
 export function selectSources(
-  sources: readonly Source[],
+  sources: readonly DiscoverySource[],
   discoverySources: Settings["discoverySources"],
-): readonly Source[] {
+): readonly DiscoverySource[] {
   if (discoverySources === undefined) return sources;
   const byName = new Map(sources.map((source) => [source.name, source] as const));
   return discoverySources.map((name) => {
@@ -93,11 +101,11 @@ async function loadExtraSource(
 // a module path that will not resolve stay loud: neither is recoverable by
 // running again.
 export async function resolveSources(
-  sources: readonly Source[],
+  sources: readonly DiscoverySource[],
   settings: Settings,
   store: Store,
   log: (line: string) => void = console.log,
-): Promise<readonly Source[]> {
+): Promise<readonly DiscoverySource[]> {
   const selected = selectSources(sources, settings.discoverySources);
   if (settings.extraSourcePath === undefined) return selected;
 
@@ -184,7 +192,11 @@ async function main(): Promise<number> {
   // morning. Wrapped, so discovery failing costs no watched company its
   // read.
   try {
-    const discovered = await phase("discover", () => discover(store, sources), console.log);
+    const discovered = await phase(
+      "discover",
+      () => discover(store, sources, undefined, readers, console.log),
+      console.log,
+    );
     console.log(
       `discover: ${discovered.seen} seen, ${discovered.probed} probed, ` +
         `${discovered.watched} watched, ${discovered.aliases} aliases, ${discovered.errors.length} errors`,
