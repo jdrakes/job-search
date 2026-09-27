@@ -58,24 +58,13 @@ async function failure(response: Response): Promise<string> {
   return `sign-in failed (HTTP ${response.status})`;
 }
 
-/**
- * `create_user: false`: a typo'd address must fail rather than quietly enrol
- * a new user. `redirectTo`, when given, rides as `redirect_to` on the request
- * URL (Supabase reads it there, never from the JSON body) and comes back as
- * `{{ .RedirectTo }}` in the emailed link, so the link can carry more than
- * just the sign-in itself — see `redirectTargetFor` in `app.ts`.
- */
+/** `create_user: false`: a typo'd address must fail rather than quietly enrol a new user. */
 export async function requestLink(
   config: AppConfig,
   email: string,
   httpFetch: typeof globalThis.fetch = globalThis.fetch,
-  redirectTo: string | null = null,
 ): Promise<AuthResult<null>> {
-  const url =
-    redirectTo === null
-      ? `${config.url}/auth/v1/otp`
-      : `${config.url}/auth/v1/otp?redirect_to=${encodeURIComponent(redirectTo)}`;
-  const response = await httpFetch(url, {
+  const response = await httpFetch(`${config.url}/auth/v1/otp`, {
     method: "POST",
     headers: authHeaders(config),
     body: JSON.stringify({ email, create_user: false }),
