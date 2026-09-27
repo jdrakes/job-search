@@ -14,7 +14,7 @@ import type { DiscoverySource, Source } from "./discovery/source.ts";
 import { theMuseSource } from "./discovery/themuse.ts";
 import { weWorkRemotelySource } from "./discovery/weworkremotely.ts";
 import { describeError } from "./errors.ts";
-import { ingest, judgeAll } from "./ingest.ts";
+import { ingest, type IngestResult, judgeAll } from "./ingest.ts";
 import { phase } from "./phase.ts";
 import { loadSettings, type Settings } from "./settings.ts";
 import { openStore } from "./store/open.ts";
@@ -210,9 +210,7 @@ async function main(): Promise<number> {
 
   // `today` picks today's boards (`boardsToRead`, ingest.ts): Monday reads
   // every board, another weekday only those that have ever produced or are
-  // new. `result.boardsToday` is then the only way to tell "every board
-  // failed" from "some boards listed zero postings", since a board waiting
-  // for Monday is neither.
+  // new.
   const result = await phase(
     "list",
     () => ingest(store, readers, { today: new Date() }),
@@ -252,9 +250,17 @@ async function main(): Promise<number> {
     console.log(`  ${error}`);
   }
 
-  // A silent nothing-happened must be visible. Listing errors only: judging
-  // has its own count above. Counts today's boards only: a board waiting for
-  // Monday was never attempted, so it must not count as a failure.
+  return listExitCode(result);
+}
+
+// A silent nothing-happened must be visible. Listing errors only: judging
+// has its own count. `boardsToday` is the only way to tell "every board
+// failed" from "some boards listed zero postings": a board waiting for
+// Monday was never attempted, and it and `errors` are both counted per
+// company board, so a board two companies carry is two of each.
+export function listExitCode(
+  result: Pick<IngestResult, "companies" | "errors" | "boardsToday">,
+): number {
   const everyBoardFailed = result.boardsToday > 0 && result.errors.length >= result.boardsToday;
   return result.companies === 0 || everyBoardFailed ? 1 : 0;
 }

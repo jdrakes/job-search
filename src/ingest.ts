@@ -42,11 +42,10 @@ export interface IngestResult {
   // list phase writes postings only; discovery removes these boards
   // (`unbind`, discover.ts).
   readonly gone: readonly GoneBoard[];
-  // Set only when `options.today` is given (the daily run always gives it).
-  // `boardsToday` is every board `boardsToRead` picked; `boardsWaiting` is
-  // every other currently-readable board, left for Monday. Absent `today`,
-  // every readable board is listed, as before this feature, so `boardsToday`
-  // equals the total and `boardsWaiting` is 0.
+  // Counted per company board, the way `listCompany` reads them and its
+  // errors are counted: a board two companies carry is read, and can fail,
+  // twice. `boardsToday` is every company board `boardsToRead` picked;
+  // `boardsWaiting` is every other one, left for Monday.
   readonly boardsToday: number;
   readonly boardsWaiting: number;
 }
@@ -77,10 +76,8 @@ const PROGRESS_INTERVAL_MS = 30_000;
 
 export interface IngestOptions {
   readonly now?: () => string;
-  // The local date the run started, for `boardsToRead`. Left out, every
-  // readable board is listed, matching the run before this feature and every
-  // existing test that has no reason to care what day it is.
-  readonly today?: Date;
+  // The local date the run started, for `boardsToRead`.
+  readonly today: Date;
 }
 
 // The columns every written re-list carries. `first_seen` is not among
@@ -511,75 +508,57 @@ export async function judgeAll(
   return { judged, errors };
 }
 
-// The columns `boardsToRead` needs and nothing else: this select runs
-// against the hosted store over the network every weekday morning, so its
-// row is as small as the question ("has this board ever produced?") allows.
-const PRODUCING_COLUMNS = [
-  "platform",
-  "board",
-  "title",
-  "location",
-] as const satisfies readonly (keyof Posting)[];
-type ProducingPosting = Pick<Posting, (typeof PRODUCING_COLUMNS)[number]>;
+// Each board's stored postings, keyed as the store keys them, under the
+// `platform/board` prefix `postingKey` puts before its `::`.
+type StoredByBoard<Row> = ReadonlyMap<string, ReadonlyMap<string, Row>>;
+type TitleAndPlace = Pick<StoredListing, "title" | "location" | "comp_high">;
 
-async function producingPostings(store: Store): Promise<readonly ProducingPosting[]> {
-  return store.select<ProducingPosting>("postings", undefined, PRODUCING_COLUMNS);
+function storedPrefix(board: Board): string {
+  return `${board.platform}/${board.id}`;
 }
 
-// The four listing criteria a title and a location alone decide: level,
-// role, excluded words and country. Not `comp_floor` (needs a comp figure
-// this select does not carry), not age, gone, unwatched or duplicate (all
-// board-read bookkeeping, not something a title says about the role). Run
-// with the judge's own criterion functions, never against stored `reasons`:
-// since #274 a posting past max age is rejected on age alone and its
-// reasons never record whether its title and place would also have passed,
-// so reading reasons back would count almost every board as producing (see
-// the plan's Rule).
-function passesTitleAndPlace(
-  posting: Pick<ProducingPosting, "title" | "location">,
-  criteria: Criteria,
-): boolean {
+// The four listing criteria a title and a location decide, with the pay
+// that settles a level: level, role, excluded words and country. Not
+// `comp_floor`, age, gone, unwatched or duplicate. Run with the judge's own
+// criterion functions, never against stored `reasons`: since #274 a posting
+// past max age is rejected on age alone and its reasons never record whether
+// its title and place would also have passed.
+function passesTitleAndPlace(posting: TitleAndPlace, criteria: Criteria): boolean {
   const title = posting.title ?? "";
   return (
-    judgeLevel(title, null, criteria).verdict === "in" &&
+    judgeLevel(title, posting.comp_high, criteria).verdict === "in" &&
     judgeRole(title, criteria).verdict === "in" &&
     judgeExcludedWords(title, criteria).verdict === "in" &&
     judgeCountry(posting.location, criteria).verdict === "in"
   );
 }
 
-// Which of today's readable boards get listed. A board is read when: it is
-// Monday (`today`'s local day; `today` is passed in so a test can fix it);
-// no criteria row exists yet (a fresh install lists everything, same as
-// `toRow`'s fallback); the board has never been listed before (a new board
-// is read at once); or any of its stored postings, judged fresh from its own
-// title and location, would pass level, role, excluded words and country
-// under the current criteria (a posting that later aged out still marks its
-// board as one that hires for the role). Every other board waits for
-// Monday. Pure: reads nothing itself, so a test can hand it fixed inputs.
+// The board keys (`boardKey`) listed today. A board is read when: it is
+// Monday (`today`'s local day); it has no stored posting (a new board is read
+// at once); or any of its stored postings, judged fresh, passes
+// `passesTitleAndPlace` (a posting that later aged out still marks its board
+// as one that hires for the role). Every other board waits for Monday. With
+// no criteria row nothing can pass, so a weekday reads only new boards.
+//
+// Postings are found by their key's prefix, not their `board` column: a
+// legacy key not in the `platform/board::id` form is counted on no board. A
+// board holding only such keys looks new and is read (an extra read); a board
+// that also holds current keys is decided by those.
 export function boardsToRead(
   companies: readonly Company[],
-  postings: readonly ProducingPosting[],
+  storedByBoard: StoredByBoard<TitleAndPlace>,
   criteria: Criteria | undefined,
   today: Date,
 ): Set<string> {
-  const allKeys = new Set(companies.flatMap((company) => boardsOf(company).map(boardKey)));
-  if (today.getDay() === 1 || criteria === undefined) return allKeys;
-
-  const seen = new Set<string>();
-  const producing = new Set<string>();
-  for (const posting of postings) {
-    if (posting.board === null) continue;
-    const key = boardKey({ platform: posting.platform, id: posting.board });
-    seen.add(key);
-    if (!producing.has(key) && passesTitleAndPlace(posting, criteria)) producing.add(key);
+  const isMonday = today.getDay() === 1;
+  const read = new Set<string>();
+  for (const board of companies.flatMap(boardsOf)) {
+    const postings = [...(storedByBoard.get(storedPrefix(board))?.values() ?? [])];
+    const producing =
+      criteria !== undefined && postings.some((posting) => passesTitleAndPlace(posting, criteria));
+    if (isMonday || postings.length === 0 || producing) read.add(boardKey(board));
   }
-
-  const result = new Set<string>();
-  for (const key of allKeys) {
-    if (!seen.has(key) || producing.has(key)) result.add(key);
-  }
-  return result;
+  return read;
 }
 
 interface ListedCompany {
@@ -595,9 +574,9 @@ async function listCompany(
   company: Company,
   now: () => string,
   stored: ReadonlyMap<string, StoredListing>,
-  storedByBoard: ReadonlyMap<string, ReadonlySet<string>>,
+  storedByBoard: StoredByBoard<StoredListing>,
   criteria: Criteria | undefined,
-  boardsForToday: ReadonlySet<string> | undefined,
+  boardsForToday: ReadonlySet<string>,
 ): Promise<ListedCompany> {
   const errors: string[] = [];
   const gone: GoneBoard[] = [];
@@ -612,9 +591,8 @@ async function listCompany(
   const batch = new Map<string, ListedRow | GoneRow>();
 
   for (const board of boardsOf(company)) {
-    // Waiting for Monday: not read, not marked gone, no error. `undefined`
-    // means every board is read today (see `IngestOptions.today`).
-    if (boardsForToday !== undefined && !boardsForToday.has(boardKey(board))) continue;
+    // Waiting for Monday: not read, not marked gone, no error.
+    if (!boardsForToday.has(boardKey(board))) continue;
     const reader = readers[board.platform];
     if (reader === undefined) {
       errors.push(
@@ -660,10 +638,8 @@ async function listCompany(
     // about which postings are still up. Goes in the same upsert as the
     // listed rows. A posting already marked keeps its first mark and gets
     // no write.
-    const prefix = `${board.platform}/${board.id}`;
-    for (const key of storedByBoard.get(prefix) ?? []) {
-      const before = stored.get(key);
-      if (seenKeys.has(key) || before === undefined || before.gone_at !== null) continue;
+    for (const [key, before] of storedByBoard.get(storedPrefix(board)) ?? []) {
+      if (seenKeys.has(key) || before.gone_at !== null) continue;
       batch.set(key, {
         key,
         company: company.name,
@@ -753,38 +729,37 @@ function platformOf(company: Company): Platform {
 export async function ingest(
   store: Store,
   readers: Partial<Record<Platform, Reader>>,
-  options?: IngestOptions,
+  options: IngestOptions,
 ): Promise<IngestResult> {
-  const now = options?.now ?? (() => new Date().toISOString());
-  const today = options?.today;
+  const now = options.now ?? (() => new Date().toISOString());
   const companies = await readable(store);
-  const totalBoards = companies.reduce((sum, company) => sum + boardsOf(company).length, 0);
 
   // A failed sweep read is one error line: an empty map means every body
-  // gets written this run.
+  // gets written this run, and every board looks new so every board is read.
   const errors: string[] = [];
   let stored: Map<string, StoredListing>;
   try {
     stored = await storedListings(store);
   } catch (err) {
     errors.push(
-      `reading stored body hashes: ${describeError(err)}; every body will be rewritten this run, band and workplace changes go undetected, and no posting is marked gone`,
+      `reading stored body hashes: ${describeError(err)}; every body will be rewritten this run, band and workplace changes go undetected, no posting is marked gone, and every board is read`,
     );
     stored = new Map();
   }
 
-  // Each board's stored keys, by the `platform/board` prefix `postingKey`
+  // Each board's stored postings, by the `platform/board` prefix `postingKey`
   // puts before its `::`, so a read can tell which of its postings it no
-  // longer lists. A key with no `::` (the old company-name form has one, but
-  // nothing guarantees it) belongs to no board.
-  const storedByBoard = new Map<string, Set<string>>();
-  for (const key of stored.keys()) {
+  // longer lists and `boardsToRead` which boards have produced. A key with no
+  // `::` (the old company-name form has one, but nothing guarantees it)
+  // belongs to no board.
+  const storedByBoard = new Map<string, Map<string, StoredListing>>();
+  for (const [key, listing] of stored) {
     const cut = key.indexOf("::");
     if (cut === -1) continue;
     const prefix = key.slice(0, cut);
     const group = storedByBoard.get(prefix);
-    if (group === undefined) storedByBoard.set(prefix, new Set([key]));
-    else group.add(key);
+    if (group === undefined) storedByBoard.set(prefix, new Map([[key, listing]]));
+    else group.set(key, listing);
   }
 
   // Judges each listed body before it is stored; see `toRow`.
@@ -793,16 +768,10 @@ export async function ingest(
   const criteriaResult = await loadCriteria(store);
   const criteria = criteriaResult.ok ? criteriaResult.value : undefined;
 
-  // `undefined` (no `today` given) lists every readable board, as before
-  // this feature: every existing caller that does not pass `today` sees no
-  // change, and only `daily.ts` opts in. Given, this is the one select this
-  // feature adds, run once for the whole morning.
-  const boardsForToday =
-    today === undefined
-      ? undefined
-      : boardsToRead(companies, await producingPostings(store), criteria, today);
-  const boardsToday = boardsForToday === undefined ? totalBoards : boardsForToday.size;
-  const boardsWaiting = totalBoards - boardsToday;
+  const boardsForToday = boardsToRead(companies, storedByBoard, criteria, options.today);
+  const companyBoards = companies.flatMap(boardsOf);
+  const boardsToday = companyBoards.filter((board) => boardsForToday.has(boardKey(board))).length;
+  const boardsWaiting = companyBoards.length - boardsToday;
 
   // One worker per platform, the platforms concurrently: no host is shared
   // between platforms, so `http.ts`'s per-host delay keeps its meaning and
