@@ -69,6 +69,22 @@ interface ListedRow extends ListedFields {
   readonly body?: string | null;
   readonly body_hash?: string | null;
   readonly judged_with?: null;
+  // Written only on a posting stored as gone that this read lists again.
+  readonly gone_at?: null;
+}
+
+// A stored posting its board's successful read no longer lists: marked gone
+// once, at that read, and re-judged. `last_seen` is the stored value carried
+// back for the column's NOT NULL (see `VerdictRow`), never this read's time:
+// the gone criterion still compares it with the board's `last_read` until
+// it reads `gone_at`. The column goes with `gone_at`'s migration, and this
+// field with it.
+interface GoneRow {
+  readonly key: string;
+  readonly company: string;
+  readonly last_seen: string;
+  readonly gone_at: string;
+  readonly judged_with: null;
 }
 
 // md5 hex, the same value Postgres's md5(text) gives for the stored column.
@@ -96,17 +112,22 @@ function toRow(
     last_seen: timestamp,
   };
   const statesWorkplace = listing.body !== null || listing.workplace !== null;
-  const bare: ListedRow = statesWorkplace ? { ...fields, workplace: listing.workplace } : fields;
+  // A posting on record as gone that this read lists again: back, and its
+  // last verdict (reached on its absence) is judged again.
+  const returning = (stored?.gone_at ?? null) !== null;
+  const listed: ListedRow = returning ? { ...fields, gone_at: null } : fields;
+  const bare: ListedRow = statesWorkplace ? { ...listed, workplace: listing.workplace } : listed;
   // Withdrawn (stored set, listed null) counts as changed: the text path
   // takes over. `stored === undefined` (never recorded, or the pre-run
   // sweep's read failed) makes no claim either way, and nor does a listing
   // that leaves the column out.
   const workplaceChanged =
     statesWorkplace && stored !== undefined && stored.workplace !== listing.workplace;
+  const verdictStale = workplaceChanged || returning;
   // Nothing to read a comp from: the comp columns stay out of the payload
   // and the store keeps what the judging pass wrote.
   if (listing.body === null && listing.compLow === null && listing.compHigh === null) {
-    return workplaceChanged ? { ...bare, judged_with: null } : bare;
+    return verdictStale ? { ...bare, judged_with: null } : bare;
   }
   // Integer columns; a board can post an hourly rate, which Postgres would
   // refuse and lose the whole batch over. An hourly figure is far below any
@@ -118,7 +139,7 @@ function toRow(
   };
   // A band that disagrees with what is stored needs a fresh verdict.
   const verdictInputChanged =
-    workplaceChanged || (stored !== undefined && stored.comp_high !== row.comp_high);
+    verdictStale || (stored !== undefined && stored.comp_high !== row.comp_high);
   if (listing.body === null) return verdictInputChanged ? { ...row, judged_with: null } : row;
   // A body is stored unless nothing can ever read it. Readers: a posting
   // acted on; one whose board states `remote` or `onsite`, which
@@ -446,6 +467,7 @@ async function listCompany(
   company: Company,
   now: () => string,
   stored: ReadonlyMap<string, StoredListing>,
+  storedByBoard: ReadonlyMap<string, ReadonlySet<string>>,
   criteria: Criteria | undefined,
 ): Promise<ListedCompany> {
   const errors: string[] = [];
@@ -453,14 +475,15 @@ async function listCompany(
   const read: Board[] = [];
   let listed = 0;
 
-  // Taken before any board is listed: every row recorded below gets its
-  // `last_seen` from a later `now()`, so no row this run records can read
-  // as unseen since the board's `last_read`.
+  // Taken before any board is listed: every listed row recorded below gets
+  // its `last_seen` from a later `now()`, so no row this run lists can read
+  // as unseen since the board's `last_read`. It is also the `gone_at` of
+  // every posting a board's read here no longer lists.
   const readAt = now();
 
   // Postgres refuses an upsert batch naming one key twice, so the batch is
   // keyed like the store: the last listing for a key wins.
-  const batch = new Map<string, ListedRow>();
+  const batch = new Map<string, ListedRow | GoneRow>();
 
   for (const board of boardsOf(company)) {
     const reader = readers[board.platform];
@@ -491,6 +514,7 @@ async function listCompany(
     read.push(board);
     listed += listings.length;
 
+    const seenKeys = new Set<string>();
     for (const listing of listings) {
       // A listing with no id would key as `platform/board::`, so every
       // id-less listing of a board would overwrite one row. Refused here,
@@ -503,7 +527,26 @@ async function listCompany(
         continue;
       }
       const key = postingKey(board, listing.id);
+      seenKeys.add(key);
       batch.set(key, toRow(company.name, board, listing, now(), stored.get(key), criteria));
+    }
+
+    // Only here, after a read that answered: a failed read says nothing
+    // about which postings are still up. Goes in the same upsert as the
+    // listed rows, so `recordBoardsRead` below never records a read whose
+    // gone marks were refused. A posting already marked keeps its first
+    // mark and gets no write.
+    const prefix = `${board.platform}/${board.id}`;
+    for (const key of storedByBoard.get(prefix) ?? []) {
+      const before = stored.get(key);
+      if (seenKeys.has(key) || before === undefined || before.gone_at !== null) continue;
+      batch.set(key, {
+        key,
+        company: company.name,
+        last_seen: before.last_seen,
+        gone_at: readAt,
+        judged_with: null,
+      });
     }
   }
 
@@ -534,13 +577,27 @@ interface StoredListing {
   readonly comp_high: number | null;
   readonly workplace: Workplace | null;
   readonly status: Status | null;
+  readonly gone_at: string | null;
+  // Carried back on a gone mark; see `GoneRow`.
+  readonly last_seen: string;
 }
 
-// One select of small columns for the whole run.
+// One select of small columns for the whole run. `gone_at` is not on
+// `Posting` until its migration lands, so its type is stated here.
 async function storedListings(store: Store): Promise<Map<string, StoredListing>> {
   const rows = await store.select<
-    Pick<Posting, "key" | "body_hash" | "comp_high" | "workplace" | "status">
-  >("postings", undefined, ["key", "body_hash", "comp_high", "workplace", "status"]);
+    Pick<Posting, "key" | "body_hash" | "comp_high" | "workplace" | "status" | "last_seen"> & {
+      readonly gone_at: string | null;
+    }
+  >("postings", undefined, [
+    "key",
+    "body_hash",
+    "comp_high",
+    "workplace",
+    "status",
+    "last_seen",
+    "gone_at",
+  ]);
   return new Map(
     rows.map((row) => [
       row.key,
@@ -549,6 +606,8 @@ async function storedListings(store: Store): Promise<Map<string, StoredListing>>
         comp_high: row.comp_high,
         workplace: row.workplace,
         status: row.status,
+        gone_at: row.gone_at ?? null,
+        last_seen: row.last_seen,
       },
     ]),
   );
@@ -576,9 +635,23 @@ export async function ingest(
     stored = await storedListings(store);
   } catch (err) {
     errors.push(
-      `reading stored body hashes: ${describeError(err)}; every body will be rewritten this run, and band and workplace changes go undetected`,
+      `reading stored body hashes: ${describeError(err)}; every body will be rewritten this run, band and workplace changes go undetected, and no posting is marked gone`,
     );
     stored = new Map();
+  }
+
+  // Each board's stored keys, by the `platform/board` prefix `postingKey`
+  // puts before its `::`, so a read can tell which of its postings it no
+  // longer lists. A key with no `::` (the old company-name form has one, but
+  // nothing guarantees it) belongs to no board.
+  const storedByBoard = new Map<string, Set<string>>();
+  for (const key of stored.keys()) {
+    const cut = key.indexOf("::");
+    if (cut === -1) continue;
+    const prefix = key.slice(0, cut);
+    const group = storedByBoard.get(prefix);
+    if (group === undefined) storedByBoard.set(prefix, new Set([key]));
+    else group.add(key);
   }
 
   // Judges each listed body before it is stored; see `toRow`.
@@ -602,7 +675,9 @@ export async function ingest(
     [...groups.values()].map(async (group) => {
       const results: ListedCompany[] = [];
       for (const company of group) {
-        results.push(await listCompany(store, readers, company, now, stored, criteria));
+        results.push(
+          await listCompany(store, readers, company, now, stored, storedByBoard, criteria),
+        );
       }
       return results;
     }),
