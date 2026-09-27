@@ -77,9 +77,13 @@ function fakeReaders(answers: Record<string, Answer>): {
   };
 }
 
-// A Lever board answering `[]` is a board the probe finds.
-function leverBoard(slug: string): Record<string, string> {
-  return { [`https://api.lever.co/v0/postings/${slug}?mode=json`]: "[]" };
+// A Lever board answering `[]`, whose page's <title> is `title`: the probe
+// takes it when the title names the company asked about.
+function leverBoard(slug: string, title: string): Record<string, string> {
+  return {
+    [`https://api.lever.co/v0/postings/${slug}?mode=json`]: "[]",
+    [`https://jobs.lever.co/${slug}`]: `<title>${title}</title>`,
+  };
 }
 
 interface Run {
@@ -141,7 +145,7 @@ test("discover: a new name that probes to a board is watched, and its company wr
   const store = memoryStore();
 
   const { result, lines } = await run(store, [nameSource("hn", ["Acme"])], {
-    responses: leverBoard("acme"),
+    responses: leverBoard("acme", "Acme"),
   });
 
   assert.deepEqual(await candidates(store), ["hn Acme -> watched Acme"]);
@@ -166,6 +170,51 @@ test("discover: a name with no board is no_board and writes no company", async (
   assert.deepEqual(await candidates(store), ["hn Nobody -> no_board null"]);
   assert.equal(result.resolved.no_board, 1);
   assert.deepEqual(await companyNames(store), []);
+});
+
+// Breaks if a board that answers under another company's name is taken
+// (watched) or dropped silently (no_board).
+test("discover: a name whose only answering board names another company is wrong_company, logged", async () => {
+  const store = memoryStore();
+
+  const { result, lines } = await run(store, [nameSource("hn", ["Evolve"])], {
+    responses: leverBoard("evolve", "Contoso"),
+  });
+
+  assert.deepEqual(await candidates(store), ["hn Evolve -> wrong_company null"]);
+  assert.equal(result.resolved.wrong_company, 1);
+  assert.deepEqual(await companyNames(store), []);
+  assert.deepEqual(lines, ['hn Evolve: wrong_company lever::evolve names "Contoso"']);
+});
+
+test("discover: a board whose page names nobody is wrong_company, logged as naming nobody", async () => {
+  const store = memoryStore();
+
+  const { result, lines } = await run(store, [nameSource("hn", ["Evolve"])], {
+    responses: { "https://api.lever.co/v0/postings/evolve?mode=json": "[]" },
+  });
+
+  assert.deepEqual(await candidates(store), ["hn Evolve -> wrong_company null"]);
+  assert.equal(result.resolved.wrong_company, 1);
+  assert.deepEqual(lines, ["hn Evolve: wrong_company lever::evolve names nobody"]);
+});
+
+// A refused board on one platform does not outweigh a matching board on
+// another.
+test("discover: a name with one matching board and one refused board is watched on the matching one", async () => {
+  const store = memoryStore();
+
+  const { lines } = await run(store, [nameSource("hn", ["Acme"])], {
+    responses: {
+      ...leverBoard("acme", "Contoso"),
+      "https://boards-api.greenhouse.io/v1/boards/acme/jobs?content=true": JSON.stringify({
+        jobs: [{ id: "1", company_name: "Acme" }],
+      }),
+    },
+  });
+
+  assert.deepEqual(await candidates(store), ["hn Acme -> watched Acme"]);
+  assert.deepEqual(lines, ["hn: new Acme greenhouse::acme"]);
 });
 
 test("discover: a company's name from a second source is known, with a row, and not probed", async () => {
@@ -227,7 +276,7 @@ test("discover: a name whose probe finds a board another company carries is an a
   });
 
   const { result, lines } = await run(store, [nameSource("hn", ["Pocketly"])], {
-    responses: leverBoard("pocketly"),
+    responses: leverBoard("pocketly", "Pocketly"),
   });
 
   assert.deepEqual(await candidates(store), ["hn Pocketly -> alias Tessera"]);
@@ -242,7 +291,7 @@ test("discover: two names probing to one board in one run are one company and on
   const store = memoryStore();
 
   const { lines } = await run(store, [nameSource("hn", ["Acme Inc", "Acme"])], {
-    responses: leverBoard("acme"),
+    responses: leverBoard("acme", "Acme Inc"),
   });
 
   assert.deepEqual(await candidates(store), [

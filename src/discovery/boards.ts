@@ -207,9 +207,23 @@ export function pageTitle(html: string, platform: "ashby" | "lever"): string | n
   return title === "" ? null : title;
 }
 
+// An Avature portal names its owner in the page's `og:site_name` meta tag:
+// the tenant checked live on 2026-09-27 states `content="Bloomberg"` there,
+// while its <title> reads "Bloomberg Careers" and the portal's own name meta
+// reads "External Careers". The <title> format differs between tenants
+// (probe.ts, top), so it is not read.
+export function avatureSiteName(html: string): string | null {
+  const match = /<meta\s+property="og:site_name"\s+content="([^"]*)"/i.exec(html);
+  if (match === null) return null;
+  const name = htmlToText(match[1] ?? "").trim();
+  return name === "" ? null : name;
+}
+
 // The name a board's own page gives for the company that owns it:
 // Greenhouse's board `name`, the Ashby and Lever page `<title>` (via
-// `pageTitle`), null for every other platform or any `HttpError`.
+// `pageTitle`), Avature's `og:site_name`, null for every other platform or
+// any `HttpError` but a 429. A 429 is thrown: the vendor declined to answer,
+// which is not the page naming nobody (probe.ts's `probePlatform` says why).
 export async function boardName(board: Board, options?: HttpOptions): Promise<string | null> {
   try {
     if (board.platform === "greenhouse") {
@@ -230,9 +244,14 @@ export async function boardName(board: Board, options?: HttpOptions): Promise<st
       return pageTitle(html, "lever");
     }
 
+    if (board.platform === "avature") {
+      const html = await getText(`https://${board.id}.avature.net/careers/SearchJobs`, options);
+      return avatureSiteName(html);
+    }
+
     return null;
   } catch (error) {
-    if (error instanceof HttpError) return null;
+    if (error instanceof HttpError && error.status !== 429) return null;
     throw error;
   }
 }

@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { boardName, boardUrl, pageTitle, parseBoardUrl } from "../src/discovery/boards.ts";
+import {
+  avatureSiteName,
+  boardName,
+  boardUrl,
+  pageTitle,
+  parseBoardUrl,
+} from "../src/discovery/boards.ts";
+import { HttpError } from "../src/net/http.ts";
 import { PLATFORMS, type Board } from "../src/schema.ts";
 
 function fixture(name: string): string {
@@ -324,6 +331,36 @@ test("boardName: a Lever board reads the page title as written", async () => {
   assert.equal(name, "Trey Research");
 });
 
+// Fixture: a live SearchJobs page; its og:site_name is "Bloomberg", its
+// <title> "Bloomberg Careers".
+test("boardName: an Avature board reads the SearchJobs page's og:site_name", async () => {
+  const fetchImpl: typeof fetch = async (input) => {
+    assert.equal(String(input), "https://bloomberg.avature.net/careers/SearchJobs");
+    return new Response(
+      readFileSync(new URL("./fixtures/avature-search-bloomberg.html", import.meta.url), "utf8"),
+      { status: 200 },
+    );
+  };
+
+  const name = await boardName(
+    { platform: "avature", id: "bloomberg" },
+    { fetchImpl, userAgent: TEST_USER_AGENT, sleep: async () => {} },
+  );
+  assert.equal(name, "Bloomberg");
+});
+
+test("avatureSiteName: entities in the tag are decoded", () => {
+  assert.equal(
+    avatureSiteName('<meta property="og:site_name" content="Fabrikam &amp; Sons" />'),
+    "Fabrikam & Sons",
+  );
+});
+
+test("avatureSiteName: a page with no og:site_name, or an empty one, names nobody", () => {
+  assert.equal(avatureSiteName("<title>Fabrikam Careers</title>"), null);
+  assert.equal(avatureSiteName('<meta property="og:site_name" content="" />'), null);
+});
+
 test("boardName: a platform with no page to read gives no name", async () => {
   const fetchImpl: typeof fetch = async () => {
     throw new Error("should not be called");
@@ -344,6 +381,21 @@ test("boardName: a 404 is an expected failure, read as no name rather than throw
     { fetchImpl, userAgent: TEST_USER_AGENT, sleep: async () => {}, retries: 0 },
   );
   assert.equal(name, null);
+});
+
+// A 429 is the vendor declining to answer, not the page naming nobody; the
+// probe must not refuse a board on it.
+test("boardName: a 429 is thrown, not read as no name", async () => {
+  const fetchImpl: typeof fetch = async () => new Response(null, { status: 429 });
+
+  await assert.rejects(
+    () =>
+      boardName(
+        { platform: "lever", id: "acme" },
+        { fetchImpl, userAgent: TEST_USER_AGENT, sleep: async () => {}, retries: 0 },
+      ),
+    (error: unknown) => error instanceof HttpError && error.status === 429,
+  );
 });
 
 test("boardName: a non-HttpError failure is not swallowed", async () => {
