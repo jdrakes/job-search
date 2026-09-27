@@ -2206,8 +2206,11 @@ test("judgeAll: a two-phase detail that fails a criterion is judged but its body
   assert.equal(row?.workplace, "hybrid");
 });
 
-// Breaks if `judgeAll` clears a body only when it fetched one this pass.
-test("judgeAll: a body stored on an earlier run that a criteria edit now drops on its text is cleared", async () => {
+// Breaks if `judgeAll` clears a body it read back from the store rather
+// than one it fetched this pass. The criteria edit alone drops this
+// posting on its text; the stored body stays, since the verdict did not
+// come from a fresh read of the detail.
+test("judgeAll: a body stored on an earlier run that a criteria edit now drops on its text is kept", async () => {
   const body = "Staff Backend Engineer. Remote in the US. 5+ years of production Delphi.";
   const store = memoryStore({
     companies: [company("Acme", { boards: [{ platform: "workday", id: "acme-wd" }] })],
@@ -2242,8 +2245,54 @@ test("judgeAll: a body stored on an earlier run that a criteria edit now drops o
   assert.equal(judging.judged, 1);
   const [row] = await store.select<Posting>("postings", { key: "workday/acme-wd::swe1" });
   assert.equal(row?.kept, false);
-  assert.equal(row?.body, null);
-  assert.equal(row?.body_hash, null);
+  assert.equal(row?.body, body);
+  assert.equal(row?.body_hash, hashOf(body));
+});
+
+// The operator's setup: one board on Greenhouse has a detail read, so
+// `withDetailReads` wraps the whole platform, and every other Greenhouse
+// board's `body` falls through to the bare reader's absent fetch: null.
+// Breaks if `judgeAll` clears a stored body because the reader has a
+// `body`: the body goes, the next re-judge (a criteria edit, no relist)
+// asks the wrapped reader, gets null, and judges the empty text back in.
+test("ingest then judgeAll: a text rejection on a platform wrapped for another board's detail read stays out across re-judges", async () => {
+  const store = memoryStore({ companies: [ACME], criteria: [criteria()] });
+  const readers: Partial<Record<Platform, Reader>> = {
+    greenhouse: {
+      platform: "greenhouse",
+      list: async () => [
+        listing("b1", {
+          title: "Senior Backend Engineer",
+          location: "Remote - US",
+          compLow: 250_000,
+          compHigh: 300_000,
+          body: TEXT_OUT_BODY,
+        }),
+      ],
+      body: async () => null,
+    },
+  };
+
+  await ingest(store, readers);
+  const judging = await judgeAll(store, readers);
+
+  assert.deepEqual(judging.errors, []);
+  const [first] = await store.select<Posting>("postings", { key: KEY });
+  assert.equal(first?.kept, false);
+  assert.equal(first?.body, TEXT_OUT_BODY);
+  assert.equal(first?.body_hash, hashOf(TEXT_OUT_BODY));
+
+  const edited = await store.update("criteria", "1", { updated_at: "2026-09-15T00:00:00Z" });
+  assert.equal(edited.ok, true);
+  const rejudging = await judgeAll(store, readers);
+
+  assert.deepEqual(rejudging.errors, []);
+  assert.equal(rejudging.judged, 1);
+  const [second] = await store.select<Posting>("postings", { key: KEY });
+  assert.equal(second?.judged_with, "2026-09-15T00:00:00Z");
+  assert.equal(second?.kept, false);
+  assert.deepEqual(second?.reasons, first?.reasons);
+  assert.equal(second?.body, TEXT_OUT_BODY);
 });
 
 test("judgeAll: a two-phase detail that fails a criterion still stores its body when the posting was acted on", async () => {

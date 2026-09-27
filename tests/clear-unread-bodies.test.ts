@@ -58,7 +58,8 @@ function posting(overrides: Partial<Posting> & Pick<Posting, "key" | "company">)
 // language.
 const EXCLUDES_SENIOR = criteria({ excluded_title_words: ["senior"] });
 
-test("clearUnreadBodies: an unread, judged-out posting has its body cleared", async () => {
+// Breaks if a listing-criterion "out" no longer clears the body.
+test("clearUnreadBodies: an unread posting out on a listing criterion has its body cleared", async () => {
   const store = memoryStore({
     criteria: [EXCLUDES_SENIOR],
     postings: [posting({ key: "acme::1", company: "Acme" })],
@@ -66,7 +67,7 @@ test("clearUnreadBodies: an unread, judged-out posting has its body cleared", as
 
   const result = await clearUnreadBodies(store);
 
-  assert.deepEqual(result, { ok: true, cleared: 1, keptAlone: 0, workplaceScored: 0 });
+  assert.deepEqual(result, { ok: true, cleared: 1, listingKept: 0, workplaceScored: 0 });
   const [row] = await store.select<Posting>("postings", { key: "acme::1" });
   assert.equal(row?.body, null);
   assert.equal(row?.body_hash, null);
@@ -80,13 +81,13 @@ test("clearUnreadBodies: a posting acted on keeps its body even when judged out"
 
   const result = await clearUnreadBodies(store);
 
-  assert.deepEqual(result, { ok: true, cleared: 0, keptAlone: 0, workplaceScored: 0 });
+  assert.deepEqual(result, { ok: true, cleared: 0, listingKept: 0, workplaceScored: 0 });
   const [row] = await store.select<Posting>("postings", { key: "acme::1" });
   assert.equal(row?.body, "This is a fully remote position open to candidates anywhere in the US.");
   assert.equal(row?.body_hash, "deadbeef");
 });
 
-test("clearUnreadBodies: a posting the criteria still keep is left alone", async () => {
+test("clearUnreadBodies: a posting the listing criteria still keep is left alone", async () => {
   const store = memoryStore({
     criteria: [criteria()],
     postings: [posting({ key: "acme::1", company: "Acme" })],
@@ -94,9 +95,32 @@ test("clearUnreadBodies: a posting the criteria still keep is left alone", async
 
   const result = await clearUnreadBodies(store);
 
-  assert.deepEqual(result, { ok: true, cleared: 0, keptAlone: 1, workplaceScored: 0 });
+  assert.deepEqual(result, { ok: true, cleared: 0, listingKept: 1, workplaceScored: 0 });
   const [row] = await store.select<Posting>("postings", { key: "acme::1" });
   assert.equal(row?.body, "This is a fully remote position open to candidates anywhere in the US.");
+  assert.equal(row?.body_hash, "deadbeef");
+});
+
+// Breaks if the backfill decides with the full `judge()`: the body would
+// go on its text, and a later re-judge with no relist would judge the
+// empty text back in.
+test("clearUnreadBodies: a posting out only on a text criterion keeps its body", async () => {
+  const store = memoryStore({
+    criteria: [criteria()],
+    postings: [
+      posting({
+        key: "acme::1",
+        company: "Acme",
+        body: "5+ years of production Delphi required.",
+      }),
+    ],
+  });
+
+  const result = await clearUnreadBodies(store);
+
+  assert.deepEqual(result, { ok: true, cleared: 0, listingKept: 1, workplaceScored: 0 });
+  const [row] = await store.select<Posting>("postings", { key: "acme::1" });
+  assert.equal(row?.body, "5+ years of production Delphi required.");
   assert.equal(row?.body_hash, "deadbeef");
 });
 
@@ -112,7 +136,7 @@ test("clearUnreadBodies: a judged-out posting whose board states remote keeps it
 
   const result = await clearUnreadBodies(store);
 
-  assert.deepEqual(result, { ok: true, cleared: 1, keptAlone: 0, workplaceScored: 1 });
+  assert.deepEqual(result, { ok: true, cleared: 1, listingKept: 0, workplaceScored: 1 });
   const [scored] = await store.select<Posting>("postings", { key: "acme::1" });
   assert.equal(
     scored?.body,
@@ -140,7 +164,7 @@ test("clearUnreadBodies: age is judged against the current time, not judged_with
 
   const result = await clearUnreadBodies(store);
 
-  assert.deepEqual(result, { ok: true, cleared: 1, keptAlone: 0, workplaceScored: 0 });
+  assert.deepEqual(result, { ok: true, cleared: 1, listingKept: 0, workplaceScored: 0 });
 });
 
 test("clearUnreadBodies: no criteria row refuses, naming the reason", async () => {

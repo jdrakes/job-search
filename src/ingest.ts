@@ -210,9 +210,8 @@ async function storedBody(store: Store, key: string): Promise<string | null> {
 // the payload even though the row exists; they are carried back as read.
 // `comp_low`/`comp_high` travel the same way: listing and judging are
 // sequential in `daily.ts`, so nothing changes a comp between the read and
-// the write. `workplace` stays out unless the judging pass fetched a
-// detail, and `body` unless it fetched one or is clearing a stored one, so
-// the stored values, if any, survive.
+// the write. `body` and `workplace` stay out unless the judging pass
+// fetched a detail, so the stored values, if any, survive.
 interface VerdictRow extends Pick<
   Posting,
   | "key"
@@ -226,8 +225,6 @@ interface VerdictRow extends Pick<
   | "judged_with"
 > {
   readonly body?: string | null;
-  // Written only as null, alongside a cleared body.
-  readonly body_hash?: null;
   readonly workplace?: Workplace | null;
 }
 
@@ -406,24 +403,22 @@ export async function judgeAll(
     // of verdict. The body is kept only where something reads it: a
     // posting kept, acted on (`row.status`, read before this pass's write,
     // so a posting acted on this same run still counts), or stating
-    // `remote` or `onsite` (`scripts/score-remote.ts`). A body read back
-    // from the store is cleared the same way only on a two-phase board,
-    // whose reader fetches the detail again if a later re-judge asks for
-    // it. A one-phase board's body comes back only with a fresh listing, and
-    // a re-judge can run without one (the board's read failed that day, or
-    // a criteria edit alone); `wantsBody` would still ask for the body on
-    // the listing criteria, find none, and judge the empty text back in.
-    // So a one-phase body is cleared only by `toRow`, on a listing "out"
-    // `wantsBody` agrees with, and a one-phase text rejection keeps its body.
+    // `remote` or `onsite` (`scripts/score-remote.ts`). Decided only on a
+    // body fetched this pass, from the same detail the verdict just read.
+    // A body read back from the store is never cleared here: nothing
+    // guarantees it can be read again. A one-phase board's body returns
+    // only with a fresh listing, and a re-judge can run without one (the
+    // board's read failed that day, or a criteria edit alone). A reader
+    // having `body` does not mean this board has a detail read either:
+    // `withDetailRead` wraps a whole platform for one board's read and
+    // answers null for the rest. Either way `wantsBody` would ask for the
+    // body again, find none, and judge the empty text back in. A stored
+    // body is cleared only by `toRow`, on a listing "out" `wantsBody` agrees
+    // with; a stored body out only on its text is kept, stale in size, not
+    // in content.
     const workplaceScored = workplace === "remote" || workplace === "onsite";
     const keepBody = judgment.kept || row.status !== null || workplaceScored;
-    let toPush: VerdictRow = verdict;
-    if (fetched) {
-      toPush = { ...verdict, body: keepBody ? body : null, workplace };
-    } else if (twoPhase && body !== null && !keepBody) {
-      toPush = { ...verdict, body: null, body_hash: null };
-    }
-    pending.push(toPush);
+    pending.push(fetched ? { ...verdict, body: keepBody ? body : null, workplace } : verdict);
     if (pending.length >= VERDICT_FLUSH) {
       const flushed = await writeVerdicts(store, pending);
       judged += flushed.written;

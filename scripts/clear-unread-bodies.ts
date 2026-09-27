@@ -1,25 +1,28 @@
 // One-off backfill for #272: clears `body`/`body_hash` off every posting
-// that has neither been acted on nor cleared its own judgment, the same
-// rule Tasks 1 and 2 now apply on every future write. Run once, by hand,
-// against the local Postgres, after a verbatim `pg_dump` of `postings` (see
-// the plan) — this script is not part of `daily.ts` and nothing schedules
-// it.
+// that has neither been acted on nor passed its listing criteria, the rule
+// `toRow` applies on every future listed body. Run once, by hand, against
+// the local Postgres, after a verbatim `pg_dump` of `postings` (see the
+// plan). This script is not part of `daily.ts` and nothing schedules it.
 //
 //   node --env-file=.env scripts/clear-unread-bodies.ts
 //
-// This recomputes `kept` with `judge()` rather than trusting the stored
-// column: a row's stored `kept` was true (or false) under whatever
-// criteria were live at its `judged_with`, and a criteria edit since then
-// can leave a stale `kept: true` on a row current criteria would now drop —
-// exactly the case this backfill exists to catch. Recomputing is one
-// `judge()` call per candidate row, no more than `judgeAll` already pays
-// per posting on every daily run.
+// It clears a body only where the listing criteria alone reject the
+// posting: `judgeListing`, the same rule and call shape `toRow`
+// (src/ingest.ts) applies on every listed body, for the same reason. It no
+// longer recomputes the full text judgment. A body cleared on a text
+// criterion may never come back: a one-phase board returns it only with a
+// fresh listing, and a platform wrapped for one board's detail read answers
+// null for every other board. `judgeAll`'s `wantsBody` asks for the body on
+// the listing criteria alone, so a later re-judge with no relist would find
+// none and judge the empty text back in. A listing "out" is one `wantsBody`
+// also reaches, so that body is never asked for again. Bodies out only on
+// their text stay; this reclaims the smaller, safe intersection.
 //
-// It is a one-time backfill against the current criteria and the current
-// time, as any other re-judge is. `judged_with` is a criteria-version
-// marker, not a clock, so it plays no part here. Board and duplicate
-// context are left out (`NO_BOARDS`, no representative map), which can
-// only keep more rows, never clear one the daily run would keep.
+// It judges against the current criteria and the current time, as any
+// other re-judge does. `judged_with` is a criteria-version marker, not a
+// clock, so it plays no part here. Board and duplicate context are left
+// out (`NO_BOARDS`, no representative map), which can only keep more rows,
+// never clear one the daily run would keep.
 //
 // A row whose board states `remote` or `onsite` keeps its body whatever
 // the verdict: `scripts/score-remote.ts` scores the text detector against
@@ -29,15 +32,13 @@ import process from "node:process";
 
 import { loadCriteria } from "../src/criteria.ts";
 import { describeError } from "../src/errors.ts";
-import { judge } from "../src/judge/judge.ts";
-import { NO_BOARDS } from "../src/judge/listing.ts";
+import { judgeListing, NO_BOARDS } from "../src/judge/listing.ts";
 import type { Posting } from "../src/schema.ts";
 import { openStore } from "../src/store/open.ts";
 import type { Store } from "../src/store/store.ts";
 
-// Everything `judge()`'s `Pick` needs, plus `body_hash` (not part of that
-// `Pick`, but read here so a future change to the clearing payload has it
-// on hand).
+// Everything `judgeListing()`'s `Pick` needs, plus what the candidate
+// filter and the two exemptions read: `body`, `workplace`, `status`.
 const CANDIDATE_COLUMNS = [
   "key",
   "company",
@@ -51,7 +52,6 @@ const CANDIDATE_COLUMNS = [
   "last_seen",
   "workplace",
   "status",
-  "body_hash",
 ] as const satisfies readonly (keyof Posting)[];
 
 type CandidateRow = Pick<Posting, (typeof CANDIDATE_COLUMNS)[number]>;
@@ -64,7 +64,7 @@ const CLEAR_FLUSH = 200;
 
 export interface ClearSummary {
   readonly cleared: number;
-  readonly keptAlone: number;
+  readonly listingKept: number;
   readonly workplaceScored: number;
 }
 
@@ -90,7 +90,7 @@ export async function clearUnreadBodies(store: Store): Promise<ClearResult> {
   const candidates = rows.filter((row) => row.body !== null);
 
   let cleared = 0;
-  let keptAlone = 0;
+  let listingKept = 0;
   let workplaceScored = 0;
   let batch: ClearedRow[] = [];
   const now = new Date().toISOString();
@@ -100,9 +100,25 @@ export async function clearUnreadBodies(store: Store): Promise<ClearResult> {
       workplaceScored += 1;
       continue;
     }
-    const result = judge(row, criteria, now, NO_BOARDS, new Map());
-    if (result.kept) {
-      keptAlone += 1;
+    const listing = judgeListing(
+      {
+        key: row.key,
+        company: row.company,
+        platform: row.platform,
+        board: row.board,
+        title: row.title,
+        location: row.location,
+        comp_high: row.comp_high,
+        posted_at: row.posted_at,
+        last_seen: row.last_seen,
+      },
+      criteria,
+      now,
+      NO_BOARDS,
+      new Map(),
+    );
+    if (listing.kept) {
+      listingKept += 1;
       continue;
     }
     cleared += 1;
@@ -120,7 +136,7 @@ export async function clearUnreadBodies(store: Store): Promise<ClearResult> {
   }
   await flush(store, batch);
 
-  return { ok: true, cleared, keptAlone, workplaceScored };
+  return { ok: true, cleared, listingKept, workplaceScored };
 }
 
 async function main(): Promise<void> {
@@ -132,7 +148,7 @@ async function main(): Promise<void> {
     return;
   }
   console.log(
-    `clear-unread-bodies: cleared ${result.cleared}, left alone (kept) ${result.keptAlone}, left alone (workplace scored) ${result.workplaceScored}`,
+    `clear-unread-bodies: cleared ${result.cleared}, left alone (listing kept) ${result.listingKept}, left alone (workplace scored) ${result.workplaceScored}`,
   );
 }
 
