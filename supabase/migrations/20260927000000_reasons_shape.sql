@@ -1,0 +1,30 @@
+-- Migration 20260927000000_reasons_shape: marks the shape change to
+-- `postings.reasons` and `postings.evidence` (#273, "reasons: failed
+-- criteria for all, text for the list only"). No column is added or
+-- dropped — both stay `jsonb`, so there is nothing here to ALTER.
+--
+-- Why. `judge()` used to store, in `reasons`, a `{criterion, verdict,
+-- detail}` object for every criterion that ran, and copy the same detail
+-- text into `evidence` for every posting whatever its verdict. Measured
+-- 2026-09-27: that made `reasons` 135 MB and `evidence` 78 MB, almost all
+-- of it detail text for a posting nothing ever reads (only a kept or
+-- acted-on posting is shown; `needsJudging` only ever asks whether
+-- `reasons` contains a given criterion's name). `judge()` now stores, in
+-- `reasons`, just the names of the criteria whose verdict was "out" (a
+-- `string[]`), and populates `evidence` only when the posting is kept or
+-- acted on.
+--
+-- A row written before this PR still holds the old shape until it is next
+-- judged or converted by `scripts/shrink-reasons.ts` (run once, by hand,
+-- after this migration — see that script's header). Nothing needs both
+-- shapes read the same way in the meantime: `needsJudging`'s `hasReasonOut`
+-- is `Array.isArray(reasons) && reasons.includes(criterion)`, which is
+-- simply false for an unconverted row's object elements, the same as if
+-- that criterion were not out at all — so an unconverted row is re-judged
+-- the next time `needsJudging` says yes for an unrelated reason, same as
+-- any other stale row, and converted then by `judge()` itself. Both shapes
+-- are valid `jsonb`; the column's type is unchanged.
+
+-- The receipt the application reads. See the init migration's header: this is
+-- NOT the CLI's own supabase_migrations.schema_migrations.
+INSERT INTO "schema_migrations" ("id") VALUES ('20260927000000_reasons_shape');
