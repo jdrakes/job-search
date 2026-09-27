@@ -291,7 +291,7 @@ test("resolveSources: an extraSourcePath is imported and its factory's source ap
   assert.equal(sources.length, 2);
   assert.equal(sources[0]?.name, "hn");
   assert.equal(sources[1]?.name, "extra-test-source");
-  assert.deepEqual(await sources[1]?.companies(), ["saw:staff", "saw:senior"]);
+  assert.deepEqual(await (sources[1] as Source)?.companies(), ["saw:staff", "saw:senior"]);
 });
 
 test("resolveSources: an extraSourcePath that does not resolve throws naming the path", async () => {

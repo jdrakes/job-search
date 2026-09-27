@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { answering, surveyRows, watchSurvey } from "../scripts/watch-survey.ts";
+import { surveyRows } from "../scripts/watch-survey.ts";
 import type { Reader } from "../src/ats/ats.ts";
+import { answering, watchSurvey } from "../src/discovery/bind.ts";
 import { HttpError } from "../src/net/http.ts";
 import type { Company, Platform } from "../src/schema.ts";
 import { memoryStore } from "../src/store/memory.ts";
+import type { Store } from "../src/store/store.ts";
 
 // Records how many times `list` ran, so a test can assert once-per-row.
 function fakeReader(
@@ -198,7 +200,7 @@ test("watchSurvey: a discovered company gains the survey board and becomes watch
   const store = memoryStore({ companies: [company("Acme")] });
   const rows = [{ name: "Acme", board: { platform: "greenhouse" as const, id: "acme" } }];
 
-  const summary = await watchSurvey(store, rows);
+  const summary = await watchSurvey(store, rows, "survey");
 
   assert.deepEqual(summary, { watched: 1, aliases: 0, unchanged: 0, errors: [] });
   const [acme] = await store.select<Company>("companies", { name: "Acme" });
@@ -217,7 +219,7 @@ test("watchSurvey: a board a watched company already carries makes the row's nam
   });
   const rows = [{ name: "Pocketly", board: { platform: "greenhouse" as const, id: "pocketly" } }];
 
-  const summary = await watchSurvey(store, rows);
+  const summary = await watchSurvey(store, rows, "survey");
 
   assert.deepEqual(summary, { watched: 0, aliases: 1, unchanged: 0, errors: [] });
   const [pocketly] = await store.select<Company>("companies", { name: "Pocketly" });
@@ -235,7 +237,7 @@ test("watchSurvey: two rows sharing a board are one watched company and one alia
     { name: "Acme", board },
   ];
 
-  const summary = await watchSurvey(store, rows);
+  const summary = await watchSurvey(store, rows, "survey");
 
   assert.deepEqual(summary, { watched: 1, aliases: 1, unchanged: 0, errors: [] });
   const [first] = await store.select<Company>("companies", { name: "Acme Inc" });
@@ -254,10 +256,10 @@ test("watchSurvey: running the same rows twice writes nothing the second time", 
     { name: "Acme", board },
   ];
 
-  await watchSurvey(store, rows);
+  await watchSurvey(store, rows, "survey");
   const before = await store.select<Company>("companies");
 
-  const second = await watchSurvey(store, rows);
+  const second = await watchSurvey(store, rows, "survey");
 
   assert.deepEqual(second, { watched: 0, aliases: 0, unchanged: 2, errors: [] });
   const after = await store.select<Company>("companies");
@@ -273,7 +275,7 @@ test("watchSurvey: an alias with a survey row naming another board stays an alia
   const store = memoryStore({ companies: [dropped] });
   const rows = [{ name: "Gone", board: { platform: "greenhouse" as const, id: "gone" } }];
 
-  const summary = await watchSurvey(store, rows);
+  const summary = await watchSurvey(store, rows, "survey");
 
   assert.deepEqual(summary, { watched: 0, aliases: 0, unchanged: 1, errors: [] });
   const [after] = await store.select<Company>("companies", { name: "Gone" });
@@ -292,7 +294,7 @@ test("watchSurvey: aliasing a company already on file keeps its source and first
   });
   const rows = [{ name: "Pocketly", board: { platform: "greenhouse" as const, id: "pocketly" } }];
 
-  const summary = await watchSurvey(store, rows);
+  const summary = await watchSurvey(store, rows, "survey");
 
   assert.deepEqual(summary, { watched: 0, aliases: 1, unchanged: 0, errors: [] });
   const [pocketly] = await store.select<Company>("companies", { name: "Pocketly" });
@@ -310,7 +312,7 @@ test("watchSurvey: a discovered company that already carries the survey board is
   });
   const rows = [{ name: "Pocketly", board }];
 
-  const summary = await watchSurvey(store, rows);
+  const summary = await watchSurvey(store, rows, "survey");
 
   assert.deepEqual(summary, { watched: 1, aliases: 0, unchanged: 0, errors: [] });
   const [pocketly] = await store.select<Company>("companies", { name: "Pocketly" });
@@ -327,7 +329,7 @@ test("watchSurvey: a discovered company assigned a board another company owns is
   });
   const rows = [{ name: "Pocketly", board }];
 
-  const summary = await watchSurvey(store, rows);
+  const summary = await watchSurvey(store, rows, "survey");
 
   assert.deepEqual(summary, { watched: 0, aliases: 1, unchanged: 0, errors: [] });
   const [pocketly] = await store.select<Company>("companies", { name: "Pocketly" });
@@ -346,7 +348,7 @@ test("watchSurvey: an alias row that already names its owner is unchanged", asyn
   });
   const rows = [{ name: "Acme Inc", board }];
 
-  const summary = await watchSurvey(store, rows);
+  const summary = await watchSurvey(store, rows, "survey");
 
   assert.deepEqual(summary, { watched: 0, aliases: 0, unchanged: 1, errors: [] });
 });
@@ -362,7 +364,7 @@ test("watchSurvey: a James-dropped company already carrying the survey board sta
   const store = memoryStore({ companies: [dropped] });
   const rows = [{ name: "Gone", board }];
 
-  const summary = await watchSurvey(store, rows);
+  const summary = await watchSurvey(store, rows, "survey");
 
   assert.deepEqual(summary, { watched: 0, aliases: 0, unchanged: 1, errors: [] });
   const [after] = await store.select<Company>("companies", { name: "Gone" });
@@ -380,7 +382,7 @@ test("watchSurvey: an alias whose owner James dropped is unchanged, not rewritte
   const store = memoryStore({ companies: [droppedOwner, droppedAlias] });
   const rows = [{ name: "Acme Inc", board }];
 
-  const summary = await watchSurvey(store, rows);
+  const summary = await watchSurvey(store, rows, "survey");
 
   assert.deepEqual(summary, { watched: 0, aliases: 0, unchanged: 1, errors: [] });
   const [owner] = await store.select<Company>("companies", { name: "Acme" });
@@ -399,7 +401,7 @@ test("watchSurvey: an alias names the company that carries the board, never an e
   });
   const rows = [{ name: "Acme Corp", board }];
 
-  const summary = await watchSurvey(store, rows);
+  const summary = await watchSurvey(store, rows, "survey");
 
   assert.deepEqual(summary, { watched: 0, aliases: 1, unchanged: 0, errors: [] });
   const [corp] = await store.select<Company>("companies", { name: "Acme Corp" });
@@ -418,7 +420,7 @@ test("watchSurvey: a watched row whose board another company also carries become
   });
   const rows = [{ name: "Fission Labs Inc", board }];
 
-  const summary = await watchSurvey(store, rows);
+  const summary = await watchSurvey(store, rows, "survey");
 
   assert.deepEqual(summary, { watched: 0, aliases: 1, unchanged: 0, errors: [] });
   const [inc] = await store.select<Company>("companies", { name: "Fission Labs Inc" });
@@ -436,13 +438,74 @@ test("watchSurvey: a board only an alias carries has no owner, so a new name wit
   });
   const rows = [{ name: "Acme Corp", board }];
 
-  const summary = await watchSurvey(store, rows);
+  const summary = await watchSurvey(store, rows, "survey");
 
   assert.deepEqual(summary, { watched: 1, aliases: 0, unchanged: 0, errors: [] });
   const [corp] = await store.select<Company>("companies", { name: "Acme Corp" });
   assert.equal(corp?.state, "watched");
   assert.equal(corp?.alias_of, null);
   assert.deepEqual(corp?.boards, [board]);
+});
+
+// A store whose `upsert` number `failAt` (1-based) throws, as a dropped
+// connection would partway through a batch.
+function storeFailingAtUpsert(inner: Store, failAt: number): Store {
+  let upserts = 0;
+  return {
+    select: (...args) => inner.select(...args),
+    upsert: async (table, rows) => {
+      upserts += 1;
+      if (upserts === failAt) throw new Error("connection reset");
+      return inner.upsert(table, rows);
+    },
+    update: (table, key, patch) => inner.update(table, key, patch),
+    delete: (table, keys) => inner.delete(table, keys),
+  };
+}
+
+// Breaks if onWrite is called after the loop rather than as each write lands.
+test("watchSurvey: a store throw mid-batch still reports every row written before it to onWrite", async () => {
+  const inner = memoryStore({
+    companies: [
+      company("Tessera", {
+        state: "watched",
+        boards: [{ platform: "greenhouse", id: "pocketly" }],
+      }),
+    ],
+  });
+  const store = storeFailingAtUpsert(inner, 2);
+  const rows = [
+    { name: "Pocketly", board: { platform: "greenhouse" as const, id: "pocketly" } },
+    { name: "Acme", board: { platform: "lever" as const, id: "acme" } },
+    { name: "Zenco", board: { platform: "ashby" as const, id: "zenco" } },
+  ];
+  const written: string[] = [];
+
+  await assert.rejects(
+    watchSurvey(store, rows, "survey", (row) => written.push(row.name)),
+    /connection reset/,
+  );
+
+  assert.deepEqual(written, ["Pocketly"]);
+  const [pocketly] = await inner.select<Company>("companies", { name: "Pocketly" });
+  assert.equal(pocketly?.state, "alias");
+});
+
+// Breaks if onWrite fires in the unchanged branch, or misses the watched one.
+test("watchSurvey: onWrite hears each watched row and never an unchanged one", async () => {
+  const store = memoryStore({
+    companies: [company("Acme Old", { state: "alias", alias_of: "Tessera" })],
+  });
+  const rows = [
+    { name: "Acme Old", board: { platform: "lever" as const, id: "acme-old" } },
+    { name: "Acme", board: { platform: "lever" as const, id: "acme" } },
+  ];
+  const written: string[] = [];
+
+  const summary = await watchSurvey(store, rows, "survey", (row) => written.push(row.name));
+
+  assert.deepEqual(summary, { watched: 1, aliases: 0, unchanged: 1, errors: [] });
+  assert.deepEqual(written, ["Acme"]);
 });
 
 test("answering: a row whose board answers is kept, one that is gone is reported gone, one that errors is reported unreachable", async () => {
@@ -466,7 +529,8 @@ test("answering: a row whose board answers is kept, one that is gone is reported
   });
 
   assert.deepEqual(result.rows, [rows[0]]);
-  assert.deepEqual(result.gone, ["Leverage lever::leverage: HTTP 404"]);
+  assert.deepEqual(result.gone, [{ row: rows[1], line: "Leverage lever::leverage: HTTP 404" }]);
+  assert.deepEqual(result.gone[0]?.row.board, { platform: "lever", id: "leverage" });
   assert.deepEqual(result.unreachable, ["Ashbrook ashby::ashbrook: HTTP 500"]);
   assert.equal(greenhouse.calls(), 1);
   assert.equal(lever.calls(), 1);
