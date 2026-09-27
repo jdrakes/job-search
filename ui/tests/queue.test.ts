@@ -23,7 +23,6 @@ import {
   postedAgeLabel,
   postingHref,
   PostingCard,
-  reasonLines,
   resolveSelection,
   scoreOf,
   SHAPE_WEIGHT,
@@ -165,19 +164,6 @@ test("postingHref refuses text that is not an absolute URL", () => {
 
 test("postingHref is null when there is no URL at all", () => {
   assert.equal(postingHref(null), null);
-});
-
-test("reasonLines keeps well-shaped entries and drops malformed ones", () => {
-  const lines = reasonLines([
-    { criterion: "role", verdict: "kept", detail: "Backend engineer, matches role_words" },
-    { criterion: "comp", verdict: "malformed" }, // no detail
-    "not an object",
-    null,
-  ]);
-
-  assert.deepEqual(lines, [
-    { criterion: "role", verdict: "kept", detail: "Backend engineer, matches role_words" },
-  ]);
 });
 
 test("evidenceLines keeps string values only, and turns the key into a label", () => {

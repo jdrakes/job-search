@@ -34,6 +34,7 @@ import {
   loadSession,
   linkTokenFrom,
   refreshSession,
+  refreshStillApplies,
   requestLink,
   saveSession,
   SESSION_KEY,
@@ -216,7 +217,13 @@ export const AppRoot = defineComponent({
     // round's rows when there is one (`reads-cache.ts`).
     async function refresh(): Promise<void> {
       if (session.value === null) return;
-      const fresh = await currentSession(props.config, session.value, props.httpFetch, props.now);
+      const startedFor = session.value;
+      const fresh = await currentSession(props.config, startedFor, props.httpFetch, props.now);
+      // A sign-out or a fresh sign-in from another tab can land while this
+      // refresh is still in flight; its answer then belongs to a session
+      // nobody is using any more, and acting on it would resurrect a
+      // signed-out session or clobber the new one.
+      if (!refreshStillApplies(startedFor, session.value)) return;
       if (fresh.ok) {
         session.value = fresh.value;
         saveSession(props.store, fresh.value);

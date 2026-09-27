@@ -10,6 +10,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { STATUSES } from "../src/schema.ts";
+import { CONFIG_ELEMENT_ID } from "../ui/src/config.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const UI_DIR = join(ROOT, "ui");
@@ -52,8 +53,8 @@ function build(): void {
   const config = JSON.stringify({ url, anonKey, statuses: [...STATUSES] });
   const html = readFileSync(join(UI_DIR, "index.html"), "utf8");
   const configured = html.replace(
-    /<script type="application\/json" id="app-config">[^]*?<\/script>/,
-    `<script type="application/json" id="app-config">\n      ${config}\n    </script>`,
+    new RegExp(`<script type="application/json" id="${CONFIG_ELEMENT_ID}">[^]*?</script>`),
+    `<script type="application/json" id="${CONFIG_ELEMENT_ID}">\n      ${config}\n    </script>`,
   );
   if (configured === html) {
     console.error("build:ui: could not find the app-config script tag to write into");

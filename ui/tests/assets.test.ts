@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { UI_ASSETS } from "../../scripts/write-ui-config.ts";
+import { CONFIG_ELEMENT_ID } from "../src/config.ts";
 
 const UI = join(import.meta.dirname, "..");
 
@@ -36,4 +37,17 @@ test("every local file index.html asks for is one the build puts in dist", () =>
 test("every asset the build copies is really in ui/", () => {
   const absent = UI_ASSETS.filter((asset) => !existsSync(join(UI, asset)));
   assert.deepEqual(absent, []);
+});
+
+/**
+ * index.html is plain HTML with no import mechanism, so its two occurrences
+ * of the config element id (the `id` attribute and the inline module's
+ * `getElementById` call) can only ever be literals. This pins them to
+ * CONFIG_ELEMENT_ID so a future rename of the constant fails here instead of
+ * silently breaking write-ui-config.ts's replace, which no longer matches.
+ */
+test("index.html's app-config literals match CONFIG_ELEMENT_ID", () => {
+  const html = readFileSync(join(UI, "index.html"), "utf8");
+  assert.ok(html.includes(`id="${CONFIG_ELEMENT_ID}"`));
+  assert.ok(html.includes(`getElementById("${CONFIG_ELEMENT_ID}")`));
 });
