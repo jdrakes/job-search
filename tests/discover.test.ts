@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { Reader } from "../src/ats/ats.ts";
-import { discoverLine, suggestGone } from "../src/daily.ts";
-import { discover, suggestAgain, type DiscoverResult } from "../src/discover.ts";
+import { discoverLine, unbindGone } from "../src/daily.ts";
+import { discover, type DiscoverResult, suggestAgain, unbind } from "../src/discover.ts";
 import type { BoardSource, DiscoverySource, Source } from "../src/discovery/source.ts";
 import { HttpError } from "../src/net/http.ts";
 import type { Board, Candidate, Company, Platform } from "../src/schema.ts";
@@ -500,20 +500,130 @@ test("suggestAgain: two gone boards of one company give one candidate naming bot
 });
 
 // Breaks if daily.ts's wrapper lets the write's throw escape, which ended
-// the run before judge and publish.
-test("suggestGone: a refused candidates write is returned as a reason, not thrown", async () => {
+// the run before judging.
+test("unbindGone: a refused companies write is returned as a reason, not thrown", async () => {
   const store: Store = {
-    ...memoryStore(),
+    ...memoryStore({
+      companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "acme-gh" }] })],
+    }),
     async upsert() {
-      throw new Error("candidates: refused");
+      throw new Error("companies: refused");
     },
   };
 
-  const result = await suggestGone(store, [
+  const result = await unbindGone(store, [
     { company: "Acme", board: { platform: "greenhouse", id: "acme-gh" } },
   ]);
 
-  assert.deepEqual(result, { ok: false, reason: "candidates: refused" });
+  assert.deepEqual(result, { ok: false, reason: "companies: refused" });
+});
+
+// Counts every write by table, passing each through.
+function countingWrites(inner: Store): { store: Store; writes: string[] } {
+  const writes: string[] = [];
+  const store: Store = {
+    ...inner,
+    async upsert(table, rows) {
+      writes.push(table);
+      return inner.upsert(table, rows);
+    },
+  };
+  return { store, writes };
+}
+
+// Breaks if the removal drops the sibling, deletes the emptied row, or
+// stops suggesting the company again.
+test("unbind: each gone board leaves its company, siblings and rows kept, and each company is suggested once", async () => {
+  const { store, writes } = countingWrites(
+    memoryStore({
+      companies: [
+        company("Acme", {
+          boards: [
+            { platform: "greenhouse", id: "acme-gh" },
+            { platform: "lever", id: "acme-lv" },
+          ],
+        }),
+        company("Wellspring Health", { boards: [{ platform: "ashby", id: "wellspring" }] }),
+      ],
+    }),
+  );
+
+  const result = await unbind(store, [
+    { company: "Acme", board: { platform: "greenhouse", id: "acme-gh" } },
+    { company: "Wellspring Health", board: { platform: "ashby", id: "wellspring" } },
+  ]);
+
+  assert.deepEqual(result, { removed: 2, suggested: 2 });
+  assert.deepEqual(await store.select<Company>("companies"), [
+    company("Acme", { boards: [{ platform: "lever", id: "acme-lv" }] }),
+    company("Wellspring Health"),
+  ]);
+  assert.deepEqual((await store.select<Candidate>("candidates")).map((row) => row.name).sort(), [
+    "Acme",
+    "Wellspring Health",
+  ]);
+  assert.deepEqual(writes, ["companies", "companies", "candidates"]);
+});
+
+// Breaks if two gone boards of one company cost two read-modify-writes,
+// where the second, from a stale row, would put the first board back.
+test("unbind: two gone boards of one company are removed in one write", async () => {
+  const { store, writes } = countingWrites(
+    memoryStore({
+      companies: [
+        company("Acme", {
+          boards: [
+            { platform: "greenhouse", id: "acme-gh" },
+            { platform: "lever", id: "acme-lv" },
+            { platform: "ashby", id: "acme" },
+          ],
+        }),
+      ],
+    }),
+  );
+
+  const result = await unbind(store, [
+    { company: "Acme", board: { platform: "greenhouse", id: "acme-gh" } },
+    { company: "Acme", board: { platform: "lever", id: "acme-lv" } },
+  ]);
+
+  assert.deepEqual(result, { removed: 2, suggested: 1 });
+  const [row] = await store.select<Company>("companies", { name: "Acme" });
+  assert.deepEqual(row?.boards, [{ platform: "ashby", id: "acme" }]);
+  assert.deepEqual(writes, ["companies", "candidates"]);
+});
+
+// Breaks if a board is matched by id alone, or if an already-absent board
+// costs a write.
+test("unbind: a board already off its company costs no write and the company is still suggested", async () => {
+  const { store, writes } = countingWrites(
+    memoryStore({
+      companies: [company("Acme", { boards: [{ platform: "lever", id: "acme" }] })],
+    }),
+  );
+
+  const result = await unbind(store, [
+    { company: "Acme", board: { platform: "greenhouse", id: "acme" } },
+  ]);
+
+  assert.deepEqual(result, { removed: 0, suggested: 1 });
+  const [row] = await store.select<Company>("companies", { name: "Acme" });
+  assert.deepEqual(row?.boards, [{ platform: "lever", id: "acme" }]);
+  assert.deepEqual(writes, ["candidates"]);
+});
+
+// Breaks if a company deleted since the list phase is written back or
+// suggested again.
+test("unbind: a company whose row is gone is neither written nor suggested", async () => {
+  const { store, writes } = countingWrites(memoryStore());
+
+  const result = await unbind(store, [
+    { company: "Acme", board: { platform: "greenhouse", id: "acme-gh" } },
+  ]);
+
+  assert.deepEqual(result, { removed: 0, suggested: 0 });
+  assert.deepEqual(await store.select<Company>("companies"), []);
+  assert.deepEqual(writes, []);
 });
 
 test("suggestAgain: no gone boards writes nothing", async () => {

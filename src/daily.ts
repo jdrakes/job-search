@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { boardsOf, readable } from "./companies.ts";
 import { loadCriteria } from "./criteria.ts";
-import { discover, suggestAgain, type DiscoverResult } from "./discover.ts";
+import { discover, type DiscoverResult, unbind } from "./discover.ts";
 import { builtInSource } from "./discovery/builtin.ts";
 import { commonCrawlSource } from "./discovery/commoncrawl.ts";
 import { hnSource } from "./discovery/hn.ts";
@@ -171,14 +171,17 @@ export function discoverLine(result: DiscoverResult): string {
   );
 }
 
-// Wrapped, like discovery and publish: a refused candidates write costs the
-// morning its re-suggestions, not its judging and publish.
-export async function suggestGone(
+// Wrapped, like discovery: a refused companies or candidates write costs
+// the morning its unbinding, not its judging. A board left bound answers
+// gone again tomorrow and is handed back again.
+export async function unbindGone(
   store: Store,
   gone: readonly GoneBoard[],
-): Promise<{ ok: true; value: number } | { ok: false; reason: string }> {
+): Promise<
+  { ok: true; value: { removed: number; suggested: number } } | { ok: false; reason: string }
+> {
   try {
-    return { ok: true, value: await suggestAgain(store, gone) };
+    return { ok: true, value: await unbind(store, gone) };
   } catch (error) {
     return { ok: false, reason: describeError(error) };
   }
@@ -220,22 +223,23 @@ async function main(): Promise<number> {
 
   console.log(
     `ingest: ${result.companies} companies, ${result.listed} listed, ${result.recorded} recorded, ` +
-      `${result.errors.length} errors, ${result.returned.length} returned`,
+      `${result.errors.length} errors, ${result.gone.length} gone`,
   );
   for (const error of result.errors) {
     console.log(`  ${error}`);
   }
-  for (const line of result.returned) {
-    console.log(`  returned: ${line}`);
-  }
 
-  // A company that lost a board this run is suggested again by name, so it
-  // is probed fresh the next morning like any other candidate
+  // Before judging, so the Gone and Unwatched criteria see the boards as
+  // they now stand. A company that lost a board is suggested again by name,
+  // so it is probed fresh the next morning like any other candidate
   // (`resolveName`, discover.ts) instead of staying unwatched for good.
-  if (result.gone.length > 0) {
-    const suggested = await suggestGone(store, result.gone);
-    if (suggested.ok) console.log(`gone: ${suggested.value} candidates suggested`);
-    else console.error(`gone: suggesting again failed, judging anyway: ${suggested.reason}`);
+  const unbound = await phase("unbind", () => unbindGone(store, result.gone), console.log);
+  if (unbound.ok) {
+    console.log(
+      `unbind: ${unbound.value.removed} boards removed, ${unbound.value.suggested} suggested`,
+    );
+  } else {
+    console.error(`unbind failed, judging anyway: ${unbound.reason}`);
   }
 
   // Every HTTP request this phase makes is a body fetch.

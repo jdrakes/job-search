@@ -1,10 +1,12 @@
 // The daily job: list every readable company's boards, then judge every
-// posting in the store. Every row shape below leans on `Store#upsert`'s
-// contract for what an omitted column means; see `store.ts` and `toRow`.
+// posting in the store. Both write `postings` only, never `companies`: a
+// board that answers gone is returned to the caller. Every row shape below
+// leans on `Store#upsert`'s contract for what an omitted column means; see
+// `store.ts` and `toRow`.
 import { createHash } from "node:crypto";
 
 import { compInText, type Listing, type Reader } from "./ats/ats.ts";
-import { boardGone, boardsOf, isGone, readable, recordBoardsRead } from "./companies.ts";
+import { boardsOf, isGone, readable } from "./companies.ts";
 import { loadCriteria } from "./criteria.ts";
 import { describeError } from "./errors.ts";
 import { judge, needsJudging, representativeByKey } from "./judge/judge.ts";
@@ -27,10 +29,9 @@ export interface IngestResult {
   readonly listed: number;
   readonly recorded: number;
   readonly errors: readonly string[];
-  // Companies whose last board this run removed, as `<company> <platform>/<id>`:
-  // log lines, never read back.
-  readonly returned: readonly string[];
-  // Every board this run removed, with its company's name.
+  // Every board that answered gone this run, with its company's name. The
+  // list phase writes postings only; discovery removes these boards
+  // (`unbind`, discover.ts).
   readonly gone: readonly GoneBoard[];
 }
 
@@ -494,7 +495,6 @@ interface ListedCompany {
   readonly listed: number;
   readonly recorded: number;
   readonly errors: readonly string[];
-  readonly returned: readonly string[];
   readonly gone: readonly GoneBoard[];
 }
 
@@ -508,9 +508,7 @@ async function listCompany(
   criteria: Criteria | undefined,
 ): Promise<ListedCompany> {
   const errors: string[] = [];
-  const returned: string[] = [];
   const gone: GoneBoard[] = [];
-  const read: Board[] = [];
   let listed = 0;
 
   // Taken before any board is listed: the `gone_at` of every posting a
@@ -535,21 +533,12 @@ async function listCompany(
     try {
       listings = await reader.list(board);
     } catch (err) {
+      // The error line is the log of a gone answer too; the board itself is
+      // handed back, not written.
       errors.push(`${label}: ${describeError(err)}`);
-      // The bookkeeping is a store write; a refusal is one more error line,
-      // never a thrown run.
-      try {
-        if (isGone(board.platform, err)) {
-          const removed = await boardGone(store, company, board);
-          gone.push({ company: company.name, board });
-          if (removed.returned) returned.push(label);
-        }
-      } catch (writeErr) {
-        errors.push(`${label}: recording gone board: ${describeError(writeErr)}`);
-      }
+      if (isGone(board.platform, err)) gone.push({ company: company.name, board });
       continue;
     }
-    read.push(board);
     listed += listings.length;
 
     const seenKeys = new Set<string>();
@@ -574,9 +563,8 @@ async function listCompany(
 
     // Only here, after a read that answered: a failed read says nothing
     // about which postings are still up. Goes in the same upsert as the
-    // listed rows, so `recordBoardsRead` below never records a read whose
-    // gone marks were refused. A posting already marked keeps its first
-    // mark and gets no write.
+    // listed rows. A posting already marked keeps its first mark and gets
+    // no write.
     const prefix = `${board.platform}/${board.id}`;
     for (const key of storedByBoard.get(prefix) ?? []) {
       const before = stored.get(key);
@@ -599,17 +587,9 @@ async function listCompany(
     if (rows.length > 0) await store.upsert("postings", rows);
   } catch (err) {
     errors.push(`${company.name}: recording ${rows.length} postings: ${describeError(err)}`);
-    return { listed, recorded: 0, errors, returned, gone };
+    return { listed, recorded: 0, errors, gone };
   }
-  // Written only once the rows are in: a board marked read whose rows were
-  // refused would have its postings judged gone against a read that never
-  // landed.
-  try {
-    await recordBoardsRead(store, company, read, readAt);
-  } catch (err) {
-    errors.push(`${company.name}: recording board reads: ${describeError(err)}`);
-  }
-  return { listed, recorded: rows.length, errors, returned, gone };
+  return { listed, recorded: rows.length, errors, gone };
 }
 
 // Every column a re-list can write, bar `body`: `body_hash` stands for it.
@@ -746,7 +726,6 @@ export async function ingest(
     listed: results.reduce((sum, result) => sum + result.listed, 0),
     recorded: results.reduce((sum, result) => sum + result.recorded, 0),
     errors: [...errors, ...results.flatMap((result) => result.errors)],
-    returned: results.flatMap((result) => result.returned),
     gone: results.flatMap((result) => result.gone),
   };
 }
