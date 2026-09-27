@@ -82,12 +82,12 @@ async function companies(options?: HttpOptions): Promise<string[]> {
   return names;
 }
 
-// Named for the website, not "builtin": 4,919 companies in the store
-// carry source = 'builtin' from a bootstrap import on 2026-09-15, a week
-// before this source existed, where the word meant "built in to the
-// tool". Sharing the string would credit this source with 4,919
-// companies it never found in the one query — companies grouped by
-// source — that decides whether a source earns its keep. The historical
-// rows keep their own meaning; companies.source has no CHECK, so nothing
-// to migrate.
+// Named for the website, not "builtin": 4,919 companies came from a
+// bootstrap import on 2026-09-15, a week before this source existed, that
+// labelled them 'builtin', where the word meant "built in to the tool".
+// Sharing the string would credit this source with 4,919 companies it
+// never found when candidates are counted by origin to judge whether a
+// source earns its keep. companies.source is gone; the candidates
+// migration moved those rows into `candidates` with origin 'bootstrap',
+// and this source's own rows with origin 'builtin.com'.
 export const builtInSource: Source = { name: "builtin.com", companies };

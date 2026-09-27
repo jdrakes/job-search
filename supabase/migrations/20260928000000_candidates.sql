@@ -27,10 +27,12 @@
 -- because their company row has to stay: losing it would put their
 -- postings back in.
 --
--- `source` labels one site two ways, `builtin` (4,919 rows) and
--- `builtin.com` (187), so the backfill reads `builtin.com` as `builtin`,
--- and `companies.source` is rewritten the same way until a later migration
--- drops that column. A null source becomes the origin `unknown`.
+-- `builtin` and `builtin.com` are two origins, not one site spelled two
+-- ways. `builtin` (4,919 rows) labels a bootstrap import on 2026-09-15,
+-- where the word meant "built in to the tool"; `builtin.com` (187) is the
+-- Built In website source. The backfill writes `builtin` as the origin
+-- `bootstrap`, so the label cannot be read as the website, and keeps every
+-- other source as it is. A null source becomes the origin `unknown`.
 --
 -- The CHECK on `outcome` names only the vocabulary: a CHECK passes on null,
 -- so an unresolved candidate needs no `IS NULL` arm.
@@ -61,7 +63,7 @@ BEGIN
       gen_random_uuid()::text,
       c."name",
       NULL,
-      CASE c."source" WHEN 'builtin.com' THEN 'builtin' ELSE coalesce(c."source", 'unknown') END,
+      CASE c."source" WHEN 'builtin' THEN 'bootstrap' ELSE coalesce(c."source", 'unknown') END,
       NULL,
       c."first_seen",
       CASE c."state"
@@ -80,8 +82,6 @@ BEGIN
     FROM "companies" c;
   END IF;
 END $$;
-
-UPDATE "companies" SET "source" = 'builtin' WHERE "source" = 'builtin.com';
 
 ALTER TABLE "candidates" ENABLE ROW LEVEL SECURITY;
 
