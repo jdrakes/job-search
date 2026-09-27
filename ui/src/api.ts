@@ -261,33 +261,51 @@ function isBlank(value: string | null): boolean {
   return value === null || value.trim() === "";
 }
 
-/**
- * The run parses a URL for real, at the boundary; this only catches an input
- * that could not name anything at all before it is sent: no name, and either
- * no URL or a URL `new URL()` itself refuses to parse.
- */
-function refused(input: CandidateInput): boolean {
-  if (!isBlank(input.name)) return false;
-  if (isBlank(input.url)) return true;
+function parses(text: string): boolean {
   try {
-    new URL(input.url as string);
-    return false;
-  } catch {
+    new URL(text);
     return true;
+  } catch {
+    return false;
   }
 }
 
-/** James is the only source that adds from the list; discover adds as `peers`. */
+/**
+ * The input as it will be sent, or why it cannot be. A URL typed without a
+ * scheme ("acme.com/careers") is read as `https://`, the way a browser's
+ * address bar reads it; one that parses neither way is refused by name, so
+ * the message says the URL is unreadable rather than missing. The run still
+ * parses the URL for real at its own boundary; this only stops what could
+ * never name anything.
+ */
+function sendable(input: CandidateInput): ReadResult<CandidateInput> {
+  if (isBlank(input.url)) {
+    if (isBlank(input.name)) return { ok: false, reason: "a candidate needs a name or a URL" };
+    return { ok: true, value: { ...input, url: null } };
+  }
+  const raw = (input.url as string).trim();
+  if (parses(raw)) return { ok: true, value: { ...input, url: raw } };
+  const prefixed = `https://${raw}`;
+  if (parses(prefixed)) return { ok: true, value: { ...input, url: prefixed } };
+  return { ok: false, reason: `cannot read ${JSON.stringify(raw)} as a URL` };
+}
+
+/**
+ * James is the only source that adds from the list; the peer skill adds as
+ * `peers`, and discover as the source it found the name in. Returns the row
+ * the store wrote, so the caller keys on the id the store assigned rather
+ * than one of its own, and a later read of the same row replaces it.
+ */
 export async function addCandidate(
   config: AppConfig,
   accessToken: string,
   input: CandidateInput,
   httpFetch: typeof fetch = fetch,
-): Promise<WriteResult> {
-  if (refused(input)) {
-    return { ok: false, reason: "a candidate needs a name or a URL" };
-  }
-  const url = `${config.url}/rest/v1/candidates`;
+): Promise<ReadResult<Candidate>> {
+  const checked = sendable(input);
+  if (!checked.ok) return checked;
+  const params = new URLSearchParams({ select: CANDIDATE_FIELDS.join(",") });
+  const url = `${config.url}/rest/v1/candidates?${params.toString()}`;
   try {
     const response = await httpFetch(url, {
       method: "POST",
@@ -295,7 +313,7 @@ export async function addCandidate(
         "Content-Type": "application/json",
         Prefer: "return=representation",
       }),
-      body: JSON.stringify({ ...input, origin: "james" }),
+      body: JSON.stringify({ ...checked.value, origin: "james" }),
     });
     if (!response.ok) {
       return {
@@ -303,7 +321,11 @@ export async function addCandidate(
         reason: `candidates: HTTP ${response.status}: ${await errorDetail(response)}`,
       };
     }
-    return { ok: true };
+    const parsed: unknown = await response.json();
+    if (!Array.isArray(parsed) || parsed.length !== 1) {
+      return { ok: false, reason: "candidates: expected the one row written" };
+    }
+    return { ok: true, value: parsed[0] as Candidate };
   } catch (error) {
     return { ok: false, reason: `candidates: ${messageOf(error)}` };
   }

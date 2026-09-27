@@ -1,7 +1,9 @@
 /**
- * Every company, grouped by whether it is read. The one action is Drop, and it asks why
- * for the same reason Closing a posting does: disagreeing with the pipeline
- * without saying why teaches it nothing.
+ * Every company, grouped by whether it is read, with the ones discover
+ * started watching this week called out first as New. The one action is
+ * Drop, offered on a New card too, and it asks why for the same reason
+ * Closing a posting does: disagreeing with the pipeline without saying why
+ * teaches it nothing.
  */
 import {
   computed,
@@ -19,7 +21,6 @@ import { setCompanyDrop, type CompanyDropPatch } from "./api.ts";
 import type { AppConfig } from "./config.ts";
 import { EmptyState } from "./empty-state.ts";
 import { focusAfterClose, trapFocus, type DialogClose } from "./focus-trap.ts";
-import { daysBetween } from "./posting.ts";
 import { Toast, useToast } from "./toast.ts";
 
 // Derived from the row, never stored: a company is read when it has a board
@@ -88,39 +89,57 @@ export function dropRefusal(reason: string): string | null {
 }
 
 /** How long a company stays under New once discover starts watching it. */
-const NEW_WINDOW_DAYS = 7;
+const NEW_WINDOW_MS = 7 * 86_400_000;
 
 /**
- * The candidate that opened `name`: the earliest one discover watched into
- * it, so a later duplicate landing today does not re-open an old company's
- * New window. Null if discover has never watched a candidate into it.
+ * Each company's earliest candidate discover watched into it, so a later
+ * duplicate landing today does not re-open an old company's New window.
+ * A company discover has never watched a candidate into is absent.
  */
-function earliestWatched(candidates: readonly Candidate[], name: string): Candidate | null {
-  const watched = candidates
-    .filter((candidate) => candidate.company === name && candidate.outcome === "watched")
-    .sort((a, b) => a.added_at.localeCompare(b.added_at));
-  return watched[0] ?? null;
+function earliestWatched(candidates: readonly Candidate[]): ReadonlyMap<string, Candidate> {
+  const earliest = new Map<string, Candidate>();
+  for (const candidate of candidates) {
+    if (candidate.outcome !== "watched" || candidate.company === null) continue;
+    const held = earliest.get(candidate.company);
+    if (held === undefined || candidate.added_at.localeCompare(held.added_at) < 0) {
+      earliest.set(candidate.company, candidate);
+    }
+  }
+  return earliest;
+}
+
+/** A company under New, with the candidate that opened it for the card's second line. */
+export interface NewCompany {
+  readonly company: Company;
+  readonly candidate: Candidate;
 }
 
 /**
  * Companies discover started watching recently enough to call out before the
- * state groups below: the one whose earliest watched candidate's
- * `outcome_at` falls within the last week. Orthogonal to `groupOf` — a
- * company here still appears in Read or No board too, the way #275 left
- * them (Design, Companies: "the other groups as #275 left them").
+ * state groups below: the earliest watched candidate's `outcome_at` is less
+ * than seven days before `now`, measured in milliseconds rather than floored
+ * days, so six days and twenty-three hours is in and seven days and an hour
+ * is out. A dropped company is left out: dropping it here is the reversal.
+ * Otherwise orthogonal to `groupOf`; a company here still appears in Read or
+ * No board too, the way #275 left them. Most recently watched first.
  */
 export function newCompanies(
   companies: readonly Company[],
   candidates: readonly Candidate[],
   now: number,
-): Set<string> {
-  const names = new Set<string>();
+): NewCompany[] {
+  const earliest = earliestWatched(candidates);
+  const entries: { company: Company; candidate: Candidate; watchedAt: number }[] = [];
   for (const company of companies) {
-    const watched = earliestWatched(candidates, company.name);
-    if (watched === null || watched.outcome_at === null) continue;
-    if (daysBetween(watched.outcome_at, now) <= NEW_WINDOW_DAYS) names.add(company.name);
+    if (company.dropped_at !== null) continue;
+    const candidate = earliest.get(company.name);
+    if (candidate === undefined || candidate.outcome_at === null) continue;
+    const watchedAt = Date.parse(candidate.outcome_at);
+    if (now - watchedAt < NEW_WINDOW_MS) entries.push({ company, candidate, watchedAt });
   }
-  return names;
+  return entries
+    .sort((a, b) => b.watchedAt - a.watchedAt || a.company.name.localeCompare(b.company.name))
+    .map(({ company, candidate }) => ({ company, candidate }));
 }
 
 /**
@@ -192,24 +211,7 @@ export const CompaniesView = defineComponent({
     const groups = computed(() => groupCompanies(props.companies, counts.value));
     const queuedOf = (company: Company): string => queuedLabel(counts.value.get(company.name) ?? 0);
 
-    // Paired with the candidate that opened it, for the New group's second
-    // line (its origin and evidence). Recomputed with the same inputs
-    // `newCompanies` already filtered on, so a name in that set always has
-    // one here; sorted most recently watched first.
-    const newGroup = computed(() => {
-      const names = newCompanies(props.companies, props.candidates, Date.now());
-      return props.companies
-        .filter((company) => names.has(company.name))
-        .flatMap((company) => {
-          const candidate = earliestWatched(props.candidates, company.name);
-          if (candidate === null || candidate.outcome_at === null) return [];
-          return [{ company, candidate, outcomeAt: candidate.outcome_at }];
-        })
-        .sort(
-          (a, b) =>
-            b.outcomeAt.localeCompare(a.outcomeAt) || a.company.name.localeCompare(b.company.name),
-        );
-    });
+    const newGroup = computed(() => newCompanies(props.companies, props.candidates, Date.now()));
 
     function openDrop(company: Company): void {
       closeKind = "dismissed";
@@ -291,6 +293,15 @@ export const CompaniesView = defineComponent({
                 <span class="origin">{{ entry.candidate.origin }}</span>
                 <span class="why" v-if="entry.candidate.evidence">{{ entry.candidate.evidence }}</span>
               </div>
+              <span class="acts">
+                <button
+                  type="button"
+                  class="act close"
+                  :disabled="busy"
+                  title="Drop"
+                  :aria-label="'Drop ' + entry.company.name"
+                  @click="openDrop(entry.company)"><svg class="glyph" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12zM3.8 12.2l8.4-8.4" /></svg></button>
+              </span>
             </div>
           </article>
         </div>

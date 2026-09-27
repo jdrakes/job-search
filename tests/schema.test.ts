@@ -302,3 +302,24 @@ test(
     );
   },
 );
+
+test(
+  "the list may neither update nor delete a candidate",
+  testDbSkip === null ? {} : { skip: testDbSkip },
+  async () => {
+    // Breaks if a later migration grants UPDATE or DELETE on candidates to
+    // authenticated: a candidate's input is fixed once added and its outcome
+    // is discover's, so the list must not rewrite or remove either. Refused
+    // on privilege (42501) before any row is read, so an empty table still
+    // proves it.
+    const attempts = await asTheList([
+      `UPDATE "candidates" SET "name" = 'Renamed Co' WHERE true`,
+      `UPDATE "candidates" SET "outcome" = 'watched' WHERE true`,
+      `DELETE FROM "candidates" WHERE true`,
+    ]);
+    assert.deepEqual(
+      attempts.map((attempt) => (attempt.ok ? "allowed" : attempt.code)),
+      ["42501", "42501", "42501"],
+    );
+  },
+);

@@ -28,8 +28,8 @@ import {
   type TreeNode,
 } from "./render-tree.ts";
 
-// Replays responses in the order the four reads issue them: `loadAll`
-// fires all four with `Promise.all`, and each makes exactly one request
+// Replays responses in the order the five reads issue them: `loadAll`
+// fires all five with `Promise.all`, and each makes exactly one request
 // before its first `await`, so the call order matches the array order.
 
 function recordingFetch(replies: readonly (() => Response)[]): {
@@ -362,6 +362,24 @@ test("a failed criteria read shows its own reason but leaves Companies populated
   const onCompanies = await render(signedInProps(fetchImpl, { initialTab: "companies" }));
   assert.match(onCompanies, /Acme/);
   assert.match(onCompanies, /No board.*?\(1\)/);
+});
+
+test("a failed candidates read shows its reason on the Companies tab, whose New group it feeds", async () => {
+  // Breaks if the Companies tab reads only its own error: its companies
+  // read succeeded, so it would show an empty New group as though nothing
+  // had been watched this week, with nothing saying the read behind it failed.
+  const { fetchImpl } = recordingFetch([
+    jsonReply([]),
+    jsonReply([]),
+    jsonReply([{ name: "Acme", boards: [], reason: null, dropped_at: null }]),
+    jsonReply([CRITERIA_ROW]),
+    statusReply(500, "the candidates read is down"),
+  ]);
+
+  const onCompanies = await render(signedInProps(fetchImpl, { initialTab: "companies" }));
+
+  assert.match(onCompanies, /candidates: HTTP 500: the candidates read is down/);
+  assert.match(onCompanies, /Try again/);
 });
 
 test("a failed criteria read shows its reason on the Criteria tab and renders no form", async () => {
@@ -1361,6 +1379,189 @@ test("a decided row stays in the grouped Queue when the record read failed", asy
     assert.equal(still.length, 1, "the row he just decided is still under its company");
     assert.match(textOf(still[0]!), /Applied/, "wearing the status he wrote");
     assert.equal(listCards(app.root, "acme::2").length, 1, "and the waiting row is untouched");
+  } finally {
+    app.unmount();
+    restoreFetch();
+    restoreDom();
+  }
+});
+
+/*
+ * What James adds on the Candidates tab is laid over the round's own
+ * candidates by `AppRoot`, keyed on the id the store gave the row, until a
+ * candidates read carries that row itself.
+ */
+
+const ADDED_ROW = {
+  id: "candidate-2",
+  name: "Gamma",
+  url: null,
+  origin: "james",
+  evidence: null,
+  added_at: "2026-09-27T09:00:00+00:00",
+  outcome: null,
+  outcome_at: null,
+  company: null,
+};
+
+/** The one row PostgREST returns for the Add form's POST. */
+function insertedRow(): Response {
+  return { ok: true, status: 201, json: async () => [ADDED_ROW] } as unknown as Response;
+}
+
+async function addThroughForm(root: TreeNode, name: string): Promise<void> {
+  click(tabButton(root, "candidates"));
+  await nextTick();
+  const nameField = allNodes(root).find(
+    (node) => node.tag === "input" && node.props["type"] === "text",
+  );
+  if (nameField === undefined) throw new Error("the Add form has no Name field");
+  typeInto(nameField, name);
+  const form = allNodes(root).find((node) => node.tag === "form");
+  if (form === undefined) throw new Error("the Candidates tab carries no form");
+  submitForm(form);
+  await settled();
+}
+
+/** Each candidate card's label, in the order the Candidates tab shows them. */
+function candidateNames(root: TreeNode): string[] {
+  return elementsWithClass(root, "candidate-name").map(textOf);
+}
+
+test("an added candidate is laid over the round's own, first, and survives a tab switch", async () => {
+  const restoreDom = stubDom();
+  const restoreFetch = stubFetch(() => Promise.resolve(insertedRow()));
+  const store = memoryStore({ [SESSION_KEY]: sessionJson() });
+  saveReads(store, {
+    queue: [],
+    postings: [],
+    companies: [],
+    criteria: CRITERIA_ROW,
+    candidates: [CANDIDATE_ROW],
+  });
+  const app = mountRoot({ config: CONFIG, store, httpFetch: unanswered, now: () => NOW });
+  try {
+    await settled();
+    await addThroughForm(app.root, "Gamma");
+    assert.deepEqual(candidateNames(app.root), ["Gamma", "Beta"], "the add leads the round's row");
+
+    click(tabButton(app.root, "queue"));
+    await nextTick();
+    click(tabButton(app.root, "candidates"));
+    await nextTick();
+    assert.deepEqual(
+      candidateNames(app.root),
+      ["Gamma", "Beta"],
+      "still there after the panel was unmounted and built again",
+    );
+  } finally {
+    app.unmount();
+    restoreFetch();
+    restoreDom();
+  }
+});
+
+test("an add made while a round is in flight survives that round landing without it", async () => {
+  // The round was issued before the insert, so its candidates read does not
+  // carry the row; pruning the overlay on any successful round would make
+  // the add vanish until the next one.
+  const restoreDom = stubDom();
+  const restoreFetch = stubFetch(() => Promise.resolve(insertedRow()));
+  const round = heldRound([
+    jsonReply([]),
+    jsonReply([]),
+    jsonReply([]),
+    jsonReply([CRITERIA_ROW]),
+    jsonReply([]),
+  ]);
+  const app = mountRoot({
+    config: CONFIG,
+    store: storeWithRound([], []),
+    httpFetch: round.fetchImpl,
+    now: () => NOW,
+  });
+  try {
+    await settled();
+    await addThroughForm(app.root, "Gamma");
+    assert.deepEqual(candidateNames(app.root), ["Gamma"], "the add shows at once");
+
+    round.land();
+    await settled();
+    assert.deepEqual(candidateNames(app.root), ["Gamma"], "and is still there once it lands");
+  } finally {
+    app.unmount();
+    restoreFetch();
+    restoreDom();
+  }
+});
+
+test("an add is pruned by the round that reads it back, even one in flight when it landed", async () => {
+  // Breaks if the overlay is pruned by what was outstanding when the round
+  // was issued rather than by what the read carries: this round was issued
+  // before the insert, yet its read saw the row, and the add showed twice.
+  const restoreDom = stubDom();
+  const restoreFetch = stubFetch(() => Promise.resolve(insertedRow()));
+  const round = heldRound([
+    jsonReply([]),
+    jsonReply([]),
+    jsonReply([]),
+    jsonReply([CRITERIA_ROW]),
+    jsonReply([ADDED_ROW]),
+  ]);
+  const app = mountRoot({
+    config: CONFIG,
+    store: storeWithRound([], []),
+    httpFetch: round.fetchImpl,
+    now: () => NOW,
+  });
+  try {
+    await settled();
+    await addThroughForm(app.root, "Gamma");
+    round.land();
+    await settled();
+    assert.deepEqual(candidateNames(app.root), ["Gamma"], "one card, not the add and its read");
+  } finally {
+    app.unmount();
+    restoreFetch();
+    restoreDom();
+  }
+});
+
+test("an add is pruned by a candidates read that succeeded while another read failed", async () => {
+  // Breaks if pruning waits for a fully clean round: with the record read
+  // down, the echo stayed forever beside the row the read brought back, and
+  // the stale copy still said "waiting" after discover had watched it.
+  const restoreDom = stubDom();
+  const restoreFetch = stubFetch(() => Promise.resolve(insertedRow()));
+  const watched = {
+    ...ADDED_ROW,
+    outcome: "watched",
+    outcome_at: "2026-09-27T10:00:00+00:00",
+    company: "Gamma",
+  };
+  const round = heldRound([
+    jsonReply([]),
+    statusReply(500, "the record read is down"),
+    jsonReply([]),
+    jsonReply([CRITERIA_ROW]),
+    jsonReply([watched]),
+  ]);
+  const app = mountRoot({
+    config: CONFIG,
+    store: storeWithRound([], []),
+    httpFetch: round.fetchImpl,
+    now: () => NOW,
+  });
+  try {
+    await settled();
+    await addThroughForm(app.root, "Gamma");
+    round.land();
+    await settled();
+    assert.deepEqual(candidateNames(app.root), ["Gamma"], "one card");
+    const card = elementsWithClass(app.root, "candidate")[0];
+    assert.ok(card !== undefined);
+    assert.doesNotMatch(textOf(card), /waiting for the next run/, "the read's row, not the echo");
+    assert.match(textOf(card), /watched/);
   } finally {
     app.unmount();
     restoreFetch();

@@ -16,6 +16,8 @@ import {
   stubFetch,
   submitForm,
   textOf,
+  typeInto,
+  type TreeNode,
 } from "./render-tree.ts";
 
 function render(component: object, props: Record<string, unknown>): Promise<string> {
@@ -44,9 +46,27 @@ const CONFIG: AppConfig = {
 };
 const ACCESS_TOKEN = "user-jwt";
 
-/** `addCandidate` never reads the response body; only `ok` matters. */
+/** The one row PostgREST hands back for `return=representation`, with the id the store assigned. */
+const STORED = candidate({
+  id: "7d3f2c1a-0000-4000-8000-000000000002",
+  name: null,
+  url: "https://acme.example.com/careers",
+  evidence: "hiring for the platform team",
+  added_at: "2026-09-27T09:00:00+00:00",
+});
+
 function postedOk(): Response {
-  return { ok: true, status: 200, json: async () => [] } as unknown as Response;
+  return { ok: true, status: 201, json: async () => [STORED] } as unknown as Response;
+}
+
+function formFields(root: TreeNode): { name: TreeNode; url: TreeNode; why: TreeNode } {
+  // The template's order: Name, URL, then Why.
+  const [name, url] = allNodes(root).filter((node) => node.tag === "input");
+  const why = allNodes(root).find((node) => node.tag === "textarea");
+  if (name === undefined || url === undefined || why === undefined) {
+    throw new Error("the Add form's three fields are not all on screen");
+  }
+  return { name, url, why };
 }
 
 test("outcomeText words every outcome, alias naming the company it is another name for", () => {
@@ -75,7 +95,12 @@ test("candidateLabel leads with the name, falling back to the url", () => {
 
 test("CandidatesView renders every candidate's outcome in words, newest first as handed in", async () => {
   const watched = candidate({ id: "c1", name: "Acme", outcome: "watched", company: "Acme" });
-  const pending = candidate({ id: "c2", name: null, url: "https://beta.example.com", outcome: null });
+  const pending = candidate({
+    id: "c2",
+    name: null,
+    url: "https://beta.example.com",
+    outcome: null,
+  });
   const alias = candidate({ id: "c3", name: "Beta Inc", outcome: "alias", company: "Beta" });
 
   const html = await render(CandidatesView, {
@@ -122,7 +147,7 @@ test("the Add form refuses an empty submit and sends nothing", async () => {
   }
 });
 
-test("the Add form posts a URL-only add and hands the new candidate up", async () => {
+test("the Add form posts a URL-only add and hands up the row the store returned", async () => {
   const restoreDom = stubDom();
   const calls: { url: string; body: Record<string, unknown> }[] = [];
   const restoreFetch = stubFetch((url, init) => {
@@ -139,34 +164,96 @@ test("the Add form posts a URL-only add and hands the new candidate up", async (
     },
   });
   try {
-    // The template's order: Name first, URL second.
-    const urlField = allNodes(app.root).filter((node) => node.tag === "input")[1];
-    assert.ok(urlField !== undefined, "the URL field is on screen");
-    fill(urlField, "https://acme.example.com/careers");
+    const fields = formFields(app.root);
+    typeInto(fields.url, "https://acme.example.com/careers");
+    fill(fields.why, "hiring for the platform team");
     const form = allNodes(app.root).find((node) => node.tag === "form");
     assert.ok(form !== undefined, "the Add form is on screen");
     submitForm(form);
     await settled();
 
     assert.equal(calls.length, 1, "a URL alone is posted, not refused");
-    assert.equal(calls[0]?.url, `${CONFIG.url}/rest/v1/candidates`);
     assert.deepEqual(calls[0]?.body, {
       name: null,
       url: "https://acme.example.com/careers",
-      evidence: null,
+      evidence: "hiring for the platform team",
       origin: "james",
     });
 
-    // The view keeps no copy of its own (the same discipline `companies.ts`
-    // documents for a Drop): showing the new row is `AppRoot`'s job, once it
-    // lays the emitted candidate over the round the way it lays a drop over
-    // companies. This view's `candidates` prop is unchanged here, so nothing
-    // new is on screen yet — only the toast says the write landed.
-    assert.equal(added.length, 1, "the new candidate was handed up exactly once");
-    assert.equal(added[0]?.url, "https://acme.example.com/careers");
-    assert.equal(added[0]?.outcome, null, "unresolved until the next run");
-    assert.equal(added[0]?.origin, "james");
+    // Breaks if the view goes back to building its own echo: a random id
+    // never matches the row a later read brings back, so `AppRoot` could
+    // not tell the two apart and showed the add twice. This view's
+    // `candidates` prop is unchanged here; laying the row over the round is
+    // `AppRoot`'s job, and only the toast says the write landed.
+    assert.deepEqual(added, [STORED], "the stored row, id and all, handed up exactly once");
     assert.match(textOf(app.root), /Added\./);
+  } finally {
+    app.unmount();
+    restoreFetch();
+    restoreDom();
+  }
+});
+
+test("a committed Add clears the three fields in place and sends focus to the panel", async () => {
+  // Breaks if the form is remounted to clear it (the fields would be new
+  // nodes, and focus would go with the old ones), or if focus is sent
+  // anywhere but the panel: the Add button was disabled for the write, and
+  // a browser drops focus from a disabled button.
+  const restoreDom = stubDom();
+  const restoreFetch = stubFetch(() => Promise.resolve(postedOk()));
+  const app = mountTree(CandidatesView, {
+    candidates: [],
+    config: CONFIG,
+    accessToken: ACCESS_TOKEN,
+  });
+  try {
+    const fields = formFields(app.root);
+    typeInto(fields.name, "Acme");
+    typeInto(fields.url, "acme.example.com/careers");
+    fill(fields.why, "hiring for the platform team");
+    const form = allNodes(app.root).find((node) => node.tag === "form");
+    assert.ok(form !== undefined, "the Add form is on screen");
+    submitForm(form);
+    await settled();
+
+    const after = formFields(app.root);
+    assert.equal(after.name, fields.name, "the Name field is the same node, not a remount");
+    assert.equal(after.name.props["value"], "");
+    assert.equal(after.url.props["value"], "");
+    assert.equal(after.why.value, "", "v-model wrote the cleared Why back into its field");
+    const panel = allNodes(app.root).find((node) => node.props["id"] === "panel-candidates");
+    assert.ok(panel !== undefined, "the panel is on screen");
+    assert.equal(panel.focused, true, "focus lands on the panel");
+  } finally {
+    app.unmount();
+    restoreFetch();
+    restoreDom();
+  }
+});
+
+test("a refused Add keeps what was typed and says the URL is unreadable", async () => {
+  const restoreDom = stubDom();
+  let calls = 0;
+  const restoreFetch = stubFetch(() => {
+    calls += 1;
+    return Promise.resolve(postedOk());
+  });
+  const app = mountTree(CandidatesView, {
+    candidates: [],
+    config: CONFIG,
+    accessToken: ACCESS_TOKEN,
+  });
+  try {
+    const fields = formFields(app.root);
+    typeInto(fields.url, "not a url");
+    const form = allNodes(app.root).find((node) => node.tag === "form");
+    assert.ok(form !== undefined, "the Add form is on screen");
+    submitForm(form);
+    await settled();
+
+    assert.equal(calls, 0);
+    assert.match(textOf(app.root), /cannot read "not a url" as a URL/);
+    assert.equal(formFields(app.root).url.props["value"], "not a url", "nothing he typed is lost");
   } finally {
     app.unmount();
     restoreFetch();

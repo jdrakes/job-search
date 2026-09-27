@@ -1,5 +1,5 @@
 /**
- * The mounted application: sign-in, then four tabs sharing one round of
+ * The mounted application: sign-in, then five tabs sharing one round of
  * reads. A read that fails leaves the other tabs with what they had.
  *
  * `AppRoot`'s `setup()` is async, which is why `mountApp` wraps it in
@@ -126,7 +126,15 @@ function patchedWith(
 
 export const AppRoot = defineComponent({
   name: "AppRoot",
-  components: { SignIn, TabBar, QueueView, RecordView, CompaniesView, CandidatesView, CriteriaView },
+  components: {
+    SignIn,
+    TabBar,
+    QueueView,
+    RecordView,
+    CompaniesView,
+    CandidatesView,
+    CriteriaView,
+  },
   props: {
     config: { type: Object as PropType<AppConfig>, required: true },
     store: { type: Object as PropType<SessionStore>, required: true },
@@ -187,8 +195,8 @@ export const AppRoot = defineComponent({
     // What James has added on this page, laid over the round's own
     // candidates until a round reads them back, the same way a drop is laid
     // over companies: the Candidates panel is a `v-if`, and a list kept
-    // there dies with it. `addCandidate` hands back no row to key on (the
-    // store assigns the id), so this holds the echo the form itself built.
+    // there dies with it. Each is the row the insert returned, so it carries
+    // the id the store assigned and a later read of it can be recognised.
     const added = ref<readonly Candidate[]>([]);
     function onCandidateAdded(candidate: Candidate): void {
       added.value = [candidate, ...added.value];
@@ -200,7 +208,6 @@ export const AppRoot = defineComponent({
       // success would put the old status back on screen.
       const applied = new Set(decided.value.keys());
       const committed = new Set(dropped.value.keys());
-      const submitted = new Set(added.value.map((candidate) => candidate.id));
       const accessToken = readFor.accessToken;
       const [queue, postings, companies, criteria, candidates] = await Promise.all([
         loadQueue(props.config, accessToken, props.httpFetch),
@@ -210,7 +217,7 @@ export const AppRoot = defineComponent({
         loadCandidates(props.config, accessToken, props.httpFetch),
       ]);
       // The same race as `refresh()`'s token check, one await later: a
-      // sign-out on this tab while the four reads are in flight has already
+      // sign-out on this tab while the five reads are in flight has already
       // run `clearReads`, and these rows belong to the account that just
       // left. Neither the screen nor the reads cache may take them.
       if (!refreshStillApplies(readFor, session.value)) return;
@@ -219,6 +226,16 @@ export const AppRoot = defineComponent({
       companiesResult.value = companies;
       criteriaResult.value = criteria;
       candidatesResult.value = candidates;
+      // Pruned against any candidates read that succeeded, not only a clean
+      // round: an add is gone from the overlay once a read carries its row,
+      // whatever the other four reads did. Keyed on presence rather than on
+      // what was outstanding when the round was issued, so an insert that
+      // lands while a round is in flight is dropped if that round saw it and
+      // kept if it did not.
+      if (candidates.ok) {
+        const read = new Set(candidates.value.map((candidate) => candidate.id));
+        added.value = added.value.filter((candidate) => !read.has(candidate.id));
+      }
       if (queue.ok && postings.ok && companies.ok && criteria.ok && candidates.ok) {
         saveReads(props.store, {
           queue: queue.value,
@@ -233,7 +250,6 @@ export const AppRoot = defineComponent({
         const stillDropped = new Map(dropped.value);
         for (const name of committed) stillDropped.delete(name);
         dropped.value = stillDropped;
-        added.value = added.value.filter((candidate) => !submitted.has(candidate.id));
       }
     }
 
@@ -409,7 +425,9 @@ export const AppRoot = defineComponent({
       const errorByTab: Record<TabId, string | null> = {
         queue: queueError.value,
         record: postingsError.value,
-        companies: companiesError.value,
+        // The New group is drawn from the candidates read, so a failed one
+        // is said here rather than shown as an empty New group.
+        companies: companiesError.value ?? candidatesError.value,
         candidates: candidatesError.value,
         criteria: criteriaError.value,
       };

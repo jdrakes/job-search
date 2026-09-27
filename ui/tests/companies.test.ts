@@ -202,10 +202,86 @@ test("newCompanies holds a company watched within the last 7 days, not one watch
     candidate({ id: "c2", outcome: "watched", outcome_at: nineDaysAgo, company: "Beta" }),
   ];
 
-  const names = newCompanies([recent, stale], candidates, now);
+  const names = newCompanies([recent, stale], candidates, now).map((entry) => entry.company.name);
 
-  assert.ok(names.has("Acme"), "watched 2 days ago is new");
-  assert.ok(!names.has("Beta"), "watched 9 days ago is not");
+  assert.deepEqual(names, ["Acme"], "watched 2 days ago is new; watched 9 days ago is not");
+});
+
+test("newCompanies' window is under seven days to the millisecond, not seven floored days", () => {
+  // Breaks if the window goes back to `daysBetween(...) <= 7`: that floors
+  // 7 days and an hour to 7 and keeps the company for most of an eighth day.
+  const now = Date.parse("2026-09-27T12:00:00Z");
+  const hour = 3_600_000;
+  const candidates = [
+    candidate({
+      id: "c1",
+      company: "Acme",
+      outcome_at: new Date(now - (6 * 24 + 23) * hour).toISOString(),
+    }),
+    candidate({
+      id: "c2",
+      company: "Beta",
+      outcome_at: new Date(now - (7 * 24 + 1) * hour).toISOString(),
+    }),
+  ];
+
+  const names = newCompanies([company("Acme", READ), company("Beta", READ)], candidates, now).map(
+    (entry) => entry.company.name,
+  );
+
+  assert.deepEqual(names, ["Acme"], "6 days 23 hours is in; 7 days 1 hour is out");
+});
+
+test("newCompanies leaves out a dropped company: dropping it from New is the reversal", () => {
+  const now = Date.parse("2026-09-27T12:00:00Z");
+  const dropped = company("Acme", {
+    ...READ,
+    dropped_at: "2026-09-27T11:00:00Z",
+    reason: "not a fit",
+  });
+  const candidates = [
+    candidate({ company: "Acme", outcome_at: new Date(now - 3_600_000).toISOString() }),
+  ];
+
+  assert.deepEqual(newCompanies([dropped], candidates, now), []);
+});
+
+test("newCompanies pairs a company with its earliest watched candidate, most recently watched company first", () => {
+  // A later duplicate watched into Acme today must not re-open its window
+  // or replace the candidate that opened it.
+  const now = Date.parse("2026-09-27T12:00:00Z");
+  const opener = candidate({
+    id: "c1",
+    company: "Acme",
+    added_at: "2026-09-24T00:00:00Z",
+    outcome_at: "2026-09-24T06:00:00Z",
+  });
+  const duplicate = candidate({
+    id: "c2",
+    company: "Acme",
+    added_at: "2026-09-27T00:00:00Z",
+    outcome_at: "2026-09-27T06:00:00Z",
+  });
+  const beta = candidate({
+    id: "c3",
+    company: "Beta",
+    added_at: "2026-09-25T00:00:00Z",
+    outcome_at: "2026-09-25T06:00:00Z",
+  });
+
+  const entries = newCompanies(
+    [company("Acme", READ), company("Beta", READ)],
+    [duplicate, beta, opener],
+    now,
+  );
+
+  assert.deepEqual(
+    entries.map((entry) => [entry.company.name, entry.candidate.id]),
+    [
+      ["Beta", "c3"],
+      ["Acme", "c1"],
+    ],
+  );
 });
 
 test("newCompanies ignores an unresolved candidate and one watched into a different company", () => {
@@ -221,7 +297,7 @@ test("newCompanies ignores an unresolved candidate and one watched into a differ
     }),
   ];
 
-  assert.deepEqual([...newCompanies([acme], candidates, now)], []);
+  assert.deepEqual(newCompanies([acme], candidates, now), []);
 });
 
 test("CompaniesView's New group holds a company watched 2 days ago, showing that candidate's origin and evidence, not one watched 9 days ago", async () => {
@@ -263,6 +339,9 @@ test("CompaniesView's New group holds a company watched 2 days ago, showing that
   assert.doesNotMatch(newSection, /Beta/);
   assert.match(newSection, /peers/);
   assert.match(newSection, /found on their careers page/);
+  // Breaks if the New card loses its Drop: a company James never asked for
+  // is the one he most needs to turn away from where he first sees it.
+  assert.match(newSection, /aria-label="Drop Acme"/);
 });
 
 test("CompaniesView renders each group with its count and its companies", async () => {

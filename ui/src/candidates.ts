@@ -1,11 +1,10 @@
 /**
  * Every candidate, newest first, with an Add form at the top for one James
  * found himself. `addCandidate` (`api.ts`) always writes `origin: "james"`;
- * discover adds the rest as `peers` and settles every one's outcome at the
- * next run. The write hands back no row (`WriteResult` carries no value), so
- * a committed add is echoed here from the form's own input rather than read
- * back, the way a dropped company is a patch handed up rather than a
- * re-read row (`companies.ts`).
+ * the peer skill adds as `peers` and discover as the source it read the
+ * name in, and discover settles every one's outcome at the next run. The
+ * row the insert returns is handed up as it is, keyed on the id the store
+ * gave it, so the next read of that row replaces it rather than repeating it.
  */
 import { defineComponent, ref, type PropType } from "vue";
 
@@ -67,13 +66,16 @@ export const CandidatesView = defineComponent({
     const busy = ref(false);
     const error = ref<string | null>(null);
     const { toast, showToast } = useToast();
-    // Bumped on a committed add and bound as the form's `:key`, so Vue tears
-    // the three fields down and remounts them fresh rather than patching a
-    // value into an input still holding what James typed. Patching a v-model
-    // input whose bound value changes out from under it needs `getRootNode`
-    // on the element (`vModelText.beforeUpdate`, `@vue/runtime-dom`), which
-    // this project's browsers have and its no-DOM test renderer does not.
-    const formKey = ref(0);
+    // Cleared in place after a committed Add, never by remounting the form:
+    // a remount takes focus with it. The form is `novalidate` because a
+    // browser's own check on `type="url"` would refuse "acme.com/careers"
+    // before `addCandidate` could read it as https.
+    //
+    // Focus after a committed Add: the Add button is disabled for the write,
+    // and a browser drops focus from a disabled button, so without a target
+    // the next Tab starts from the top of the page. The panel is where
+    // Companies sends focus after a Drop too; its tab names it.
+    const sectionRef = ref<HTMLElement | null>(null);
 
     async function submit(): Promise<void> {
       const input: CandidateInput = {
@@ -89,25 +91,15 @@ export const CandidatesView = defineComponent({
         error.value = result.reason;
         return;
       }
-      emit("added", {
-        id: crypto.randomUUID(),
-        name: input.name,
-        url: input.url,
-        origin: "james",
-        evidence: input.evidence,
-        added_at: new Date().toISOString(),
-        outcome: null,
-        outcome_at: null,
-        company: null,
-      });
+      emit("added", result.value);
       name.value = "";
       url.value = "";
       why.value = "";
-      formKey.value += 1;
+      sectionRef.value?.focus();
       showToast("Added.");
     }
 
-    return { name, url, why, busy, error, toast, formKey, submit, candidateLabel, outcomeText };
+    return { name, url, why, busy, error, toast, sectionRef, submit, candidateLabel, outcomeText };
   },
   template: `
     <section
@@ -115,17 +107,29 @@ export const CandidatesView = defineComponent({
       role="tabpanel"
       id="panel-candidates"
       aria-labelledby="tab-candidates"
-      tabindex="-1">
-      <form :key="formKey" @submit.prevent="submit">
+      tabindex="-1"
+      ref="sectionRef">
+      <form novalidate @submit.prevent="submit">
         <p class="error" v-if="error">{{ error }}</p>
         <p class="hint">One of name or URL is enough; discover settles the rest at the next run.</p>
         <label>
           <span>Name</span>
-          <input type="text" v-model="name" />
+          <input
+            type="text"
+            autocorrect="off"
+            autocapitalize="off"
+            :value="name"
+            @input="name = $event.target.value" />
         </label>
         <label>
           <span>URL</span>
-          <input type="text" v-model="url" />
+          <input
+            type="url"
+            inputmode="url"
+            autocorrect="off"
+            autocapitalize="off"
+            :value="url"
+            @input="url = $event.target.value" />
         </label>
         <label>
           <span>Why</span>
