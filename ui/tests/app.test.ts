@@ -740,6 +740,118 @@ test("noticing a session while already signed in does nothing", async () => {
   }
 });
 
+test("a refresh in flight when the user signs out does not resurrect the session", async () => {
+  // refreshStillApplies guards this: mounting with a near-expiry session
+  // starts a background token refresh; onSignOut is synchronous and clears
+  // session.value to null right away, but if that refresh's answer landed
+  // unguarded it would write the old session back over the sign-out.
+  const restoreDom = stubDom();
+  const store = memoryStore({
+    [SESSION_KEY]: sessionJson({ expiresAt: NOW + 10 }),
+    [QUEUE_ORDER_KEY]: "score",
+  });
+  saveReads(store, {
+    queue: [QUEUE_ROW],
+    postings: [QUEUE_ROW],
+    companies: [],
+    criteria: CRITERIA_ROW,
+  });
+  const round = heldRound([
+    jsonReply({
+      access_token: "refreshed-jwt",
+      expires_at: NOW + 3600,
+      refresh_token: "refreshed-refresh-token",
+    }),
+  ]);
+  const app = mountRoot({
+    config: CONFIG,
+    store,
+    httpFetch: round.fetchImpl,
+    now: () => NOW,
+  });
+  try {
+    await settled();
+    click(elementsWithClass(app.root, "sign-out")[0]!);
+    await settled();
+    assert.equal(
+      elementsWithClass(app.root, "sign-in").length > 0,
+      true,
+      "sign-out took effect at once",
+    );
+
+    round.land();
+    await settled();
+
+    assert.equal(
+      elementsWithClass(app.root, "sign-in").length > 0,
+      true,
+      "the stale refresh landing after sign-out did not sign back in",
+    );
+    assert.equal(
+      store.getItem(SESSION_KEY),
+      null,
+      "the stale refresh did not write a session back to storage",
+    );
+  } finally {
+    app.unmount();
+    restoreDom();
+  }
+});
+
+test("reads in flight when the user signs out are not written back to the reads cache", async () => {
+  // The session is fresh, so refresh() passes its token check at once and
+  // goes straight to loadAll's four reads. Holding those open, signing out
+  // (which runs clearReads), then landing them is the race loadAll's own
+  // refreshStillApplies check closes: without it, saveReads would put the
+  // signed-out account's rows back in storage.
+  const restoreDom = stubDom();
+  const store = memoryStore({
+    [SESSION_KEY]: sessionJson(),
+    [QUEUE_ORDER_KEY]: "score",
+  });
+  saveReads(store, {
+    queue: [QUEUE_ROW],
+    postings: [QUEUE_ROW],
+    companies: [],
+    criteria: CRITERIA_ROW,
+  });
+  const round = heldRound([
+    jsonReply([QUEUE_ROW]),
+    jsonReply([QUEUE_ROW]),
+    jsonReply([]),
+    jsonReply([CRITERIA_ROW]),
+  ]);
+  const app = mountRoot({
+    config: CONFIG,
+    store,
+    httpFetch: round.fetchImpl,
+    now: () => NOW,
+  });
+  try {
+    await settled();
+    click(elementsWithClass(app.root, "sign-out")[0]!);
+    await settled();
+    assert.equal(loadReads(store), null, "sign-out cleared the reads cache at once");
+
+    round.land();
+    await settled();
+
+    assert.equal(
+      store.getItem(READS_KEY),
+      null,
+      "the stale reads landing after sign-out were not written back to storage",
+    );
+    assert.equal(
+      elementsWithClass(app.root, "sign-in").length > 0,
+      true,
+      "the page still shows the sign-in form",
+    );
+  } finally {
+    app.unmount();
+    restoreDom();
+  }
+});
+
 /** A watched company with nothing in the queue, for the drop tests. */
 const WATCHED_COMPANY: Company = {
   name: "Acme",

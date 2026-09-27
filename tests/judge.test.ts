@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { judge, needsJudging, representativeByKey } from "../src/judge/judge.ts";
+import { fullJudgment, judge, needsJudging, representativeByKey } from "../src/judge/judge.ts";
 import { boardIndex, NO_BOARDS } from "../src/judge/listing.ts";
 import type { Company, Criteria, Posting } from "../src/schema.ts";
 
@@ -81,8 +81,8 @@ const NEVER_READ = boardIndex([
   company("Acme", { boards: [{ platform: "greenhouse", id: "board" }] }),
 ]);
 
-test("judge: text criteria are not consulted for a posting the listing criteria dropped", () => {
-  const result = judge(
+test("fullJudgment: text criteria are not consulted for a posting the listing criteria dropped", () => {
+  const result = fullJudgment(
     posting({
       title: "Staff Engineer", // no role word: listing drops it
       body: "This is a hybrid role, not remote, and requires Delphi.",
@@ -103,13 +103,10 @@ test("judge: text criteria are not consulted for a posting the listing criteria 
     "unwatched",
     "duplicate",
   ]);
-  assert.equal(result.evidence["remote"], undefined);
-  assert.equal(result.evidence["excluded_states"], undefined);
-  assert.equal(result.evidence["missing_languages"], undefined);
 });
 
-test("judge: text criteria run and can keep a posting the listing criteria kept", () => {
-  const result = judge(
+test("fullJudgment: text criteria run and can keep a posting the listing criteria kept", () => {
+  const result = fullJudgment(
     posting({
       title: "Staff Backend Engineer",
       comp_high: 250000,
@@ -140,8 +137,8 @@ test("judge: text criteria run and can keep a posting the listing criteria kept"
 
 // A foreign location label has to stop the posting before the text
 // criteria run, or the fetch is paid for nothing.
-test("judge: a foreign location label drops a posting without consulting its text", () => {
-  const result = judge(
+test("fullJudgment: a foreign location label drops a posting without consulting its text", () => {
+  const result = fullJudgment(
     posting({
       title: "Staff Backend Engineer",
       location: "Bengaluru, India",
@@ -152,15 +149,22 @@ test("judge: a foreign location label drops a posting without consulting its tex
   );
 
   assert.equal(result.kept, false);
-  assert.equal(
-    result.evidence["country"],
-    'location "Bengaluru, India" names "India", not the United States',
+  assert.deepEqual(
+    result.reasons.find((reason) => reason.criterion === "country"),
+    {
+      criterion: "country",
+      verdict: "out",
+      detail: 'location "Bengaluru, India" names "India", not the United States',
+    },
   );
-  assert.equal(result.evidence["remote"], undefined);
+  assert.equal(
+    result.reasons.find((reason) => reason.criterion === "remote"),
+    undefined,
+  );
 });
 
-test("judge: a body restricting the role abroad drops a posting whose label named no country", () => {
-  const result = judge(
+test("fullJudgment: a body restricting the role abroad drops a posting whose label named no country", () => {
+  const result = fullJudgment(
     posting({
       title: "Staff Backend Engineer",
       location: "Remote",
@@ -171,16 +175,78 @@ test("judge: a body restricting the role abroad drops a posting whose label name
   );
 
   assert.equal(result.kept, false);
+  const detailOf = (criterion: string) =>
+    result.reasons.find((reason) => reason.criterion === criterion)?.detail;
   assert.equal(
-    result.evidence["country"],
+    detailOf("country"),
     'location "Remote" names no country other than the United States',
   );
-  assert.match(String(result.evidence["country_restriction"]), /Portugal/);
+  assert.match(String(detailOf("country_restriction")), /Portugal/);
 });
 
 test("judge: records the criteria's updated_at as judged_with", () => {
   const result = judge(posting({ title: "Staff Backend Engineer" }), criteria());
   assert.equal(result.judged_with, "2026-09-14T00:00:00Z");
+});
+
+// Every criterion the kept fixture posting runs, listing then text.
+const KEPT_CRITERIA = [
+  "level",
+  "role",
+  "excluded_words",
+  "country",
+  "comp_floor",
+  "age",
+  "gone",
+  "unwatched",
+  "duplicate",
+  "remote",
+  "excluded_states",
+  "country_restriction",
+  "missing_languages",
+  "bonus",
+];
+
+const KEPT_POSTING = {
+  title: "Staff Backend Engineer",
+  comp_high: 250000,
+  body: "This is a fully remote position open to candidates anywhere in the US.",
+};
+
+// Out on `role` (no role word) and `comp_floor` (below 120000), in on the
+// rest of the listing criteria.
+const TWO_OUT_POSTING = { title: "Staff Engineer", comp_high: 90000 };
+
+test("judge: a kept posting stores no reasons and evidence for every criterion that ran", () => {
+  const result = judge(posting(KEPT_POSTING), criteria());
+  assert.equal(result.kept, true);
+  assert.deepEqual(result.reasons, []);
+  assert.deepEqual(Object.keys(result.evidence), KEPT_CRITERIA);
+});
+
+test("judge: a posting out and not acted on stores its failed criteria by name and no evidence", () => {
+  const result = judge(posting(TWO_OUT_POSTING), criteria());
+  assert.equal(result.kept, false);
+  assert.deepEqual(result.reasons, ["role", "comp_floor"]);
+  assert.deepEqual(result.evidence, {});
+});
+
+test("judge: a posting out but acted on keeps the evidence of every criterion that ran", () => {
+  const acted = posting({ ...TWO_OUT_POSTING, status: "applied" });
+  const result = judge(acted, criteria());
+  assert.equal(result.kept, false);
+  assert.deepEqual(result.reasons, ["role", "comp_floor"]);
+  assert.deepEqual(result.evidence, {
+    level: 'title carries level word "staff"',
+    role: "title carries no role word",
+    excluded_words: "title carries no excluded word outside a team name",
+    country: "posting names no location",
+    comp_floor: "comp_high 90000 is below the floor 120000",
+    age: "no max age set",
+    gone: "board has no recorded read",
+    unwatched: "company not on record",
+    duplicate: "no later, level-admitted posting shares its board, date, band, place and title",
+  });
 });
 
 test("judge: evidence is keyed by criterion, quoting the same text as its reason", () => {
@@ -192,9 +258,16 @@ test("judge: evidence is keyed by criterion, quoting the same text as its reason
     }),
     criteria(),
   );
-  const remoteReason = result.reasons.find((reason) => reason.criterion === "remote");
+  const remoteReason = fullJudgment(
+    posting({
+      title: "Staff Backend Engineer",
+      comp_high: 250000,
+      body: "This is a fully remote position open to candidates anywhere in the US.",
+    }),
+    criteria(),
+  ).reasons.find((reason) => reason.criterion === "remote");
   assert.ok(remoteReason);
-  assert.equal(result.evidence["remote"], remoteReason?.detail);
+  assert.equal(result.evidence["remote"], remoteReason.detail);
 });
 
 test("judge: passes now through to the listing criteria", () => {
@@ -207,9 +280,7 @@ test("judge: passes now through to the listing criteria", () => {
     criteria({ max_age_days: 90 }),
     "2026-09-17T00:00:00Z",
   );
-  const ageReason = result.reasons.find((reason) => reason.criterion === "age");
-  assert.ok(ageReason);
-  assert.equal(ageReason.verdict, "out");
+  assert.deepEqual(result.reasons, ["age"]);
 });
 
 test("judge: a posting not acted on past the max age is decided on age alone", () => {
@@ -222,15 +293,19 @@ test("judge: a posting not acted on past the max age is decided on age alone", (
     "2026-09-17T00:00:00Z",
   );
   assert.equal(result.kept, false);
+  assert.deepEqual(result.reasons, ["age"]);
   assert.deepEqual(
-    result.reasons.map((reason) => reason.criterion),
-    ["age"],
+    fullJudgment(
+      posting({ status: null, posted_at: "2026-08-08T00:00:00Z" }),
+      criteria({ max_age_days: 35 }),
+      "2026-09-17T00:00:00Z",
+    ).reasons,
+    [{ criterion: "age", verdict: "out", detail: "posted 40 days ago, past the max age 35" }],
   );
-  assert.deepEqual(Object.keys(result.evidence), ["age"]);
 });
 
-test("judge: a posting acted on past the max age still runs the full judgment", () => {
-  const result = judge(
+test("fullJudgment: a posting acted on past the max age still runs the full judgment", () => {
+  const result = fullJudgment(
     posting({
       status: "applied",
       posted_at: "2026-08-08T00:00:00Z", // 40 days before now
@@ -241,8 +316,8 @@ test("judge: a posting acted on past the max age still runs the full judgment", 
   assert.ok(result.reasons.length > 1);
 });
 
-test("judge: a posting past the max age with no posted_at still runs the full judgment", () => {
-  const result = judge(
+test("fullJudgment: a posting past the max age with no posted_at still runs the full judgment", () => {
+  const result = fullJudgment(
     posting({
       status: null,
       posted_at: null,
@@ -253,8 +328,8 @@ test("judge: a posting past the max age with no posted_at still runs the full ju
   assert.ok(result.reasons.length > 1);
 });
 
-test("judge: a posting past what would be the max age runs the full judgment when no max age is set", () => {
-  const result = judge(
+test("fullJudgment: a posting past what would be the max age runs the full judgment when no max age is set", () => {
+  const result = fullJudgment(
     posting({
       status: null,
       posted_at: "2026-08-08T00:00:00Z", // 40 days before now
@@ -265,8 +340,8 @@ test("judge: a posting past what would be the max age runs the full judgment whe
   assert.ok(result.reasons.length > 1);
 });
 
-test("judge: a posting not acted on but within the max age runs the full judgment", () => {
-  const result = judge(
+test("fullJudgment: a posting not acted on but within the max age runs the full judgment", () => {
+  const result = fullJudgment(
     posting({
       status: null,
       posted_at: "2026-09-07T00:00:00Z", // 10 days before now
@@ -389,11 +464,7 @@ test("needsJudging: a dropped posting last seen before its board's last read doe
 
 // Only its stored gone-out reason marks a re-listed posting out from the
 // rest of the dropped set.
-const GONE_OUT = {
-  criterion: "gone",
-  verdict: "out",
-  detail: "last seen 2026-09-13, board read 2026-09-14 without it",
-} as const;
+const GONE_OUT = "gone";
 
 test("needsJudging: a gone posting listed again at or after the board's last read needs judging again", () => {
   const relisted = posting({
@@ -446,10 +517,7 @@ test("needsJudging: a posting dropped on another criterion is not re-judged for 
   const levelOut = posting({
     judged_with: "2026-09-14T00:00:00Z",
     kept: false,
-    reasons: [
-      { criterion: "level", verdict: "out", detail: "no level word in the title" },
-      { criterion: "gone", verdict: "in", detail: "listed at the board's last read 2026-09-14" },
-    ],
+    reasons: ["level"],
     last_seen: "2026-09-17T06:00:00.000Z",
   });
   assert.equal(needsJudging(levelOut, criteria(), "2026-09-17T00:00:00Z", READ_ON_16TH), false);
@@ -463,11 +531,7 @@ test("needsJudging: a kept posting whose company is now an alias needs judging a
 
 // Only its stored unwatched-out reason marks a dropped-company posting back
 // in when James puts the company back.
-const UNWATCHED_OUT = {
-  criterion: "unwatched",
-  verdict: "out",
-  detail: "company Acme is dropped",
-} as const;
+const UNWATCHED_OUT = "unwatched";
 
 test("needsJudging: an unwatched-out posting whose board is watched again needs judging again", () => {
   const relisted = posting({
@@ -482,10 +546,7 @@ test("needsJudging: a posting out on another criterion is not re-judged just bec
   const levelOut = posting({
     judged_with: "2026-09-14T00:00:00Z",
     kept: false,
-    reasons: [
-      { criterion: "level", verdict: "out", detail: "no level word in the title" },
-      { criterion: "unwatched", verdict: "in", detail: "board greenhouse/board is watched" },
-    ],
+    reasons: ["level"],
   });
   const alias = boardIndex([company("Acme", { state: "alias" })]);
   assert.equal(needsJudging(levelOut, criteria(), "2026-09-17T00:00:00Z", alias), false);
@@ -493,12 +554,7 @@ test("needsJudging: a posting out on another criterion is not re-judged just bec
 
 // The map is built by `representativeByKey` itself, as `ingest.ts` builds
 // the real one: the key's exact format is `duplicateKey`'s to decide.
-const DUPLICATE_OUT = {
-  criterion: "duplicate",
-  verdict: "out",
-  detail:
-    "duplicate of acme::1: same board, date, band and place, title differs only by level words; that posting is the latest the level criterion admits",
-} as const;
+const DUPLICATE_OUT = "duplicate";
 
 test("needsJudging: a kept posting that is no longer its group's representative needs judging again", () => {
   const representativeRow = posting({

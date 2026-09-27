@@ -204,30 +204,6 @@ export function postingHref(url: string | null): string | null {
   return parsed.protocol === "http:" || parsed.protocol === "https:" ? url : null;
 }
 
-export interface Reason {
-  readonly criterion: string;
-  readonly verdict: string;
-  readonly detail: string;
-}
-
-/** `posting.reasons` is jsonb off the processor; malformed entries are dropped. */
-export function reasonLines(reasons: readonly unknown[]): Reason[] {
-  const lines: Reason[] = [];
-  for (const raw of reasons) {
-    if (typeof raw !== "object" || raw === null) continue;
-    const record = raw as Record<string, unknown>;
-    const { criterion, verdict, detail } = record;
-    if (
-      typeof criterion === "string" &&
-      typeof verdict === "string" &&
-      typeof detail === "string"
-    ) {
-      lines.push({ criterion, verdict, detail });
-    }
-  }
-  return lines;
-}
-
 export interface EvidenceLine {
   readonly fact: string;
   readonly detail: string;

@@ -34,6 +34,7 @@ import {
   loadSession,
   linkTokenFrom,
   refreshSession,
+  refreshStillApplies,
   requestLink,
   saveSession,
   SESSION_KEY,
@@ -180,18 +181,24 @@ export const AppRoot = defineComponent({
       dropped.value = new Map(dropped.value).set(company.name, company.patch);
     }
 
-    async function loadAll(accessToken: string): Promise<void> {
+    async function loadAll(readFor: Session): Promise<void> {
       // Taken before the reads are issued: a decision made while they are in
       // flight is not in their response, so dropping the whole map on
       // success would put the old status back on screen.
       const applied = new Set(decided.value.keys());
       const committed = new Set(dropped.value.keys());
+      const accessToken = readFor.accessToken;
       const [queue, postings, companies, criteria] = await Promise.all([
         loadQueue(props.config, accessToken, props.httpFetch),
         loadPostings(props.config, accessToken, {}, props.httpFetch),
         loadCompanies(props.config, accessToken, props.httpFetch),
         loadCriteria(props.config, accessToken, props.httpFetch),
       ]);
+      // The same race as `refresh()`'s token check, one await later: a
+      // sign-out on this tab while the four reads are in flight has already
+      // run `clearReads`, and these rows belong to the account that just
+      // left. Neither the screen nor the reads cache may take them.
+      if (!refreshStillApplies(readFor, session.value)) return;
       queueResult.value = queue;
       postingsResult.value = postings;
       companiesResult.value = companies;
@@ -216,11 +223,22 @@ export const AppRoot = defineComponent({
     // round's rows when there is one (`reads-cache.ts`).
     async function refresh(): Promise<void> {
       if (session.value === null) return;
-      const fresh = await currentSession(props.config, session.value, props.httpFetch, props.now);
+      const startedFor = session.value;
+      const fresh = await currentSession(props.config, startedFor, props.httpFetch, props.now);
+      // A sign-out on this tab (`onSignOut`) can land while the token
+      // refresh is in flight; its answer then belongs to a session nobody is
+      // using any more, and acting on it would write the signed-out session
+      // back. If a new session was adopted after that sign-out (a link or
+      // another tab's sign-in, both of which only reach a signed-out tab),
+      // the same check keeps the old answer from clobbering it. Another
+      // tab's sign-in never interrupts a refresh on its own:
+      // `adoptSessionFromOtherTab` does nothing while this tab has a
+      // session. `loadAll` repeats the check after its reads.
+      if (!refreshStillApplies(startedFor, session.value)) return;
       if (fresh.ok) {
         session.value = fresh.value;
         saveSession(props.store, fresh.value);
-        await loadAll(fresh.value.accessToken);
+        await loadAll(fresh.value);
       } else {
         clearSession(props.store);
         clearReads(props.store);

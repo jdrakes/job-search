@@ -889,13 +889,7 @@ test("ingest: a re-listed posting whose band crosses the floor is re-judged the 
         title: "Senior Backend Engineer",
         comp_high: null,
         kept: false,
-        reasons: [
-          {
-            criterion: "level",
-            verdict: "out",
-            detail: 'title carries "Senior" but no pay is posted to settle it',
-          },
-        ],
+        reasons: ["level"],
         // Already judged with the criteria row this run uses.
         judged_with: "2026-09-14T00:00:00Z",
       }),
@@ -1966,10 +1960,8 @@ test("judgeAll: a stored posting not acted on past the max age is judged on age 
 
   const [row] = await store.select<Posting>("postings", { key: "workday/acme-wd::swe1" });
   assert.equal(row?.kept, false);
-  assert.deepEqual(
-    (row?.reasons as Array<{ criterion: string }>).map((reason) => reason.criterion),
-    ["age"],
-  );
+  assert.deepEqual(row?.reasons, ["age"]);
+  assert.deepEqual(row?.evidence, {});
 });
 
 // Breaks if `judge()`'s age-only short-circuit stops checking `status`.
@@ -2004,9 +1996,11 @@ test("judgeAll: a stored posting acted on past the max age still runs the full j
 
   // Unchanged from today: the age criterion inside `judgeListing` already
   // drops an aged posting on its own, so the listing sweep's full nine
-  // reasons come back, not the age-alone short-circuit's one.
+  // criteria run, not the age-alone short-circuit's one. A posting acted on
+  // keeps the evidence of every criterion that ran.
   const [row] = await store.select<Posting>("postings", { key: "workday/acme-wd::swe1" });
-  assert.ok((row?.reasons as unknown[]).length > 1);
+  assert.ok((row?.reasons as unknown[]).includes("age"));
+  assert.ok(Object.keys(row?.evidence ?? {}).length > 1);
 });
 
 test("ingest: a two-phase detail stating no comp falls back to the prose's", async () => {
@@ -2139,10 +2133,7 @@ test("ingest: a two-phase posting judged on a detail stating remote stores the w
   const [judged] = await store.select<Posting>("postings", { key: "workday/acme-wd::swe1" });
   assert.equal(judged?.workplace, "remote");
   assert.equal(judged?.kept, true);
-  const remote = (judged?.reasons as { criterion: string; detail: string }[]).find(
-    (reason) => reason.criterion === "remote",
-  );
-  assert.equal(remote?.detail, "board states remote");
+  assert.equal(judged?.evidence["remote"], "board states remote");
 
   // The re-list states no workplace, so the word the detail gave survives.
   await ingest(store, readers);
@@ -2414,7 +2405,7 @@ test("ingest: a two-phase posting is refused on the comp its body states", async
   const [row] = await store.select<Posting>("postings", { key: "workday/acme-wd::swe1" });
   assert.equal(row?.kept, false);
   assert.equal(row?.comp_high, 90_000);
-  assert.equal(row?.evidence["comp_floor"], "comp_high 90000 is below the floor 120000");
+  assert.deepEqual(row?.reasons, ["comp_floor"]);
 });
 
 test("ingest: a two-phase posting refused on the floor keeps its comp and its floor reason across a criteria edit", async () => {
@@ -2443,7 +2434,7 @@ test("ingest: a two-phase posting refused on the floor keeps its comp and its fl
   assert.equal(first?.comp_low, 70_000);
   assert.equal(first?.comp_high, 90_000);
   assert.equal(first?.kept, false);
-  assert.equal(first?.evidence["comp_floor"], "comp_high 90000 is below the floor 120000");
+  assert.deepEqual(first?.reasons, ["comp_floor"]);
 
   // Now fails the floor on its stored comp, so its body is never read; the
   // verdict must carry that comp back rather than write null over it.
@@ -2455,7 +2446,7 @@ test("ingest: a two-phase posting refused on the floor keeps its comp and its fl
   assert.equal(second?.comp_low, 70_000);
   assert.equal(second?.comp_high, 90_000);
   assert.equal(second?.kept, false);
-  assert.equal(second?.evidence["comp_floor"], "comp_high 90000 is below the floor 120000");
+  assert.deepEqual(second?.reasons, ["comp_floor"]);
   assert.equal(second?.judged_with, "2026-09-15T00:00:00Z");
   assert.equal(bodyCalls, 1);
 });
@@ -2595,7 +2586,7 @@ test("ingest: a two-phase title with no level marker and no engineering word has
   const [row] = await store.select<Posting>("postings", { key: "workday/acme-wd::swe6" });
   assert.equal(row?.kept, false);
   assert.equal(row?.body, null);
-  assert.equal(row?.evidence["level"], "title carries no level word or marker");
+  assert.deepEqual(row?.reasons, ["level", "role"]);
 });
 
 test("ingest: a criteria change alone makes an already-judged posting need judging again, with no refetch", async () => {
@@ -3000,7 +2991,7 @@ test("judgeAll: a kept posting that has aged past the max is re-judged; one stil
   assert.equal(judging.judged, 1, "only the posting whose age verdict moved is re-judged");
   const [aged] = await store.select<Posting>("postings", { key: "Acme::old1" });
   assert.equal(aged?.kept, false);
-  assert.equal(aged?.evidence["age"], "posted 100 days ago, past the max age 90");
+  assert.deepEqual(aged?.reasons, ["age"]);
   const [recent] = await store.select<Posting>("postings", { key: "Acme::new1" });
   assert.equal(recent?.kept, true);
   assert.deepEqual(recent?.evidence, {}, "a posting still within the max age is left alone");
@@ -3038,7 +3029,7 @@ test("judgeAll: a kept posting last seen before its board's last read is dropped
   assert.equal(judging.judged, 1, "only the posting unseen since the board's read is re-judged");
   const [oldest] = await store.select<Posting>("postings", { key: "Acme::oldest" });
   assert.equal(oldest?.kept, false);
-  assert.equal(oldest?.evidence["gone"], "last seen 2026-09-15, board read 2026-09-16 without it");
+  assert.deepEqual(oldest?.reasons, ["gone"]);
   const [middle] = await store.select<Posting>("postings", { key: "Acme::middle" });
   assert.equal(middle?.kept, true);
   assert.deepEqual(middle?.evidence, {}, "a posting seen at the board's read is left alone");
@@ -3069,8 +3060,8 @@ test("judgeAll: a posting judged gone on one run and listed again on the next is
     title: "Backend Engineer",
     last_seen: "2026-09-16T06:00:00.000Z",
     kept: false,
-    reasons: [{ criterion: "level", verdict: "out", detail: "no level word in the title" }],
-    evidence: { level: "no level word in the title" },
+    reasons: ["level"],
+    evidence: {},
     judged_with: "2026-09-14T00:00:00Z",
   });
   const store = memoryStore({
@@ -3091,7 +3082,7 @@ test("judgeAll: a posting judged gone on one run and listed again on the next is
   assert.equal(firstRun.judged, 1);
   const [gone] = await store.select<Posting>("postings", { key: "Acme::lapsed" });
   assert.equal(gone?.kept, false);
-  assert.equal(gone?.evidence["gone"], "last seen 2026-09-15, board read 2026-09-16 without it");
+  assert.deepEqual(gone?.reasons, ["gone"]);
 
   // The partial rows `ingest` writes on a re-list, and the board read it
   // records once they land.
@@ -3154,14 +3145,8 @@ const goneOut = (key: string, overrides: Partial<Posting> = {}): Posting =>
     body: "This is a fully remote position open to candidates anywhere in the US.",
     last_seen: "2026-09-10T06:00:00.000Z",
     kept: false,
-    reasons: [
-      {
-        criterion: "gone",
-        verdict: "out",
-        detail: "last seen 2026-09-10, board read 2026-09-11 without it",
-      },
-    ],
-    evidence: { gone: "last seen 2026-09-10, board read 2026-09-11 without it" },
+    reasons: ["gone"],
+    evidence: {},
     judged_with: "2026-09-14T00:00:00Z",
     ...overrides,
   });
@@ -3178,7 +3163,7 @@ test("judgeAll: a gone posting on a watched board with no recorded read stays go
   assert.equal(judging.judged, 0);
   const [a] = await store.select<Posting>("postings", { key: "Acme::a" });
   assert.equal(a?.kept, false);
-  assert.equal(a?.evidence["gone"], "last seen 2026-09-10, board read 2026-09-11 without it");
+  assert.deepEqual(a?.reasons, ["gone"]);
 });
 
 test("judgeAll: a gone posting whose board was removed from its company is judged out unwatched once, then left alone", async () => {
@@ -3192,8 +3177,7 @@ test("judgeAll: a gone posting whose board was removed from its company is judge
   assert.equal(firstRun.judged, 1);
   const [a] = await store.select<Posting>("postings", { key: "Acme::a" });
   assert.equal(a?.kept, false);
-  assert.equal(a?.evidence["unwatched"], "board greenhouse/board is no longer on Acme");
-  assert.equal(a?.evidence["gone"], "board has no recorded read");
+  assert.deepEqual(a?.reasons, ["unwatched"]);
 
   const secondRun = await judgeAll(store, {});
   assert.equal(secondRun.judged, 0, "the unwatched verdict holds without another judging");
@@ -3235,7 +3219,7 @@ test("ingest then judgeAll: a posting the board stops listing is gone after one 
   assert.deepEqual(await run("2026-09-16"), []);
   assert.deepEqual(await verdicts(), [true, false]);
   const [gone] = await store.select<Posting>("postings", { key: "greenhouse/acme-gh::b" });
-  assert.equal(gone?.evidence["gone"], "last seen 2026-09-15, board read 2026-09-16 without it");
+  assert.deepEqual(gone?.reasons, ["gone"]);
 
   listings = () => {
     throw new HttpError(500, "HTTP 500");
@@ -3279,7 +3263,7 @@ test("judgeAll: a kept posting whose company became an alias is judged out unwat
   assert.equal(judging.judged, 2, "the company's state alone moves both postings");
   const [row] = await store.select<Posting>("postings", { key: "Acme::swe1" });
   assert.equal(row?.kept, false);
-  assert.equal(row?.evidence["unwatched"], "company Acme is an alias of Acme Inc");
+  assert.deepEqual(row?.reasons, ["unwatched"]);
 
   const [statusRow] = await store.select<Posting>("postings", { key: "Acme::swe2" });
   assert.equal(statusRow?.kept, false);
@@ -3346,10 +3330,7 @@ test("judgeAll: the six-title Pragmatike shape keeps two and marks four out as d
   assert.equal(out.length, 4, "the rest of the five-title group are out as its duplicates");
   assert.deepEqual(kept.map((row) => row?.key).sort(), ["Pragmatike::2", "Pragmatike::6"]);
   for (const row of out) {
-    assert.equal(
-      row?.evidence["duplicate"],
-      "duplicate of Pragmatike::6: same board, date, band and place, title differs only by level words; that posting is the latest the level criterion admits",
-    );
+    assert.deepEqual(row?.reasons, ["duplicate"]);
   }
 });
 
@@ -3378,13 +3359,6 @@ test("judgeAll: a duplicate-out row is judged in once its representative twin go
       judged_with: "2026-09-14T00:00:00Z",
       ...extra,
     });
-  const DUPLICATE_OUT = {
-    criterion: "duplicate",
-    verdict: "out",
-    detail:
-      "duplicate of Pragmatike::1: same board, date, band and place, title differs only by level words; that posting is the latest the level criterion admits",
-  } as const;
-
   // The representative: the later `first_seen`.
   const representative = pragmatike(
     "Pragmatike::1",
@@ -3401,8 +3375,8 @@ test("judgeAll: a duplicate-out row is judged in once its representative twin go
   const duplicate = pragmatike("Pragmatike::2", "Lead Product Engineer", "2026-09-16", {
     first_seen: "2026-08-14T00:00:00.000Z",
     kept: false,
-    reasons: [DUPLICATE_OUT],
-    evidence: { duplicate: DUPLICATE_OUT.detail },
+    reasons: ["duplicate"],
+    evidence: {},
   });
   const pragmatikeBoard = (lastRead: string): Company =>
     company("Pragmatike", {

@@ -1,0 +1,34 @@
+-- Migration 20260927000000_reasons_shape: marks the shape change to
+-- `postings.reasons` and `postings.evidence` (#273, "reasons: failed
+-- criteria for all, text for the list only"). No column is added or
+-- dropped — both stay `jsonb`, so there is nothing here to ALTER.
+--
+-- Why. `judge()` used to store, in `reasons`, a `{criterion, verdict,
+-- detail}` object for every criterion that ran, and copy the same detail
+-- text into `evidence` for every posting whatever its verdict. Measured
+-- 2026-09-27: that made `reasons` 135 MB and `evidence` 78 MB, almost all
+-- of it detail text for a posting nothing ever reads (only a kept or
+-- acted-on posting is shown; `needsJudging` only ever asks whether
+-- `reasons` contains a given criterion's name). `judge()` now stores, in
+-- `reasons`, just the names of the criteria whose verdict was "out" (a
+-- `string[]`), and populates `evidence` only when the posting is kept or
+-- acted on.
+--
+-- A row written before this PR still holds the old shape until it is next
+-- judged or converted by `scripts/shrink-reasons.ts` (run once, by hand,
+-- promptly after this migration; see that script's header). The gap
+-- matters: `needsJudging`'s `hasReasonOut` is `Array.isArray(reasons) &&
+-- reasons.includes(criterion)`, which reads false on an unconverted row's
+-- object elements for every criterion. Its three reverse checks
+-- (duplicate, gone, unwatched), which re-judge a rejected row once the
+-- condition that rejected it has cleared, therefore never fire on an
+-- unconverted row: it stays rejected until it is converted, either by the
+-- script or by an unrelated criteria edit bumping `judged_with` past the
+-- row's, which re-judges it and writes the new shape as a side effect.
+-- Running the script promptly is what closes that gap; do not rely on any
+-- such reversal before it has run. Both shapes are valid `jsonb`; the
+-- column's type is unchanged.
+
+-- The receipt the application reads. See the init migration's header: this is
+-- NOT the CLI's own supabase_migrations.schema_migrations.
+INSERT INTO "schema_migrations" ("id") VALUES ('20260927000000_reasons_shape');
