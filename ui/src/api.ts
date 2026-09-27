@@ -10,9 +10,11 @@
  * failing leaves the others as they were.
  */
 import {
+  CANDIDATE_FIELDS,
   COMPANY_FIELDS,
   CRITERIA_FIELDS,
   POSTING_LIST_FIELDS,
+  type Candidate,
   type Company,
   type Criteria,
   type PostingSummary,
@@ -154,6 +156,18 @@ export async function loadCompanies(
   return selectAll<Company>(config, accessToken, "companies", params, httpFetch);
 }
 
+/** Newest first: `added_at.desc` with the primary key appended as the tiebreak. */
+export async function loadCandidates(
+  config: AppConfig,
+  accessToken: string,
+  httpFetch: typeof fetch = fetch,
+): Promise<ReadResult<Candidate[]>> {
+  const params = new URLSearchParams();
+  params.set("select", CANDIDATE_FIELDS.join(","));
+  params.set("order", totalOrder("candidates", "added_at.desc"));
+  return selectAll<Candidate>(config, accessToken, "candidates", params, httpFetch);
+}
+
 export async function loadCriteria(
   config: AppConfig,
   accessToken: string,
@@ -235,6 +249,86 @@ export async function setCompanyDrop(
   httpFetch: typeof fetch = fetch,
 ): Promise<WriteResult> {
   return patchOne(config, accessToken, "companies", "name", name, { ...patch }, httpFetch);
+}
+
+export type CandidateInput = Pick<Candidate, "name" | "url" | "evidence">;
+
+/**
+ * A value with nothing in it, once whitespace is stripped: `null`, `""` and
+ * `"  "` all count as absent.
+ */
+function isBlank(value: string | null): boolean {
+  return value === null || value.trim() === "";
+}
+
+function parses(text: string): boolean {
+  try {
+    new URL(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The input as it will be sent, or why it cannot be. A URL typed without a
+ * scheme ("acme.com/careers") is read as `https://`, the way a browser's
+ * address bar reads it; one that parses neither way is refused by name, so
+ * the message says the URL is unreadable rather than missing. The run still
+ * parses the URL for real at its own boundary; this only stops what could
+ * never name anything.
+ */
+function sendable(input: CandidateInput): ReadResult<CandidateInput> {
+  if (isBlank(input.url)) {
+    if (isBlank(input.name)) return { ok: false, reason: "a candidate needs a name or a URL" };
+    return { ok: true, value: { ...input, url: null } };
+  }
+  const raw = (input.url as string).trim();
+  if (parses(raw)) return { ok: true, value: { ...input, url: raw } };
+  const prefixed = `https://${raw}`;
+  if (parses(prefixed)) return { ok: true, value: { ...input, url: prefixed } };
+  return { ok: false, reason: `cannot read ${JSON.stringify(raw)} as a URL` };
+}
+
+/**
+ * James is the only source that adds from the list; the peer skill adds as
+ * `peers`, and discover as the source it found the name in. Returns the row
+ * the store wrote, so the caller keys on the id the store assigned rather
+ * than one of its own, and a later read of the same row replaces it.
+ */
+export async function addCandidate(
+  config: AppConfig,
+  accessToken: string,
+  input: CandidateInput,
+  httpFetch: typeof fetch = fetch,
+): Promise<ReadResult<Candidate>> {
+  const checked = sendable(input);
+  if (!checked.ok) return checked;
+  const params = new URLSearchParams({ select: CANDIDATE_FIELDS.join(",") });
+  const url = `${config.url}/rest/v1/candidates?${params.toString()}`;
+  try {
+    const response = await httpFetch(url, {
+      method: "POST",
+      headers: headers(config, accessToken, {
+        "Content-Type": "application/json",
+        Prefer: "return=representation",
+      }),
+      body: JSON.stringify({ ...checked.value, origin: "james" }),
+    });
+    if (!response.ok) {
+      return {
+        ok: false,
+        reason: `candidates: HTTP ${response.status}: ${await errorDetail(response)}`,
+      };
+    }
+    const parsed: unknown = await response.json();
+    if (!Array.isArray(parsed) || parsed.length !== 1) {
+      return { ok: false, reason: "candidates: expected the one row written" };
+    }
+    return { ok: true, value: parsed[0] as Candidate };
+  } catch (error) {
+    return { ok: false, reason: `candidates: ${messageOf(error)}` };
+  }
 }
 
 export type CriteriaPatch = Omit<Criteria, "id" | "updated_at">;

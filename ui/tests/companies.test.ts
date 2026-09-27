@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { createSSRApp } from "vue";
 import { renderToString } from "vue/server-renderer";
 
-import { STATUSES, type Company, type Posting } from "../../src/schema.ts";
+import { STATUSES, type Candidate, type Company, type Posting } from "../../src/schema.ts";
 import type { AppConfig } from "../src/config.ts";
 import {
   boardLabel,
@@ -12,6 +12,7 @@ import {
   dropRefusal,
   groupCompanies,
   groupOf,
+  newCompanies,
   queuedLabel,
   whyText,
 } from "../src/companies.ts";
@@ -71,6 +72,21 @@ function queued(companyName: string, id: string): Posting {
     body_hash: null,
     workplace: null,
     gone_at: null,
+  };
+}
+
+function candidate(overrides: Partial<Candidate> = {}): Candidate {
+  return {
+    id: "candidate-1",
+    name: null,
+    url: null,
+    origin: "james",
+    evidence: null,
+    added_at: "2026-09-20T00:00:00Z",
+    outcome: "watched",
+    outcome_at: "2026-09-20T00:00:00Z",
+    company: null,
+    ...overrides,
   };
 }
 
@@ -175,6 +191,159 @@ test("dropRefusal allows a real reason", () => {
   assert.equal(dropRefusal("acquired, boards gone dark"), null);
 });
 
+test("newCompanies holds a company watched within the last 7 days, not one watched 9 days ago", () => {
+  const now = Date.now();
+  const twoDaysAgo = new Date(now - 2 * 86_400_000).toISOString();
+  const nineDaysAgo = new Date(now - 9 * 86_400_000).toISOString();
+  const recent = company("Acme", READ);
+  const stale = company("Beta", READ);
+  const candidates = [
+    candidate({ id: "c1", outcome: "watched", outcome_at: twoDaysAgo, company: "Acme" }),
+    candidate({ id: "c2", outcome: "watched", outcome_at: nineDaysAgo, company: "Beta" }),
+  ];
+
+  const names = newCompanies([recent, stale], candidates, now).map((entry) => entry.company.name);
+
+  assert.deepEqual(names, ["Acme"], "watched 2 days ago is new; watched 9 days ago is not");
+});
+
+test("newCompanies' window is under seven days to the millisecond, not seven floored days", () => {
+  // Breaks if the window goes back to `daysBetween(...) <= 7`: that floors
+  // 7 days and an hour to 7 and keeps the company for most of an eighth day.
+  const now = Date.parse("2026-09-27T12:00:00Z");
+  const hour = 3_600_000;
+  const candidates = [
+    candidate({
+      id: "c1",
+      company: "Acme",
+      outcome_at: new Date(now - (6 * 24 + 23) * hour).toISOString(),
+    }),
+    candidate({
+      id: "c2",
+      company: "Beta",
+      outcome_at: new Date(now - (7 * 24 + 1) * hour).toISOString(),
+    }),
+  ];
+
+  const names = newCompanies([company("Acme", READ), company("Beta", READ)], candidates, now).map(
+    (entry) => entry.company.name,
+  );
+
+  assert.deepEqual(names, ["Acme"], "6 days 23 hours is in; 7 days 1 hour is out");
+});
+
+test("newCompanies leaves out a dropped company: dropping it from New is the reversal", () => {
+  const now = Date.parse("2026-09-27T12:00:00Z");
+  const dropped = company("Acme", {
+    ...READ,
+    dropped_at: "2026-09-27T11:00:00Z",
+    reason: "not a fit",
+  });
+  const candidates = [
+    candidate({ company: "Acme", outcome_at: new Date(now - 3_600_000).toISOString() }),
+  ];
+
+  assert.deepEqual(newCompanies([dropped], candidates, now), []);
+});
+
+test("newCompanies pairs a company with its earliest watched candidate, most recently watched company first", () => {
+  // A later duplicate watched into Acme today must not re-open its window
+  // or replace the candidate that opened it.
+  const now = Date.parse("2026-09-27T12:00:00Z");
+  const opener = candidate({
+    id: "c1",
+    company: "Acme",
+    added_at: "2026-09-24T00:00:00Z",
+    outcome_at: "2026-09-24T06:00:00Z",
+  });
+  const duplicate = candidate({
+    id: "c2",
+    company: "Acme",
+    added_at: "2026-09-27T00:00:00Z",
+    outcome_at: "2026-09-27T06:00:00Z",
+  });
+  const beta = candidate({
+    id: "c3",
+    company: "Beta",
+    added_at: "2026-09-25T00:00:00Z",
+    outcome_at: "2026-09-25T06:00:00Z",
+  });
+
+  const entries = newCompanies(
+    [company("Acme", READ), company("Beta", READ)],
+    [duplicate, beta, opener],
+    now,
+  );
+
+  assert.deepEqual(
+    entries.map((entry) => [entry.company.name, entry.candidate.id]),
+    [
+      ["Beta", "c3"],
+      ["Acme", "c1"],
+    ],
+  );
+});
+
+test("newCompanies ignores an unresolved candidate and one watched into a different company", () => {
+  const now = Date.now();
+  const acme = company("Acme", READ);
+  const candidates = [
+    candidate({ id: "c1", outcome: null, outcome_at: null, company: null }),
+    candidate({
+      id: "c2",
+      outcome: "watched",
+      outcome_at: new Date(now - 1000).toISOString(),
+      company: "Gamma",
+    }),
+  ];
+
+  assert.deepEqual(newCompanies([acme], candidates, now), []);
+});
+
+test("CompaniesView's New group holds a company watched 2 days ago, showing that candidate's origin and evidence, not one watched 9 days ago", async () => {
+  const now = Date.now();
+  const twoDaysAgo = new Date(now - 2 * 86_400_000).toISOString();
+  const nineDaysAgo = new Date(now - 9 * 86_400_000).toISOString();
+  const recent = company("Acme", READ);
+  const stale = company("Beta", READ);
+  const candidates = [
+    candidate({
+      id: "c1",
+      outcome: "watched",
+      outcome_at: twoDaysAgo,
+      company: "Acme",
+      origin: "peers",
+      evidence: "found on their careers page",
+    }),
+    candidate({
+      id: "c2",
+      outcome: "watched",
+      outcome_at: nineDaysAgo,
+      company: "Beta",
+      origin: "peers",
+      evidence: "a friend mentioned it",
+    }),
+  ];
+
+  const html = await render(CompaniesView, {
+    companies: [recent, stale],
+    queue: [],
+    candidates,
+    config: CONFIG,
+    accessToken: ACCESS_TOKEN,
+  });
+
+  assert.match(html, /New.*?\(1\)/s);
+  const newSection = html.slice(html.indexOf("New <"), html.indexOf("Read <"));
+  assert.match(newSection, /Acme/);
+  assert.doesNotMatch(newSection, /Beta/);
+  assert.match(newSection, /peers/);
+  assert.match(newSection, /found on their careers page/);
+  // Breaks if the New card loses its Drop: a company James never asked for
+  // is the one he most needs to turn away from where he first sees it.
+  assert.match(newSection, /aria-label="Drop Acme"/);
+});
+
 test("CompaniesView renders each group with its count and its companies", async () => {
   const read = company("Acme", { boards: [{ platform: "greenhouse", id: "acme" }] });
   const dropped = company("Gamma", {
@@ -186,6 +355,7 @@ test("CompaniesView renders each group with its count and its companies", async 
   const html = await render(CompaniesView, {
     companies: [read, dropped],
     queue: [],
+    candidates: [],
     config: CONFIG,
     accessToken: ACCESS_TOKEN,
   });
@@ -207,6 +377,7 @@ test("CompaniesView offers Drop on a read or boardless company but not on one al
   const html = await render(CompaniesView, {
     companies: [read, boardless, dropped],
     queue: [],
+    candidates: [],
     config: CONFIG,
     accessToken: ACCESS_TOKEN,
   });
@@ -227,6 +398,7 @@ test("CompaniesView renders a dropped company with no .acts, and the list carrie
   const html = await render(CompaniesView, {
     companies: [dropped],
     queue: [],
+    candidates: [],
     config: CONFIG,
     accessToken: ACCESS_TOKEN,
   });
@@ -243,6 +415,7 @@ test("CompaniesView renders 'no board yet' for a company with no boards", async 
   const html = await render(CompaniesView, {
     companies: [noBoardsCompany],
     queue: [],
+    candidates: [],
     config: CONFIG,
     accessToken: ACCESS_TOKEN,
   });
@@ -257,6 +430,7 @@ test("CompaniesView shows each company's queued count, none in the muted type", 
   const html = await render(CompaniesView, {
     companies: [acme, beta],
     queue: [queued("Acme", "1"), queued("Acme", "2"), queued("Acme", "3")],
+    candidates: [],
     config: CONFIG,
     accessToken: ACCESS_TOKEN,
   });
@@ -271,6 +445,7 @@ test("initialDropping opens the drop dialog as an accessible, labelled modal", a
   const html = await render(CompaniesView, {
     companies: [acme],
     queue: [],
+    candidates: [],
     config: CONFIG,
     accessToken: ACCESS_TOKEN,
     initialDropping: "Acme",
@@ -294,6 +469,7 @@ test("the drop dialog's aria-labelledby stays one IDREF when the company name ho
   const html = await render(CompaniesView, {
     companies: [messy],
     queue: [],
+    candidates: [],
     config: CONFIG,
     accessToken: ACCESS_TOKEN,
     initialDropping: "Overland Transport & Logistics",
@@ -315,6 +491,7 @@ test("the Companies panel is programmatically focusable, so a committed Drop has
   const html = await render(CompaniesView, {
     companies: [company("Acme", READ)],
     queue: [],
+    candidates: [],
     config: CONFIG,
     accessToken: ACCESS_TOKEN,
   });
@@ -331,6 +508,7 @@ test("a committed Drop sends focus to the panel, since the card it was issued fr
   const app = mountTree(CompaniesView, {
     companies: [company("Acme", READ)],
     queue: [],
+    candidates: [],
     config: CONFIG,
     accessToken: ACCESS_TOKEN,
     initialDropping: "Acme",
@@ -366,6 +544,7 @@ test("a committed Drop hands the name and the patch up, and keeps no copy of its
   const app = mountTree(CompaniesView, {
     companies: [read],
     queue: [],
+    candidates: [],
     config: CONFIG,
     accessToken: ACCESS_TOKEN,
     initialDropping: "Acme",
@@ -410,6 +589,7 @@ test("with no initialDropping, no dialog renders at all", async () => {
   const html = await render(CompaniesView, {
     companies: [acme],
     queue: [],
+    candidates: [],
     config: CONFIG,
     accessToken: ACCESS_TOKEN,
   });

@@ -45,6 +45,12 @@ export interface TreeNode {
   querySelector(selector: string): TreeNode | null;
   /** Backed by the `data-*` props Vue set. */
   readonly dataset: Record<string, string | undefined>;
+  /**
+   * The topmost ancestor. `vModelText.beforeUpdate` asks it whether the
+   * field has focus before writing a changed model value back into it (a
+   * form cleared in place); it is never a `Document`, so the value is written.
+   */
+  getRootNode(): TreeNode;
 }
 
 /*
@@ -107,6 +113,11 @@ function node(tag: string, text = ""): TreeNode {
       return elementsWithClass(self, className).filter((each) => each !== self);
     },
     querySelector: (selector: string) => self.querySelectorAll(selector)[0] ?? null,
+    getRootNode: () => {
+      let top = self;
+      while (top.parent !== null) top = top.parent;
+      return top;
+    },
   };
   return self;
 }
@@ -230,7 +241,10 @@ export function typeInto(target: TreeNode, text: string): void {
  * an opening dialog reads (always null here), whose `body.offsetHeight` a
  * leaving row's transition reads to force a reflow (the number is never
  * used, only asked for), and whose `documentElement` is what
- * `usePaneMode` asks `getComputedStyle` about. `Element`, which
+ * `usePaneMode` asks `getComputedStyle` about. `Document` and
+ * `ShadowRoot`, which `vModelText.beforeUpdate` tests a field's root node
+ * against, so either undefined makes clearing a `v-model` field throw.
+ * `Element`, which
  * `TransitionGroup` tests each child against before measuring it, so
  * `Element` undefined makes the question itself throw. `requestAnimationFrame`,
  * which the leave hook waits two frames on before it lets a row go, run
@@ -252,6 +266,8 @@ export function stubDom(): () => void {
     window?: unknown;
     requestAnimationFrame?: unknown;
     getComputedStyle?: unknown;
+    Document?: unknown;
+    ShadowRoot?: unknown;
   };
   const had = {
     document: "document" in globals,
@@ -259,6 +275,8 @@ export function stubDom(): () => void {
     window: "window" in globals,
     requestAnimationFrame: "requestAnimationFrame" in globals,
     getComputedStyle: "getComputedStyle" in globals,
+    Document: "Document" in globals,
+    ShadowRoot: "ShadowRoot" in globals,
   };
   const original = {
     document: globals.document,
@@ -266,6 +284,8 @@ export function stubDom(): () => void {
     window: globals.window,
     requestAnimationFrame: globals.requestAnimationFrame,
     getComputedStyle: globals.getComputedStyle,
+    Document: globals.Document,
+    ShadowRoot: globals.ShadowRoot,
   };
   const computedStyle = () => ({ getPropertyValue: () => "" });
   globals.document = {
@@ -274,6 +294,8 @@ export function stubDom(): () => void {
     documentElement: {},
   };
   globals.Element = class {};
+  globals.Document = class {};
+  globals.ShadowRoot = class {};
   globals.getComputedStyle = computedStyle;
   globals.window = {
     getComputedStyle: computedStyle,
@@ -295,6 +317,10 @@ export function stubDom(): () => void {
     else delete globals.requestAnimationFrame;
     if (had.getComputedStyle) globals.getComputedStyle = original.getComputedStyle;
     else delete globals.getComputedStyle;
+    if (had.Document) globals.Document = original.Document;
+    else delete globals.Document;
+    if (had.ShadowRoot) globals.ShadowRoot = original.ShadowRoot;
+    else delete globals.ShadowRoot;
   };
 }
 

@@ -1933,6 +1933,26 @@ textarea:focus-visible {
   font-weight: 500;
 }
 
+/*
+ * A New row (`newCompanies`, `ui/src/companies.ts`) is a company row again,
+ * with who put it forward standing in for the queued count: a company just
+ * watched has nothing queued yet, so that fact would read as empty every
+ * time. Only the third grid area changes.
+ */
+.card.company.new .head {
+  grid-template-areas:
+    "company board origin"
+    "why why why";
+}
+
+.card.company.new .origin {
+  grid-area: origin;
+  justify-self: end;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
 @media (max-width: 40rem) {
   .card.company .head {
     grid-template-columns: minmax(0, 1fr) auto;
@@ -1955,6 +1975,13 @@ textarea:focus-visible {
 
   .card.company .acts {
     padding: 0 var(--s-2) 0 0;
+  }
+
+  .card.company.new .head {
+    grid-template-areas:
+      "company origin"
+      "board board"
+      "why why";
   }
 }
 
@@ -2259,7 +2286,8 @@ textarea:focus-visible {
 
 .decide label,
 .sign-in label,
-.criteria label {
+.criteria label,
+.candidates label {
   display: flex;
   flex-direction: column;
   gap: var(--s-1);
@@ -2267,7 +2295,8 @@ textarea:focus-visible {
 
 .decide label span,
 .sign-in label span,
-.criteria label span {
+.criteria label span,
+.candidates label span {
   font-size: var(--text-sm);
   font-weight: 500;
   color: var(--ink-2);
@@ -2295,6 +2324,54 @@ textarea:focus-visible {
   justify-content: flex-end;
   gap: var(--s-2);
   margin-top: var(--s-2);
+}
+
+/* --- Candidates ---------------------------------------------------------- */
+
+/* Name, URL, why: three short fields, not the two-column width Criteria's
+   eleven earn. Sits above the list it feeds, in the same reading measure. */
+.candidates form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  max-width: 32rem;
+  margin: 0 0 var(--s-6);
+}
+
+/* A candidate has no fixed columns to line up (a name or a URL, not both;
+   a company only once discover names one), so its row is read top to
+   bottom rather than across, unlike a company's or a posting's `.head`. */
+.card.candidate .head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  cursor: default;
+}
+
+.card.candidate .candidate-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.card.candidate .meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1) var(--s-3);
+  font-size: var(--text-sm);
+}
+
+.card.candidate .origin {
+  color: var(--muted);
+}
+
+.card.candidate .outcome {
+  color: var(--ink-2);
+  font-weight: 500;
+}
+
+.card.candidate .why {
+  color: var(--ink-2);
+  font-size: var(--text-sm);
 }
 
 /* --- Sign-in ----------------------------------------------------------- */

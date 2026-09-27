@@ -28,8 +28,8 @@ import {
   type TreeNode,
 } from "./render-tree.ts";
 
-// Replays responses in the order the four reads issue them: `loadAll`
-// fires all four with `Promise.all`, and each makes exactly one request
+// Replays responses in the order the five reads issue them: `loadAll`
+// fires all five with `Promise.all`, and each makes exactly one request
 // before its first `await`, so the call order matches the array order.
 
 function recordingFetch(replies: readonly (() => Response)[]): {
@@ -150,6 +150,7 @@ test("AppRoot trades a sign-in link's token for a session, forgetting it first, 
     jsonReply([]),
     jsonReply([]),
     jsonReply([CRITERIA_ROW]),
+    jsonReply([]),
   ]);
   const recorded: typeof fetch = async (input, init) => {
     events.push(`fetch ${String(input)}`);
@@ -168,7 +169,7 @@ test("AppRoot trades a sign-in link's token for a session, forgetting it first, 
 
   assert.equal(events[0], "forget");
   assert.equal(calls[0], `${CONFIG.url}/auth/v1/verify`);
-  assert.equal(calls.length, 5);
+  assert.equal(calls.length, 6);
   assert.match(html, /id="panel-queue"/);
   const saved = JSON.parse(store.getItem(SESSION_KEY) ?? "null") as Session;
   assert.equal(saved.email, "someone@example.com");
@@ -201,6 +202,7 @@ test("AppRoot opens on the Queue tab when signed in", async () => {
     jsonReply([]),
     jsonReply([]),
     jsonReply([CRITERIA_ROW]),
+    jsonReply([]),
   ]);
 
   const html = await render(signedInProps(fetchImpl));
@@ -223,6 +225,7 @@ test("AppRoot's header puts the queue's depth on the Queue tab, not in the h1", 
     jsonReply([]),
     jsonReply([]),
     jsonReply([CRITERIA_ROW]),
+    jsonReply([]),
   ]);
 
   const html = await render(signedInProps(fetchImpl));
@@ -260,6 +263,7 @@ test("a signed-in shell with a criteria row passes its floor through to the queu
     jsonReply([]),
     jsonReply([]),
     jsonReply([CRITERIA_ROW]),
+    jsonReply([]),
   ]);
 
   const html = await render(signedInProps(fetchImpl));
@@ -292,6 +296,7 @@ test("the grouped queue's history comes from the record read the shell already m
     ]),
     jsonReply([]),
     jsonReply([CRITERIA_ROW]),
+    jsonReply([]),
   ]);
 
   const html = await render(
@@ -300,10 +305,10 @@ test("the grouped queue's history comes from the record read the shell already m
     }),
   );
 
-  // The four reads the shell already makes (queue, postings, companies,
-  // criteria) — not a fifth for grouped history, which is what this test
-  // guards.
-  assert.equal(calls.length, 4, "the four reads the shell already makes");
+  // The five reads the shell already makes (queue, postings, companies,
+  // criteria, candidates) — not a sixth for grouped history, which is what
+  // this test guards.
+  assert.equal(calls.length, 5, "the five reads the shell already makes");
   assert.match(html, /<span class="company">Acme<\/span> — 1 waiting · 1 applied/);
   assert.match(html, /Principal Engineer/, "the applied role is a row under Acme's header");
   assert.doesNotMatch(html, /Cirrus/, "a company with nothing waiting opens no group");
@@ -320,6 +325,7 @@ test("a failed criteria read leaves the queue's cards with no score to show", as
     jsonReply([]),
     jsonReply([]),
     statusReply(500, "relation does not exist"),
+    jsonReply([]),
   ]);
 
   const html = await render(signedInProps(fetchImpl));
@@ -334,6 +340,7 @@ test("a failed queue read shows a Try again button, enabled, on the Queue tab", 
     jsonReply([]),
     jsonReply([]),
     jsonReply([CRITERIA_ROW]),
+    jsonReply([]),
   ]);
 
   const html = await render(signedInProps(fetchImpl));
@@ -349,11 +356,30 @@ test("a failed criteria read shows its own reason but leaves Companies populated
     jsonReply([]),
     jsonReply([{ name: "Acme", boards: [], reason: null, dropped_at: null }]),
     statusReply(500, "relation does not exist"),
+    jsonReply([]),
   ]);
 
   const onCompanies = await render(signedInProps(fetchImpl, { initialTab: "companies" }));
   assert.match(onCompanies, /Acme/);
   assert.match(onCompanies, /No board.*?\(1\)/);
+});
+
+test("a failed candidates read shows its reason on the Companies tab, whose New group it feeds", async () => {
+  // Breaks if the Companies tab reads only its own error: its companies
+  // read succeeded, so it would show an empty New group as though nothing
+  // had been watched this week, with nothing saying the read behind it failed.
+  const { fetchImpl } = recordingFetch([
+    jsonReply([]),
+    jsonReply([]),
+    jsonReply([{ name: "Acme", boards: [], reason: null, dropped_at: null }]),
+    jsonReply([CRITERIA_ROW]),
+    statusReply(500, "the candidates read is down"),
+  ]);
+
+  const onCompanies = await render(signedInProps(fetchImpl, { initialTab: "companies" }));
+
+  assert.match(onCompanies, /candidates: HTTP 500: the candidates read is down/);
+  assert.match(onCompanies, /Try again/);
 });
 
 test("a failed criteria read shows its reason on the Criteria tab and renders no form", async () => {
@@ -362,6 +388,7 @@ test("a failed criteria read shows its reason on the Criteria tab and renders no
     jsonReply([]),
     jsonReply([]),
     statusReply(500, "relation does not exist"),
+    jsonReply([]),
   ]);
 
   const onCriteria = await render(signedInProps(fetchImpl, { initialTab: "criteria" }));
@@ -377,6 +404,7 @@ test("the page has exactly one h1", async () => {
     jsonReply([]),
     jsonReply([]),
     jsonReply([CRITERIA_ROW]),
+    jsonReply([]),
   ]);
 
   const html = await render(signedInProps(fetchImpl));
@@ -444,6 +472,7 @@ test("saveReads and loadReads round-trip a round; a broken or wrong-shaped entry
     postings: [QUEUE_ROW],
     companies: [],
     criteria: CRITERIA_ROW,
+    candidates: [],
   };
   saveReads(store, reads);
   assert.deepEqual(loadReads(store), reads);
@@ -452,6 +481,8 @@ test("saveReads and loadReads round-trip a round; a broken or wrong-shaped entry
   assert.equal(store.getItem(READS_KEY), null);
   store.setItem(READS_KEY, JSON.stringify({ queue: "no" }));
   assert.equal(loadReads(store), null);
+  store.setItem(READS_KEY, JSON.stringify({ ...reads, candidates: "no" }));
+  assert.equal(loadReads(store), null, "candidates must be an array too, not just the other three");
   saveReads(store, reads);
   clearReads(store);
   assert.equal(loadReads(store), null);
@@ -466,6 +497,7 @@ test("with a cached round, AppRoot renders its rows and turns the header's ring 
     postings: [QUEUE_ROW],
     companies: [],
     criteria: CRITERIA_ROW,
+    candidates: [],
   });
 
   const html = await render({ config: CONFIG, store, httpFetch: pending, now: () => NOW });
@@ -487,6 +519,7 @@ test("a round hides the cached count behind the ring and gives it back when the 
     jsonReply([QUEUE_ROW]),
     jsonReply([]),
     jsonReply([CRITERIA_ROW]),
+    jsonReply([]),
   ]);
 
   const html = await render({ config: CONFIG, store, httpFetch: fetchImpl, now: () => NOW });
@@ -508,6 +541,7 @@ test("a round adds nothing between the header and the list, and vacates no width
     postings: [QUEUE_ROW],
     companies: [],
     criteria: CRITERIA_ROW,
+    candidates: [],
   });
 
   const html = await render({ config: CONFIG, store, httpFetch: pending, now: () => NOW });
@@ -532,12 +566,25 @@ test("a round adds nothing between the header and the list, and vacates no width
   assert.doesNotMatch(html.slice(signOut), /spinner|Recounting/);
 });
 
+const CANDIDATE_ROW = {
+  id: "candidate-1",
+  name: "Beta",
+  url: null,
+  origin: "james",
+  evidence: "saw a post about their new office",
+  added_at: "2026-09-20T00:00:00Z",
+  outcome: null,
+  outcome_at: null,
+  company: null,
+};
+
 test("a successful round is written to the cache; sign-out would clear it", async () => {
   const { fetchImpl } = recordingFetch([
     jsonReply([QUEUE_ROW]),
     jsonReply([QUEUE_ROW]),
     jsonReply([]),
     jsonReply([CRITERIA_ROW]),
+    jsonReply([CANDIDATE_ROW]),
   ]);
   const store = memoryStore({ [SESSION_KEY]: sessionJson() });
   assert.equal(loadReads(store), null);
@@ -548,6 +595,22 @@ test("a successful round is written to the cache; sign-out would clear it", asyn
   assert.ok(cached !== null, "the round was cached");
   assert.equal(cached.queue.length, 1);
   assert.equal(cached.criteria?.comp_floor, 150_000);
+  assert.deepEqual(cached.candidates, [CANDIDATE_ROW], "the fifth read's rows reach the cache too");
+});
+
+test("a failed candidates read is not cached, the same as any other read in the round", async () => {
+  const { fetchImpl } = recordingFetch([
+    jsonReply([QUEUE_ROW]),
+    jsonReply([QUEUE_ROW]),
+    jsonReply([]),
+    jsonReply([CRITERIA_ROW]),
+    statusReply(500, "relation does not exist"),
+  ]);
+  const store = memoryStore({ [SESSION_KEY]: sessionJson() });
+
+  await render({ config: CONFIG, store, httpFetch: fetchImpl, now: () => NOW });
+
+  assert.equal(loadReads(store), null, "a failed candidates read holds back the whole round");
 });
 
 test("a round with a failed read is not cached, so the next reload does not open on a half-empty page", async () => {
@@ -556,6 +619,7 @@ test("a round with a failed read is not cached, so the next reload does not open
     () => new Response("nope", { status: 500 }),
     jsonReply([]),
     jsonReply([CRITERIA_ROW]),
+    jsonReply([]),
   ]);
   const store = memoryStore({ [SESSION_KEY]: sessionJson() });
 
@@ -577,6 +641,7 @@ test("every tab renders the panel it claims to control, named by that tab and wi
       jsonReply([QUEUE_ROW]),
       jsonReply([]),
       jsonReply([CRITERIA_ROW]),
+      jsonReply([]),
     ]);
 
     const html = await render(signedInProps(fetchImpl, { initialTab: tab.id }));
@@ -633,7 +698,7 @@ function storeWithRound(
   companies: Company[] = [],
 ) {
   const store = memoryStore({ [SESSION_KEY]: sessionJson(), [QUEUE_ORDER_KEY]: order });
-  saveReads(store, { queue, postings, companies, criteria: CRITERIA_ROW });
+  saveReads(store, { queue, postings, companies, criteria: CRITERIA_ROW, candidates: [] });
   return store;
 }
 
@@ -669,6 +734,7 @@ test("noticing another tab's sign-in shows its saved round immediately", async (
       postings: [QUEUE_ROW],
       companies: [],
       criteria: CRITERIA_ROW,
+      candidates: [],
     });
     watch.onChange();
     await settled();
@@ -712,6 +778,7 @@ test("noticing a session while already signed in does nothing", async () => {
     jsonReply([QUEUE_ROW]),
     jsonReply([]),
     jsonReply([CRITERIA_ROW]),
+    jsonReply([]),
   ]);
   const watch = { onChange: () => {} };
   const app = mountRoot({
@@ -726,12 +793,12 @@ test("noticing a session while already signed in does nothing", async () => {
   try {
     await settled();
     await settled();
-    assert.equal(calls.length, 4, "the usual background refresh from mounting already signed in");
+    assert.equal(calls.length, 5, "the usual background refresh from mounting already signed in");
 
     watch.onChange();
     await settled();
 
-    assert.equal(calls.length, 4, "already signed in, noticing a session again asks for nothing");
+    assert.equal(calls.length, 5, "already signed in, noticing a session again asks for nothing");
   } finally {
     app.unmount();
     restoreDom();
@@ -753,6 +820,7 @@ test("a refresh in flight when the user signs out does not resurrect the session
     postings: [QUEUE_ROW],
     companies: [],
     criteria: CRITERIA_ROW,
+    candidates: [],
   });
   const round = heldRound([
     jsonReply({
@@ -812,12 +880,14 @@ test("reads in flight when the user signs out are not written back to the reads 
     postings: [QUEUE_ROW],
     companies: [],
     criteria: CRITERIA_ROW,
+    candidates: [],
   });
   const round = heldRound([
     jsonReply([QUEUE_ROW]),
     jsonReply([QUEUE_ROW]),
     jsonReply([]),
     jsonReply([CRITERIA_ROW]),
+    jsonReply([]),
   ]);
   const app = mountRoot({
     config: CONFIG,
@@ -1052,6 +1122,7 @@ test("a drop made while a round is in flight survives that round landing", async
     jsonReply([]),
     jsonReply([READ_COMPANY]),
     jsonReply([CRITERIA_ROW]),
+    jsonReply([]),
   ]);
   const app = mountRoot({
     config: CONFIG,
@@ -1091,6 +1162,7 @@ test("a decision made while a round is in flight survives that round landing", a
     jsonReply([QUEUE_ROW]),
     jsonReply([]),
     jsonReply([CRITERIA_ROW]),
+    jsonReply([]),
   ]);
   const app = mountRoot({
     config: CONFIG,
@@ -1139,6 +1211,7 @@ test("the Companies tab counts what is waiting, so a decision takes its posting 
       },
     ],
     criteria: CRITERIA_ROW,
+    candidates: [],
   });
   const app = mountRoot({
     config: CONFIG,
@@ -1244,6 +1317,7 @@ test("no view skips a heading level under the page's one h1", async () => {
       },
     ],
     criteria: CRITERIA_ROW,
+    candidates: [],
   });
   const app = mountRoot({ config: CONFIG, store, httpFetch: unanswered, now: () => NOW });
   try {
@@ -1268,7 +1342,7 @@ test("no view skips a heading level under the page's one h1", async () => {
     // for; a fixture that stopped rendering them would pass on the `h1`
     // alone and prove nothing.
     assert.equal(measured.get("queue"), 3, "the h1 and the Queue's two company bands");
-    assert.equal(measured.get("companies"), 4, "the h1 and the three groups");
+    assert.equal(measured.get("companies"), 5, "the h1, New, and the three state groups");
   } finally {
     app.unmount();
     restoreDom();
@@ -1288,6 +1362,7 @@ test("a decided row stays in the grouped Queue when the record read failed", asy
     statusReply(500, "the record read is down"),
     jsonReply([]),
     jsonReply([CRITERIA_ROW]),
+    jsonReply([]),
   ]);
   const app = mountRoot({
     config: CONFIG,
@@ -1304,6 +1379,189 @@ test("a decided row stays in the grouped Queue when the record read failed", asy
     assert.equal(still.length, 1, "the row he just decided is still under its company");
     assert.match(textOf(still[0]!), /Applied/, "wearing the status he wrote");
     assert.equal(listCards(app.root, "acme::2").length, 1, "and the waiting row is untouched");
+  } finally {
+    app.unmount();
+    restoreFetch();
+    restoreDom();
+  }
+});
+
+/*
+ * What James adds on the Candidates tab is laid over the round's own
+ * candidates by `AppRoot`, keyed on the id the store gave the row, until a
+ * candidates read carries that row itself.
+ */
+
+const ADDED_ROW = {
+  id: "candidate-2",
+  name: "Gamma",
+  url: null,
+  origin: "james",
+  evidence: null,
+  added_at: "2026-09-27T09:00:00+00:00",
+  outcome: null,
+  outcome_at: null,
+  company: null,
+};
+
+/** The one row PostgREST returns for the Add form's POST. */
+function insertedRow(): Response {
+  return { ok: true, status: 201, json: async () => [ADDED_ROW] } as unknown as Response;
+}
+
+async function addThroughForm(root: TreeNode, name: string): Promise<void> {
+  click(tabButton(root, "candidates"));
+  await nextTick();
+  const nameField = allNodes(root).find(
+    (node) => node.tag === "input" && node.props["type"] === "text",
+  );
+  if (nameField === undefined) throw new Error("the Add form has no Name field");
+  typeInto(nameField, name);
+  const form = allNodes(root).find((node) => node.tag === "form");
+  if (form === undefined) throw new Error("the Candidates tab carries no form");
+  submitForm(form);
+  await settled();
+}
+
+/** Each candidate card's label, in the order the Candidates tab shows them. */
+function candidateNames(root: TreeNode): string[] {
+  return elementsWithClass(root, "candidate-name").map(textOf);
+}
+
+test("an added candidate is laid over the round's own, first, and survives a tab switch", async () => {
+  const restoreDom = stubDom();
+  const restoreFetch = stubFetch(() => Promise.resolve(insertedRow()));
+  const store = memoryStore({ [SESSION_KEY]: sessionJson() });
+  saveReads(store, {
+    queue: [],
+    postings: [],
+    companies: [],
+    criteria: CRITERIA_ROW,
+    candidates: [CANDIDATE_ROW],
+  });
+  const app = mountRoot({ config: CONFIG, store, httpFetch: unanswered, now: () => NOW });
+  try {
+    await settled();
+    await addThroughForm(app.root, "Gamma");
+    assert.deepEqual(candidateNames(app.root), ["Gamma", "Beta"], "the add leads the round's row");
+
+    click(tabButton(app.root, "queue"));
+    await nextTick();
+    click(tabButton(app.root, "candidates"));
+    await nextTick();
+    assert.deepEqual(
+      candidateNames(app.root),
+      ["Gamma", "Beta"],
+      "still there after the panel was unmounted and built again",
+    );
+  } finally {
+    app.unmount();
+    restoreFetch();
+    restoreDom();
+  }
+});
+
+test("an add made while a round is in flight survives that round landing without it", async () => {
+  // The round was issued before the insert, so its candidates read does not
+  // carry the row; pruning the overlay on any successful round would make
+  // the add vanish until the next one.
+  const restoreDom = stubDom();
+  const restoreFetch = stubFetch(() => Promise.resolve(insertedRow()));
+  const round = heldRound([
+    jsonReply([]),
+    jsonReply([]),
+    jsonReply([]),
+    jsonReply([CRITERIA_ROW]),
+    jsonReply([]),
+  ]);
+  const app = mountRoot({
+    config: CONFIG,
+    store: storeWithRound([], []),
+    httpFetch: round.fetchImpl,
+    now: () => NOW,
+  });
+  try {
+    await settled();
+    await addThroughForm(app.root, "Gamma");
+    assert.deepEqual(candidateNames(app.root), ["Gamma"], "the add shows at once");
+
+    round.land();
+    await settled();
+    assert.deepEqual(candidateNames(app.root), ["Gamma"], "and is still there once it lands");
+  } finally {
+    app.unmount();
+    restoreFetch();
+    restoreDom();
+  }
+});
+
+test("an add is pruned by the round that reads it back, even one in flight when it landed", async () => {
+  // Breaks if the overlay is pruned by what was outstanding when the round
+  // was issued rather than by what the read carries: this round was issued
+  // before the insert, yet its read saw the row, and the add showed twice.
+  const restoreDom = stubDom();
+  const restoreFetch = stubFetch(() => Promise.resolve(insertedRow()));
+  const round = heldRound([
+    jsonReply([]),
+    jsonReply([]),
+    jsonReply([]),
+    jsonReply([CRITERIA_ROW]),
+    jsonReply([ADDED_ROW]),
+  ]);
+  const app = mountRoot({
+    config: CONFIG,
+    store: storeWithRound([], []),
+    httpFetch: round.fetchImpl,
+    now: () => NOW,
+  });
+  try {
+    await settled();
+    await addThroughForm(app.root, "Gamma");
+    round.land();
+    await settled();
+    assert.deepEqual(candidateNames(app.root), ["Gamma"], "one card, not the add and its read");
+  } finally {
+    app.unmount();
+    restoreFetch();
+    restoreDom();
+  }
+});
+
+test("an add is pruned by a candidates read that succeeded while another read failed", async () => {
+  // Breaks if pruning waits for a fully clean round: with the record read
+  // down, the echo stayed forever beside the row the read brought back, and
+  // the stale copy still said "waiting" after discover had watched it.
+  const restoreDom = stubDom();
+  const restoreFetch = stubFetch(() => Promise.resolve(insertedRow()));
+  const watched = {
+    ...ADDED_ROW,
+    outcome: "watched",
+    outcome_at: "2026-09-27T10:00:00+00:00",
+    company: "Gamma",
+  };
+  const round = heldRound([
+    jsonReply([]),
+    statusReply(500, "the record read is down"),
+    jsonReply([]),
+    jsonReply([CRITERIA_ROW]),
+    jsonReply([watched]),
+  ]);
+  const app = mountRoot({
+    config: CONFIG,
+    store: storeWithRound([], []),
+    httpFetch: round.fetchImpl,
+    now: () => NOW,
+  });
+  try {
+    await settled();
+    await addThroughForm(app.root, "Gamma");
+    round.land();
+    await settled();
+    assert.deepEqual(candidateNames(app.root), ["Gamma"], "one card");
+    const card = elementsWithClass(app.root, "candidate")[0];
+    assert.ok(card !== undefined);
+    assert.doesNotMatch(textOf(card), /waiting for the next run/, "the read's row, not the echo");
+    assert.match(textOf(card), /watched/);
   } finally {
     app.unmount();
     restoreFetch();

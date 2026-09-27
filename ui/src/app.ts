@@ -1,5 +1,5 @@
 /**
- * The mounted application: sign-in, then four tabs sharing one round of
+ * The mounted application: sign-in, then five tabs sharing one round of
  * reads. A read that fails leaves the other tabs with what they had.
  *
  * `AppRoot`'s `setup()` is async, which is why `mountApp` wraps it in
@@ -18,8 +18,9 @@ import {
   type Ref,
 } from "vue";
 
-import type { Company, Criteria, PostingSummary } from "../../src/schema.ts";
+import type { Candidate, Company, Criteria, PostingSummary } from "../../src/schema.ts";
 import {
+  loadCandidates,
   loadCompanies,
   loadCriteria,
   loadPostings,
@@ -43,6 +44,7 @@ import {
   type Session,
   type SessionStore,
 } from "./auth.ts";
+import { CandidatesView } from "./candidates.ts";
 import { CompaniesView, type DroppedCompany } from "./companies.ts";
 import { parseConfig, type AppConfig } from "./config.ts";
 import { CriteriaView } from "./criteria.ts";
@@ -124,7 +126,15 @@ function patchedWith(
 
 export const AppRoot = defineComponent({
   name: "AppRoot",
-  components: { SignIn, TabBar, QueueView, RecordView, CompaniesView, CriteriaView },
+  components: {
+    SignIn,
+    TabBar,
+    QueueView,
+    RecordView,
+    CompaniesView,
+    CandidatesView,
+    CriteriaView,
+  },
   props: {
     config: { type: Object as PropType<AppConfig>, required: true },
     store: { type: Object as PropType<SessionStore>, required: true },
@@ -164,6 +174,7 @@ export const AppRoot = defineComponent({
     const postingsResult = ref<ReadResult<PostingSummary[]> | null>(null);
     const companiesResult = ref<ReadResult<Company[]> | null>(null);
     const criteriaResult = ref<ReadResult<Criteria> | null>(null);
+    const candidatesResult = ref<ReadResult<Candidate[]> | null>(null);
 
     const refreshing = ref(false);
 
@@ -181,6 +192,16 @@ export const AppRoot = defineComponent({
       dropped.value = new Map(dropped.value).set(company.name, company.patch);
     }
 
+    // What James has added on this page, laid over the round's own
+    // candidates until a round reads them back, the same way a drop is laid
+    // over companies: the Candidates panel is a `v-if`, and a list kept
+    // there dies with it. Each is the row the insert returned, so it carries
+    // the id the store assigned and a later read of it can be recognised.
+    const added = ref<readonly Candidate[]>([]);
+    function onCandidateAdded(candidate: Candidate): void {
+      added.value = [candidate, ...added.value];
+    }
+
     async function loadAll(readFor: Session): Promise<void> {
       // Taken before the reads are issued: a decision made while they are in
       // flight is not in their response, so dropping the whole map on
@@ -188,14 +209,15 @@ export const AppRoot = defineComponent({
       const applied = new Set(decided.value.keys());
       const committed = new Set(dropped.value.keys());
       const accessToken = readFor.accessToken;
-      const [queue, postings, companies, criteria] = await Promise.all([
+      const [queue, postings, companies, criteria, candidates] = await Promise.all([
         loadQueue(props.config, accessToken, props.httpFetch),
         loadPostings(props.config, accessToken, {}, props.httpFetch),
         loadCompanies(props.config, accessToken, props.httpFetch),
         loadCriteria(props.config, accessToken, props.httpFetch),
+        loadCandidates(props.config, accessToken, props.httpFetch),
       ]);
       // The same race as `refresh()`'s token check, one await later: a
-      // sign-out on this tab while the four reads are in flight has already
+      // sign-out on this tab while the five reads are in flight has already
       // run `clearReads`, and these rows belong to the account that just
       // left. Neither the screen nor the reads cache may take them.
       if (!refreshStillApplies(readFor, session.value)) return;
@@ -203,12 +225,24 @@ export const AppRoot = defineComponent({
       postingsResult.value = postings;
       companiesResult.value = companies;
       criteriaResult.value = criteria;
-      if (queue.ok && postings.ok && companies.ok && criteria.ok) {
+      candidatesResult.value = candidates;
+      // Pruned against any candidates read that succeeded, not only a clean
+      // round: an add is gone from the overlay once a read carries its row,
+      // whatever the other four reads did. Keyed on presence rather than on
+      // what was outstanding when the round was issued, so an insert that
+      // lands while a round is in flight is dropped if that round saw it and
+      // kept if it did not.
+      if (candidates.ok) {
+        const read = new Set(candidates.value.map((candidate) => candidate.id));
+        added.value = added.value.filter((candidate) => !read.has(candidate.id));
+      }
+      if (queue.ok && postings.ok && companies.ok && criteria.ok && candidates.ok) {
         saveReads(props.store, {
           queue: queue.value,
           postings: postings.value,
           companies: companies.value,
           criteria: criteria.value,
+          candidates: candidates.value,
         });
         const outstanding = new Map(decided.value);
         for (const key of applied) outstanding.delete(key);
@@ -284,6 +318,7 @@ export const AppRoot = defineComponent({
           cached.criteria === null
             ? { ok: false, reason: "No criteria row in the last round." }
             : { ok: true, value: cached.criteria };
+        candidatesResult.value = { ok: true, value: cached.candidates };
         void runRefresh(refreshing, refresh);
       } else {
         await refresh();
@@ -365,6 +400,10 @@ export const AppRoot = defineComponent({
       droppedWith(companiesResult.value?.ok ? companiesResult.value.value : [], dropped.value),
     );
     const criteria = computed(() => (criteriaResult.value?.ok ? criteriaResult.value.value : null));
+    const candidates = computed(() => [
+      ...added.value,
+      ...(candidatesResult.value?.ok ? candidatesResult.value.value : []),
+    ]);
 
     const queueError = computed(() =>
       queueResult.value && !queueResult.value.ok ? queueResult.value.reason : null,
@@ -378,12 +417,18 @@ export const AppRoot = defineComponent({
     const criteriaError = computed(() =>
       criteriaResult.value && !criteriaResult.value.ok ? criteriaResult.value.reason : null,
     );
+    const candidatesError = computed(() =>
+      candidatesResult.value && !candidatesResult.value.ok ? candidatesResult.value.reason : null,
+    );
 
     const tabError = computed(() => {
       const errorByTab: Record<TabId, string | null> = {
         queue: queueError.value,
         record: postingsError.value,
-        companies: companiesError.value,
+        // The New group is drawn from the candidates read, so a failed one
+        // is said here rather than shown as an empty New group.
+        companies: companiesError.value ?? candidatesError.value,
+        candidates: candidatesError.value,
         criteria: criteriaError.value,
       };
       return errorByTab[tab.value];
@@ -404,12 +449,15 @@ export const AppRoot = defineComponent({
       selectTab,
       onDecided,
       onDropped,
+      onCandidateAdded,
       queuePostings,
       allPostings,
       actedPostings,
       waitingPostings,
       companies,
       criteria,
+      candidates,
+      candidatesError,
       tabError,
       TABS,
     };
@@ -464,9 +512,17 @@ export const AppRoot = defineComponent({
           v-if="tab === 'companies'"
           :companies="companies"
           :queue="waitingPostings"
+          :candidates="candidates"
           :config="config"
           :access-token="session.accessToken"
           @dropped="onDropped" />
+
+        <CandidatesView
+          v-if="tab === 'candidates'"
+          :candidates="candidates"
+          :config="config"
+          :access-token="session.accessToken"
+          @added="onCandidateAdded" />
 
         <CriteriaView
           v-if="tab === 'criteria' && criteria !== null"

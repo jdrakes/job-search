@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { STATUSES } from "../../src/schema.ts";
+import { CANDIDATE_FIELDS, STATUSES } from "../../src/schema.ts";
 import {
   PAGE_SIZE,
+  addCandidate,
+  loadCandidates,
   loadCompanies,
   loadCriteria,
   loadPostings,
@@ -148,6 +150,16 @@ test("loadCompanies orders by name, the primary key, and adds no second term", a
 
   const url = new URL(calls[0]?.url ?? "");
   assert.equal(url.searchParams.get("order"), "name.asc");
+});
+
+test("loadCandidates orders newest first, with the primary key appended as the tiebreak", async () => {
+  const { calls, fetchImpl } = recordingFetch([jsonReply([])]);
+
+  await loadCandidates(CONFIG, ACCESS_TOKEN, fetchImpl);
+
+  const url = new URL(calls[0]?.url ?? "");
+  assert.equal(url.searchParams.get("order"), "added_at.desc,id.asc");
+  assert.equal(url.searchParams.get("select"), CANDIDATE_FIELDS.join(","));
 });
 
 test("loadCriteria returns the one row, unwrapped from the array PostgREST sends", async () => {
@@ -312,6 +324,136 @@ test("setCompanyDrop patches dropped_at and reason on the one company, never boa
     reason: "acquired, boards gone dark",
   });
   assert.deepEqual(result, { ok: true });
+});
+
+const STORED_CANDIDATE = {
+  id: "7d3f2c1a-0000-4000-8000-000000000001",
+  name: "Acme",
+  url: "https://acme.example.com/careers",
+  origin: "james",
+  evidence: "a friend mentioned it",
+  added_at: "2026-09-20T12:00:00+00:00",
+  outcome: null,
+  outcome_at: null,
+  company: null,
+};
+
+test("addCandidate posts name, url and evidence with origin james, and returns the row the store wrote", async () => {
+  // Breaks if the POST stops asking for the row back, or the result drops
+  // it: the caller keys its echo on this id, so a random one of its own
+  // would never match the next read and the add would show twice.
+  const { calls, fetchImpl } = recordingFetch([jsonReply([STORED_CANDIDATE])]);
+
+  const result = await addCandidate(
+    CONFIG,
+    ACCESS_TOKEN,
+    { name: "Acme", url: "https://acme.example.com/careers", evidence: "a friend mentioned it" },
+    fetchImpl,
+  );
+
+  assert.equal(calls[0]?.method, "POST");
+  const url = new URL(calls[0]?.url ?? "");
+  assert.equal(`${url.origin}${url.pathname}`, `${CONFIG.url}/rest/v1/candidates`);
+  assert.equal(url.searchParams.get("select"), CANDIDATE_FIELDS.join(","));
+  assert.equal(calls[0]?.headers.get("Prefer"), "return=representation");
+  assert.deepEqual(JSON.parse(calls[0]?.body ?? "{}"), {
+    name: "Acme",
+    url: "https://acme.example.com/careers",
+    evidence: "a friend mentioned it",
+    origin: "james",
+  });
+  assert.deepEqual(result, { ok: true, value: STORED_CANDIDATE });
+});
+
+test("addCandidate reports failure when the store answers with no row", async () => {
+  const { fetchImpl } = recordingFetch([jsonReply([])]);
+
+  const result = await addCandidate(
+    CONFIG,
+    ACCESS_TOKEN,
+    { name: "Acme", url: null, evidence: null },
+    fetchImpl,
+  );
+
+  assert.equal(result.ok, false);
+});
+
+test("addCandidate accepts a URL alone, with no name", async () => {
+  const { calls, fetchImpl } = recordingFetch([jsonReply([STORED_CANDIDATE])]);
+
+  const result = await addCandidate(
+    CONFIG,
+    ACCESS_TOKEN,
+    { name: null, url: "https://acme.example.com", evidence: null },
+    fetchImpl,
+  );
+
+  assert.equal(calls.length, 1, "a valid URL alone is sent, not refused");
+  assert.equal(result.ok, true);
+});
+
+test("addCandidate reads a URL typed without a scheme as https and sends it that way", async () => {
+  // Breaks if the https:// retry goes: "acme.example.com/careers" is how a
+  // careers page is usually copied, and `new URL` refuses it bare.
+  const { calls, fetchImpl } = recordingFetch([jsonReply([STORED_CANDIDATE])]);
+
+  const result = await addCandidate(
+    CONFIG,
+    ACCESS_TOKEN,
+    { name: null, url: "acme.example.com/careers", evidence: null },
+    fetchImpl,
+  );
+
+  assert.equal(calls.length, 1, "sent, not refused");
+  assert.equal(JSON.parse(calls[0]?.body ?? "{}").url, "https://acme.example.com/careers");
+  assert.equal(result.ok, true);
+});
+
+test("addCandidate refuses and sends nothing when both name and url are empty", async () => {
+  const { calls, fetchImpl } = recordingFetch([jsonReply([STORED_CANDIDATE])]);
+
+  const result = await addCandidate(
+    CONFIG,
+    ACCESS_TOKEN,
+    { name: null, url: null, evidence: null },
+    fetchImpl,
+  );
+
+  assert.equal(calls.length, 0, "refused before any request went out");
+  assert.equal(result.ok, false);
+  assert.match(!result.ok ? result.reason : "", /name or a URL/);
+});
+
+test("addCandidate refuses a url that parses neither as typed nor with https://, naming it unreadable", async () => {
+  // Breaks if the message goes back to "needs a name or a URL", which told
+  // James the field was empty when he had typed something into it.
+  const { calls, fetchImpl } = recordingFetch([jsonReply([STORED_CANDIDATE])]);
+
+  const result = await addCandidate(
+    CONFIG,
+    ACCESS_TOKEN,
+    { name: null, url: "not a url", evidence: null },
+    fetchImpl,
+  );
+
+  assert.equal(calls.length, 0, "an unreadable url is refused before sending");
+  assert.deepEqual(result, { ok: false, reason: 'cannot read "not a url" as a URL' });
+});
+
+test("addCandidate reports failure when the store refuses the insert", async () => {
+  const { fetchImpl } = recordingFetch([
+    statusReply(403, "new row violates row-level security policy"),
+  ]);
+
+  const result = await addCandidate(
+    CONFIG,
+    ACCESS_TOKEN,
+    { name: "Acme", url: null, evidence: null },
+    fetchImpl,
+  );
+
+  assert.equal(result.ok, false);
+  assert.match(!result.ok ? result.reason : "", /403/);
 });
 
 test("saveCriteria patches the row and stamps updated_at from the injected clock", async () => {
