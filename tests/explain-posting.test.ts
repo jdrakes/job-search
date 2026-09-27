@@ -37,11 +37,6 @@ function posting(overrides: Partial<Posting> & Pick<Posting, "key" | "company">)
     comp_high: 250_000,
     posted_at: null,
     first_seen: "2020-01-01T00:00:00.000Z",
-    // Matches the fixture company's board `last_read` below, so the `gone`
-    // criterion reads "in": a `last_seen` before the last read would read
-    // this posting as dropped from a board that has since been checked.
-    last_seen: "2026-09-16T06:00:00.000Z",
-    live: null,
     body: "This is a fully remote position.",
     kept: null,
     reasons: [],
@@ -53,6 +48,7 @@ function posting(overrides: Partial<Posting> & Pick<Posting, "key" | "company">)
     note: null,
     body_hash: "deadbeef",
     workplace: null,
+    gone_at: null,
     ...overrides,
   };
 }
@@ -65,7 +61,6 @@ function company(name: string, overrides: Partial<Company> = {}): Company {
     source: "test",
     reason: null,
     first_seen: "2026-09-15T00:00:00.000Z",
-    last_seen: "2026-09-15T00:00:00.000Z",
     dropped_at: null,
     alias_of: null,
     ...overrides,

@@ -113,8 +113,8 @@ export async function watched(store: Store): Promise<Company[]> {
 // A name never seen becomes `discovered`. A name already present keeps its
 // state and gains any board it did not have; existing boards are never
 // replaced. An `alias` is left untouched: it is never revived as
-// `discovered`. A dropped company's boards and `last_seen` are the
-// processor's and move as any row's do; the flag alone keeps it unread.
+// `discovered`. A dropped company's boards are the processor's and move as
+// any row's do; the flag alone keeps it unread.
 export async function seen(
   store: Store,
   name: string,
@@ -133,7 +133,6 @@ export async function seen(
       source,
       reason: null,
       first_seen: now,
-      last_seen: now,
       dropped_at: null,
       alias_of: null,
     };
@@ -150,7 +149,7 @@ export async function seen(
     }
   }
 
-  const row: Company = { ...current, boards: merged, last_seen: now };
+  const row: Company = { ...current, boards: merged };
   await store.upsert("companies", [row]);
 }
 
@@ -174,7 +173,6 @@ export async function aliased(
     source: current?.source ?? source,
     reason: current?.reason ?? null,
     first_seen: current?.first_seen ?? now,
-    last_seen: now,
     dropped_at: current?.dropped_at ?? null,
     alias_of: owner,
   };

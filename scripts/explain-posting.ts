@@ -35,7 +35,7 @@ const ROW_COLUMNS = [
   "comp_high",
   "posted_at",
   "body",
-  "last_seen",
+  "gone_at",
   "workplace",
   "status",
   "first_seen",
@@ -57,7 +57,7 @@ const REPRESENTATIVE_COLUMNS = [
   "location",
   "title",
   "first_seen",
-  "last_seen",
+  "gone_at",
 ] as const satisfies readonly (keyof Posting)[];
 
 type RepresentativeRow = Pick<Posting, (typeof REPRESENTATIVE_COLUMNS)[number]>;
@@ -110,7 +110,7 @@ export async function explainPosting(store: Store, key: string): Promise<Explain
     undefined,
     REPRESENTATIVE_COLUMNS,
   );
-  const representative = representativeByKey(postings, criteria, boards);
+  const representative = representativeByKey(postings, criteria);
 
   const twoPhase = READERS[row.platform].body !== undefined;
   const judgedBody: JudgedBody = !twoPhase ? "listing" : row.body === null ? "absent" : "stored";

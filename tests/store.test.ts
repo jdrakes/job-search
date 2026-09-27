@@ -25,7 +25,6 @@ function company(name: string, overrides: Partial<Company> = {}): Company {
     source: "test",
     reason: null,
     first_seen: "2026-09-15T00:00:00Z",
-    last_seen: "2026-09-15T00:00:00Z",
     dropped_at: null,
     alias_of: null,
     ...overrides,
@@ -45,8 +44,6 @@ function posting(key: string, overrides: Partial<Posting> = {}): Posting {
     comp_high: null,
     posted_at: null,
     first_seen: "2026-09-15T00:00:00Z",
-    last_seen: "2026-09-15T00:00:00Z",
-    live: null,
     body: null,
     kept: null,
     reasons: [],
@@ -58,6 +55,7 @@ function posting(key: string, overrides: Partial<Posting> = {}): Posting {
     note: null,
     body_hash: null,
     workplace: null,
+    gone_at: null,
     ...overrides,
   };
 }
@@ -111,7 +109,6 @@ const CASES: readonly ContractCase[] = [
           key,
           company: key.split("::")[0],
           title: "New Title",
-          last_seen: "2026-09-16T00:00:00Z",
         },
       ]);
 
@@ -132,19 +129,17 @@ const CASES: readonly ContractCase[] = [
       const withComp = `${prefix}::comp`;
       const bare = `${prefix}::bare`;
       const company = withBody.split("::")[0];
-      const lastSeen = "2026-09-18T00:00:00Z";
 
       await store.upsert("postings", [
         posting(withBody, { title: "Body Role", body: "a long body", status: "applied" }),
         {
           key: withComp,
           company,
-          last_seen: lastSeen,
           title: "Comp Role",
           comp_low: 100_000,
           comp_high: 150_000,
         },
-        { key: bare, company, last_seen: lastSeen, title: "Bare Role" },
+        { key: bare, company, title: "Bare Role" },
       ]);
 
       const [rowBody] = await store.select<Posting>("postings", { key: withBody });
@@ -159,9 +154,7 @@ const CASES: readonly ContractCase[] = [
 
       // A second upsert of a different shape again, omitting a column the
       // first call wrote: that column keeps its stored value.
-      await store.upsert("postings", [
-        { key: withBody, company, last_seen: lastSeen, title: "Body Role, revised" },
-      ]);
+      await store.upsert("postings", [{ key: withBody, company, title: "Body Role, revised" }]);
 
       const [revised] = await store.select<Posting>("postings", { key: withBody });
       assert.equal(revised?.title, "Body Role, revised");
@@ -239,9 +232,7 @@ const CASES: readonly ContractCase[] = [
       const key = `${prefix}::123`;
       await store.upsert("postings", [posting(key, { first_seen: "2026-09-15T00:00:00Z" })]);
 
-      await store.upsert("postings", [
-        { key, company: key.split("::")[0], last_seen: "2026-09-16T00:00:00Z" },
-      ]);
+      await store.upsert("postings", [{ key, company: key.split("::")[0], title: "Re-listed" }]);
 
       const read = await store.select<Posting>("postings", { key });
       assert.equal(
@@ -257,11 +248,11 @@ const CASES: readonly ContractCase[] = [
     name: "a timestamp column reads back as a string naming the instant written",
     run: async (store, prefix) => {
       const key = `${prefix}::123`;
-      await store.upsert("postings", [posting(key, { last_seen: "2026-09-16T13:45:00Z" })]);
+      await store.upsert("postings", [posting(key, { gone_at: "2026-09-16T13:45:00Z" })]);
 
       const read = await store.select<Posting>("postings", { key });
-      assert.equal(typeof read[0]?.last_seen, "string");
-      assert.equal(new Date(read[0]?.last_seen ?? "").toISOString(), "2026-09-16T13:45:00.000Z");
+      assert.equal(typeof read[0]?.gone_at, "string");
+      assert.equal(new Date(read[0]?.gone_at ?? "").toISOString(), "2026-09-16T13:45:00.000Z");
     },
   },
   {
@@ -402,16 +393,16 @@ test("postgres upsert assigns only the columns the payload carries, so first_see
   const { statements, store } = recordingQuery();
 
   await store.upsert("postings", [
-    { key: "Acme::1", company: "Acme", title: "Engineer", last_seen: "2026-09-16T00:00:00Z" },
+    { key: "Acme::1", company: "Acme", title: "Engineer", gone_at: "2026-09-16T00:00:00Z" },
   ]);
 
   assert.equal(statements.length, 1, "one payload shape is one statement");
   assert.equal(
     statements[0]?.text,
-    'INSERT INTO "postings" ("key", "company", "title", "last_seen") ' +
+    'INSERT INTO "postings" ("key", "company", "title", "gone_at") ' +
       "VALUES ($1, $2, $3, $4) " +
       'ON CONFLICT ("key") DO UPDATE SET "company" = EXCLUDED."company", ' +
-      '"title" = EXCLUDED."title", "last_seen" = EXCLUDED."last_seen"',
+      '"title" = EXCLUDED."title", "gone_at" = EXCLUDED."gone_at"',
   );
   assert.deepEqual(statements[0]?.values, ["Acme::1", "Acme", "Engineer", "2026-09-16T00:00:00Z"]);
 });
@@ -447,7 +438,7 @@ test("postgres upsert splits a batch that would bind more than 65,535 parameters
   const rows = Array.from({ length: 21_846 }, (_, index) => ({
     key: `Acme::${index}`,
     company: "Acme",
-    last_seen: "2026-09-16T00:00:00Z",
+    title: "Engineer",
   }));
 
   await store.upsert("postings", rows);
@@ -476,11 +467,11 @@ test("postgres upsert sends one statement per column set, so a mixed batch write
 test("postgres select orders by the primary key, spells a null filter IS NULL, and reads unpaged", async () => {
   const { statements, store } = recordingQuery();
 
-  await store.select("postings", { company: "Acme", live: null }, ["title"]);
+  await store.select("postings", { company: "Acme", gone_at: null }, ["title"]);
 
   assert.equal(
     statements[0]?.text,
-    'SELECT "title", "key" FROM "postings" WHERE "company" = $1 AND "live" IS NULL ' +
+    'SELECT "title", "key" FROM "postings" WHERE "company" = $1 AND "gone_at" IS NULL ' +
       'ORDER BY "key" ASC',
   );
   assert.deepEqual(statements[0]?.values, ["Acme"]);

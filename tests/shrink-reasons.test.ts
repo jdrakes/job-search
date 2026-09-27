@@ -17,8 +17,6 @@ function posting(overrides: Partial<Posting> & Pick<Posting, "key" | "company">)
     comp_high: 250_000,
     posted_at: null,
     first_seen: "2020-01-01T00:00:00.000Z",
-    last_seen: "2020-01-01T00:00:00.000Z",
-    live: null,
     body: null,
     kept: null,
     reasons: [],
@@ -30,6 +28,7 @@ function posting(overrides: Partial<Posting> & Pick<Posting, "key" | "company">)
     note: null,
     body_hash: null,
     workplace: null,
+    gone_at: null,
     ...overrides,
   };
 }
@@ -161,18 +160,17 @@ function recordingUpserts(store: Store): { store: Store; sent: object[] } {
   };
 }
 
-// Breaks if `company` or `last_seen` is dropped from the upsert payload:
-// both are NOT NULL with no default, and Postgres builds the INSERT tuple
-// before it finds the ON CONFLICT, so a row without them is refused even
-// though it only updates an existing posting.
-test("shrinkReasons: every upserted row carries the stored company and last_seen", async () => {
+// Breaks if `company` is dropped from the upsert payload: it is NOT NULL
+// with no default, and Postgres builds the INSERT tuple before it finds the
+// ON CONFLICT, so a row without it is refused even though it only updates
+// an existing posting.
+test("shrinkReasons: every upserted row carries the stored company", async () => {
   const recorded = recordingUpserts(
     memoryStore({
       postings: [
         posting({
           key: "acme::1",
           company: "Acme",
-          last_seen: "2026-09-20T06:00:00.000Z",
           kept: false,
           reasons: OLD_REASONS,
         }),
@@ -186,7 +184,6 @@ test("shrinkReasons: every upserted row carries the stored company and last_seen
     {
       key: "acme::1",
       company: "Acme",
-      last_seen: "2026-09-20T06:00:00.000Z",
       reasons: ["comp", "level"],
       evidence: {},
     },

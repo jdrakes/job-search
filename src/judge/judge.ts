@@ -10,7 +10,6 @@ import {
   goneBy,
   judgeAge,
   judgeListing,
-  listedBy,
   NO_BOARDS,
   type Reason,
   unwatchedBy,
@@ -49,9 +48,9 @@ type JudgedColumns = Pick<
   | "comp_high"
   | "posted_at"
   | "body"
-  | "last_seen"
   | "workplace"
   | "status"
+  | "gone_at"
 >;
 
 // The complete verdict, a `Reason` for every criterion that ran, before
@@ -110,13 +109,10 @@ export function judge(
 // re-judged:
 //
 // - age: a kept posting has passed the max age.
-// - gone: a kept posting's board has been read since it was last seen; and
-//   the reverse, a gone-dropped posting a board lists again, qualified by
-//   its stored reasons so a fresh `last_seen` alone never re-judges the
-//   whole dropped set. The reverse needs a read on record that listed the
-//   row (`listedBy`), or the board gone from watch (`unwatchedBy`, so the
-//   row is judged once more and reads unwatched) — not merely the absence
-//   of a read: a watched board whose read failed says nothing.
+// - gone: no check here at all. `listCompany` (ingest.ts) already sets
+//   `judged_with: null` on every row whose `gone_at` changes, gone or
+//   returned, so the staleness check above (`judged_with === null`)
+//   catches both without needing `gone_at` itself.
 // - duplicate: a kept posting that is no longer its group's representative,
 //   or a duplicate-out posting that now is.
 // - unwatched: a kept posting whose company or board is no longer watched;
@@ -139,7 +135,6 @@ export function needsJudging(
     | "judged_with"
     | "kept"
     | "posted_at"
-    | "last_seen"
     | "reasons"
   >,
   criteria: Criteria,
@@ -171,14 +166,6 @@ export function needsJudging(
   ) {
     return true;
   }
-  if (posting.kept === true && goneBy(posting, boards)) return true;
-  if (
-    posting.kept === false &&
-    hasReasonOut(posting.reasons, "gone") &&
-    (listedBy(posting, boards) || unwatchedBy(posting, boards))
-  ) {
-    return true;
-  }
   if (posting.kept === true && unwatchedBy(posting, boards)) return true;
   return (
     posting.kept === false &&
@@ -200,8 +187,7 @@ function hasReasonOut(reasons: unknown, criterion: string): boolean {
 // the sweep shares one answer. Two filters before a row can compete:
 //
 // - A row gone by `goneBy` is skipped, or a group's duplicates would stay
-//   out forever naming a row nothing will bring back. `NO_BOARDS` skips
-//   nothing.
+//   out forever naming a row nothing will bring back.
 // - A row the level criterion would not admit is skipped: the req is judged
 //   as the posting James would actually see, not a pay-less "Software
 //   Engineer II" that merely posted later.
@@ -221,14 +207,13 @@ export function representativeByKey(
     | "location"
     | "title"
     | "first_seen"
-    | "last_seen"
+    | "gone_at"
   >[],
   criteria: Criteria,
-  boards: BoardIndex = NO_BOARDS,
 ): Map<string, string> {
   const latest = new Map<string, Pick<Posting, "key" | "first_seen">>();
   for (const row of rows) {
-    if (goneBy(row, boards)) continue;
+    if (goneBy(row)) continue;
     if (!admitsLevel(row, criteria)) continue;
     const key = duplicateKey(row, criteria);
     const current = latest.get(key);

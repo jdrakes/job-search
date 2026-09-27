@@ -24,7 +24,6 @@ function company(name: string, overrides: Partial<Company> = {}): Company {
     source: "test",
     reason: null,
     first_seen: "2026-09-15T00:00:00Z",
-    last_seen: "2026-09-15T00:00:00Z",
     dropped_at: null,
     alias_of: null,
     ...overrides,

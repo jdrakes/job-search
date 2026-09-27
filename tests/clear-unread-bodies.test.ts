@@ -35,8 +35,6 @@ function posting(overrides: Partial<Posting> & Pick<Posting, "key" | "company">)
     comp_high: 250_000,
     posted_at: null,
     first_seen: "2020-01-01T00:00:00.000Z",
-    last_seen: "2020-01-01T00:00:00.000Z",
-    live: null,
     body: "This is a fully remote position open to candidates anywhere in the US.",
     kept: null,
     reasons: [],
@@ -48,6 +46,7 @@ function posting(overrides: Partial<Posting> & Pick<Posting, "key" | "company">)
     note: null,
     body_hash: "deadbeef",
     workplace: null,
+    gone_at: null,
     ...overrides,
   };
 }

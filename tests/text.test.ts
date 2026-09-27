@@ -37,8 +37,6 @@ function posting(overrides: Partial<Posting> = {}): Posting {
     comp_high: null,
     posted_at: null,
     first_seen: "2020-01-01T00:00:00.000Z",
-    last_seen: "2020-01-01T00:00:00.000Z",
-    live: null,
     body: null,
     kept: null,
     reasons: [],
@@ -50,6 +48,7 @@ function posting(overrides: Partial<Posting> = {}): Posting {
     note: null,
     body_hash: null,
     workplace: null,
+    gone_at: null,
     ...overrides,
   };
 }

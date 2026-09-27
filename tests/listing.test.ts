@@ -115,8 +115,6 @@ function posting(overrides: Partial<Posting> = {}): Posting {
     comp_high: null,
     posted_at: null,
     first_seen: "2020-01-01T00:00:00.000Z",
-    last_seen: "2020-01-01T00:00:00.000Z",
-    live: null,
     body: null,
     kept: null,
     reasons: [],
@@ -128,6 +126,7 @@ function posting(overrides: Partial<Posting> = {}): Posting {
     note: null,
     body_hash: null,
     workplace: null,
+    gone_at: null,
     ...overrides,
   };
 }
@@ -815,21 +814,13 @@ function company(name: string, overrides: Partial<Company> = {}): Company {
     source: "test",
     reason: null,
     first_seen: "2026-09-15T00:00:00.000Z",
-    last_seen: "2026-09-15T00:00:00.000Z",
     dropped_at: null,
     alias_of: null,
     ...overrides,
   };
 }
 
-// The fixture posting's board, `greenhouse/board`, read on the 16th.
-const READ_ON_16TH = boardIndex([
-  company("Acme", {
-    boards: [{ platform: "greenhouse", id: "board", last_read: "2026-09-16T06:00:00.000Z" }],
-  }),
-]);
-
-test("boardIndex: a watched company's boards are indexed; only a board with a last_read is in lastRead", () => {
+test("boardIndex: a watched company's boards are indexed", () => {
   const index = boardIndex([
     company("Acme", {
       boards: [
@@ -839,12 +830,11 @@ test("boardIndex: a watched company's boards are indexed; only a board with a la
     }),
   ]);
   assert.deepEqual([...index.watched], ["greenhouse::acme-gh", "lever::acme-lv"]);
-  assert.deepEqual([...index.lastRead], [["greenhouse::acme-gh", "2026-09-16T06:00:00.000Z"]]);
   assert.deepEqual([...index.stateOf], [["Acme", { state: "watched", alias_of: null }]]);
   assert.equal(index.dropped.size, 0);
 });
 
-test("boardIndex: an alias or discovered company's boards are in neither lastRead nor watched, but its state is on record", () => {
+test("boardIndex: an alias or discovered company's boards are not watched, but its state is on record", () => {
   const index = boardIndex([
     company("Alias", {
       state: "alias",
@@ -856,7 +846,6 @@ test("boardIndex: an alias or discovered company's boards are in neither lastRea
     }),
   ]);
   assert.equal(index.watched.size, 0);
-  assert.equal(index.lastRead.size, 0);
   assert.deepEqual(
     [...index.stateOf],
     [
@@ -866,7 +855,7 @@ test("boardIndex: an alias or discovered company's boards are in neither lastRea
   );
 });
 
-test("boardIndex: a dropped company is in dropped, and its boards are in neither lastRead nor watched", () => {
+test("boardIndex: a dropped company is in dropped, and its boards are not watched", () => {
   const index = boardIndex([
     company("Gone", {
       state: "watched",
@@ -877,111 +866,49 @@ test("boardIndex: a dropped company is in dropped, and its boards are in neither
   ]);
   assert.deepEqual([...index.dropped], ["Gone"]);
   assert.deepEqual([...index.watched], ["lever::acme-lv"]);
-  assert.equal(index.lastRead.size, 0);
   assert.deepEqual([...index.stateOf.keys()], ["Gone", "Acme"]);
 });
 
-test("goneBy: last seen before the board's last read is gone", () => {
-  assert.equal(goneBy(posting({ last_seen: "2026-09-16T05:59:59.000Z" }), READ_ON_16TH), true);
+test("goneBy: a null gone_at is not gone", () => {
+  assert.equal(goneBy({ gone_at: null }), false);
 });
 
-test("goneBy: last seen at the board's last read is not gone", () => {
-  assert.equal(goneBy(posting({ last_seen: "2026-09-16T06:00:00.000Z" }), READ_ON_16TH), false);
+test("goneBy: a set gone_at is gone", () => {
+  assert.equal(goneBy({ gone_at: "2026-09-01T00:00:00Z" }), true);
 });
 
-test("goneBy: a board with no last_read is never gone, however old last_seen", () => {
-  const unread = boardIndex([
-    company("Acme", { boards: [{ platform: "greenhouse", id: "board" }] }),
-  ]);
-  assert.equal(goneBy(posting({ last_seen: "2020-01-01T00:00:00.000Z" }), unread), false);
-  assert.equal(goneBy(posting({ last_seen: "2020-01-01T00:00:00.000Z" }), NO_BOARDS), false);
-});
-
-test("goneBy: a posting with no board is never gone", () => {
-  assert.equal(
-    goneBy(posting({ board: null, last_seen: "2020-01-01T00:00:00.000Z" }), READ_ON_16TH),
-    false,
-  );
-});
-
-test("goneBy: the board is matched by platform and id together", () => {
-  const otherPlatform = posting({ platform: "lever", last_seen: "2020-01-01T00:00:00.000Z" });
-  assert.equal(goneBy(otherPlatform, READ_ON_16TH), false);
-  const otherId = posting({ board: "other", last_seen: "2020-01-01T00:00:00.000Z" });
-  assert.equal(goneBy(otherId, READ_ON_16TH), false);
-});
-
-test("gone: a board with no recorded read is in, however old last_seen", () => {
+test("gone: a null gone_at is in", () => {
   const { reasons } = judgeListing(
-    posting({ title: "Staff Backend Engineer", last_seen: "2020-01-01T00:00:00.000Z" }),
+    posting({ title: "Staff Backend Engineer", gone_at: null }),
     criteria(),
     "2026-09-17T00:00:00Z",
-    boardIndex([company("Acme", { boards: [{ platform: "greenhouse", id: "board" }] })]),
   );
   const gone = reasonFor(reasons, "gone");
   assert.equal(gone.verdict, "in");
-  assert.equal(gone.detail, "board has no recorded read");
+  assert.equal(gone.detail, "listed at the board's last read");
 });
 
-test("gone: last seen before the board's last read is out and the detail names both days", () => {
+test("gone: a set gone_at is out, and the detail names the day", () => {
   const { reasons } = judgeListing(
-    posting({ title: "Staff Backend Engineer", last_seen: "2026-09-14T06:00:00.000Z" }),
+    posting({ title: "Staff Backend Engineer", gone_at: "2026-09-16T06:00:00.000Z" }),
     criteria(),
     "2026-09-17T00:00:00Z",
-    READ_ON_16TH,
   );
   const gone = reasonFor(reasons, "gone");
   assert.equal(gone.verdict, "out");
-  assert.equal(gone.detail, "last seen 2026-09-14, board read 2026-09-16 without it");
+  assert.equal(gone.detail, "gone since 2026-09-16");
 });
 
-test("gone: last seen at the board's last read is in", () => {
+// Omitting the board index leaves the gone criterion unaffected: it reads
+// `gone_at` alone, never `boards`.
+test("gone: omitting the board index still reads gone_at", () => {
   const { reasons } = judgeListing(
-    posting({ title: "Staff Backend Engineer", last_seen: "2026-09-16T06:00:00.000Z" }),
-    criteria(),
-    "2026-09-17T00:00:00Z",
-    READ_ON_16TH,
-  );
-  const gone = reasonFor(reasons, "gone");
-  assert.equal(gone.verdict, "in");
-  assert.equal(gone.detail, "listed at the board's last read 2026-09-16");
-});
-
-test("gone: last seen after the board's last read is in", () => {
-  const { reasons } = judgeListing(
-    posting({ title: "Staff Backend Engineer", last_seen: "2026-09-17T06:00:00.000Z" }),
-    criteria(),
-    "2026-09-17T00:00:00Z",
-    READ_ON_16TH,
-  );
-  assert.equal(reasonFor(reasons, "gone").verdict, "in");
-});
-
-test("gone: a posting with no board is in", () => {
-  const { reasons } = judgeListing(
-    posting({
-      title: "Staff Backend Engineer",
-      board: null,
-      last_seen: "2020-01-01T00:00:00.000Z",
-    }),
-    criteria(),
-    "2026-09-17T00:00:00Z",
-    READ_ON_16TH,
-  );
-  const gone = reasonFor(reasons, "gone");
-  assert.equal(gone.verdict, "in");
-  assert.equal(gone.detail, "board has no recorded read");
-});
-
-// Omitting the argument and passing `NO_BOARDS` read the same.
-test("gone: omitting the board index defaults to no boards, reading in", () => {
-  const { reasons } = judgeListing(
-    posting({ title: "Staff Backend Engineer", last_seen: "2020-01-01T00:00:00Z" }),
+    posting({ title: "Staff Backend Engineer", gone_at: null }),
     criteria(),
   );
   const gone = reasonFor(reasons, "gone");
   assert.equal(gone.verdict, "in");
-  assert.equal(gone.detail, "board has no recorded read");
+  assert.equal(gone.detail, "listed at the board's last read");
 });
 
 test("unwatchedBy: a posting whose company is not on record is not unwatched", () => {
