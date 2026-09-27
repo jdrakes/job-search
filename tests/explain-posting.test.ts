@@ -141,3 +141,83 @@ test("explainPosting: no criteria row is a clear refusal", async () => {
   if (result.ok) return;
   assert.match(result.reason, /criteria/);
 });
+
+// Breaks if explainPosting presents a two-phase posting's live judgment as
+// the stored verdict when it had no body to judge: `explain-posting.ts`
+// judges with `body: null`, so `excluded_states` reads nothing and passes,
+// while the last daily run read the body (since cleared by #272's rule)
+// and stored `excluded_states` out.
+test("explainPosting: a two-phase posting with no stored body is told apart from its stored verdict", async () => {
+  const row = posting({
+    key: "acme::1",
+    company: "Acme",
+    platform: "workday",
+    location: "Remote",
+    body: null,
+    body_hash: null,
+    kept: false,
+    reasons: ["excluded_states"],
+  });
+  const store = memoryStore({
+    postings: [row],
+    criteria: [criteria()],
+    companies: [
+      company("Acme", {
+        boards: [{ platform: "workday", id: "board", last_read: "2026-09-16T06:00:00.000Z" }],
+      }),
+    ],
+  });
+
+  const result = await explainPosting(store, "acme::1");
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.judgedBody, "absent");
+  assert.equal(result.kept, true);
+  assert.equal(result.storedKept, false);
+  assert.deepEqual(result.storedReasons, ["excluded_states"]);
+  assert.equal(result.agreesWithStored, false);
+});
+
+// Breaks if a one-phase posting whose live judgment matches what is stored
+// is reported as a disagreement, or its body source is misread.
+test("explainPosting: a one-phase posting whose stored verdict matches agrees", async () => {
+  const row = posting({ key: "acme::1", company: "Acme", kept: true, reasons: [] });
+  const store = memoryStore({
+    postings: [row],
+    criteria: [criteria()],
+    companies: [company("Acme")],
+  });
+
+  const result = await explainPosting(store, "acme::1");
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.judgedBody, "listing");
+  assert.equal(result.storedKept, true);
+  assert.deepEqual(result.storedReasons, []);
+  assert.equal(result.agreesWithStored, true);
+});
+
+// Breaks if a row not yet converted by shrink-reasons (old object shape)
+// reads as having no stored out criteria.
+test("explainPosting: an old-shape stored reasons array reads as its out criteria", async () => {
+  const row = posting({
+    key: "acme::1",
+    company: "Acme",
+    kept: false,
+    reasons: [
+      { criterion: "role", verdict: "in", detail: "title matches a role word" },
+      { criterion: "comp", verdict: "out", detail: "comp_high below the floor" },
+    ],
+  });
+  const store = memoryStore({
+    postings: [row],
+    criteria: [criteria()],
+    companies: [company("Acme")],
+  });
+
+  const result = await explainPosting(store, "acme::1");
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(result.storedReasons, ["comp"]);
+  assert.equal(result.agreesWithStored, false);
+});

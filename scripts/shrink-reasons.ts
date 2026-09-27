@@ -11,13 +11,21 @@
 // A row already in the new shape (its `reasons` is empty, or its first
 // element is already a string) is left alone: the per-row check below is
 // what tells old rows from new, since jsonb introspection at the query
-// level is not something this project's `Store` interface exposes. Nothing
-// reads a row's old shape before it is converted — `needsJudging`'s
-// `hasReasonOut` only asks `Array.isArray(reasons) && reasons.includes(...)`,
-// which is false for every object-shaped row, the same as if that row had
-// no matching reason at all, so an unconverted row is simply re-judged the
-// next time `needsJudging` would have said yes for an unrelated reason, and
-// converted then by `judge()` itself.
+// level is not something this project's `Store` interface exposes.
+//
+// Run this promptly after the migration. Until a row is converted,
+// `needsJudging`'s `hasReasonOut` (`Array.isArray(reasons) &&
+// reasons.includes(criterion)`) reads false on its object elements for
+// every criterion. Its three reverse checks (duplicate, gone, unwatched)
+// re-judge a row whose stored reasons name that criterion once the
+// condition behind it has cleared; on an unconverted row they never fire,
+// so a posting rejected as a duplicate, as gone, or for an unwatched
+// company stays rejected after that condition clears. The row is
+// converted, and the reversal can happen, only when this script runs or
+// when an unrelated criteria edit bumps `judged_with` past the row's,
+// which re-judges it and writes the new shape as a side effect. Running
+// this script right after the migration is what closes that gap; do not
+// rely on any reversal happening before it has run.
 //
 // `evidence` is left as stored when the posting is kept or acted on
 // (`status !== null`), the same "kept || acted" rule `judge()` applies when
@@ -33,6 +41,8 @@ import type { Store } from "../src/store/store.ts";
 
 const CANDIDATE_COLUMNS = [
   "key",
+  "company",
+  "last_seen",
   "kept",
   "status",
   "reasons",
@@ -41,7 +51,12 @@ const CANDIDATE_COLUMNS = [
 
 type CandidateRow = Pick<Posting, (typeof CANDIDATE_COLUMNS)[number]>;
 
-type ShrunkRow = Pick<Posting, "key" | "reasons" | "evidence">;
+// Postgres builds the INSERT tuple before it finds the conflict, so every
+// NOT NULL column without a default (`company`, `last_seen`) has to be in
+// the payload even though the row exists; they are carried back as read,
+// the same as `src/ingest.ts`'s `VerdictRow` and
+// `scripts/clear-unread-bodies.ts`'s `ClearedRow`.
+type ShrunkRow = Pick<Posting, "key" | "company" | "last_seen" | "reasons" | "evidence">;
 
 // Same size `clearUnreadBodies` (#272) flushes at: small enough that a
 // failed batch, on a one-off run like this one, loses little.
@@ -92,7 +107,7 @@ export async function shrinkReasons(store: Store): Promise<ShrinkSummary> {
       .map((reason) => reason.criterion);
     const evidence = row.kept === true || row.status !== null ? row.evidence : {};
 
-    batch.push({ key: row.key, reasons, evidence });
+    batch.push({ key: row.key, company: row.company, last_seen: row.last_seen, reasons, evidence });
     converted += 1;
     if (batch.length >= SHRINK_FLUSH) {
       await flush(store, batch);

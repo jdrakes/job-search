@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { shrinkReasons } from "../scripts/shrink-reasons.ts";
 import type { Posting } from "../src/schema.ts";
 import { memoryStore } from "../src/store/memory.ts";
+import type { Store } from "../src/store/store.ts";
 
 function posting(overrides: Partial<Posting> & Pick<Posting, "key" | "company">): Posting {
   return {
@@ -141,4 +142,53 @@ test("shrinkReasons: a row with an empty reasons array is left alone", async () 
   assert.deepEqual(result, { converted: 0 });
   const [row] = await store.select<Posting>("postings", { key: "acme::1" });
   assert.deepEqual(row?.evidence, { role: "title matches a role word" });
+});
+
+// Records every row the script sends to `upsert`, since `memoryStore`
+// merges a partial row into the stored one and so cannot show a payload
+// Postgres would reject.
+function recordingUpserts(store: Store): { store: Store; sent: object[] } {
+  const sent: object[] = [];
+  return {
+    sent,
+    store: {
+      ...store,
+      upsert: async (table, rows) => {
+        sent.push(...rows);
+        await store.upsert(table, rows);
+      },
+    },
+  };
+}
+
+// Breaks if `company` or `last_seen` is dropped from the upsert payload:
+// both are NOT NULL with no default, and Postgres builds the INSERT tuple
+// before it finds the ON CONFLICT, so a row without them is refused even
+// though it only updates an existing posting.
+test("shrinkReasons: every upserted row carries the stored company and last_seen", async () => {
+  const recorded = recordingUpserts(
+    memoryStore({
+      postings: [
+        posting({
+          key: "acme::1",
+          company: "Acme",
+          last_seen: "2026-09-20T06:00:00.000Z",
+          kept: false,
+          reasons: OLD_REASONS,
+        }),
+      ],
+    }),
+  );
+
+  await shrinkReasons(recorded.store);
+
+  assert.deepEqual(recorded.sent, [
+    {
+      key: "acme::1",
+      company: "Acme",
+      last_seen: "2026-09-20T06:00:00.000Z",
+      reasons: ["comp", "level"],
+      evidence: {},
+    },
+  ]);
 });

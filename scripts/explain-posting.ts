@@ -1,8 +1,13 @@
-// Reproduces one posting's full judgment on request. Judging is
-// deterministic, so re-running `fullJudgment` against the row's stored
-// columns explains a verdict without waiting for the next daily run to
-// re-judge it, and without the trimmed `reasons`/`evidence` `judge()` now
-// stores hiding any of it.
+// Re-runs one posting's full judgment on request and sets it beside the
+// verdict already stored. Judging is deterministic, so re-running
+// `fullJudgment` against the row's stored columns explains a verdict
+// without waiting for the next daily run, and without the trimmed
+// `reasons`/`evidence` `judge()` now stores hiding any of it. It is only a
+// reproduction when it judged the same body the last run did: a two-phase
+// posting whose body was cleared after it was rejected on a text criterion
+// (#272's body-storage rule) is judged here with no body, which can read
+// more permissively than the stored verdict. The stored verdict is printed
+// too, and a disagreement is flagged.
 //
 //   node --env-file=.env scripts/explain-posting.ts <key>
 import process from "node:process";
@@ -18,7 +23,8 @@ import type { Store } from "../src/store/store.ts";
 
 // The columns `fullJudgment` reads for the one posting being explained,
 // plus `first_seen` for completeness (not read by `fullJudgment` itself,
-// only by `representativeByKey`'s sweep over every posting below).
+// only by `representativeByKey`'s sweep over every posting below), and the
+// stored verdict (`kept`, `reasons`) the live one is compared against.
 const ROW_COLUMNS = [
   "key",
   "company",
@@ -33,6 +39,8 @@ const ROW_COLUMNS = [
   "workplace",
   "status",
   "first_seen",
+  "kept",
+  "reasons",
 ] as const satisfies readonly (keyof Posting)[];
 
 type ExplainedRow = Pick<Posting, (typeof ROW_COLUMNS)[number]>;
@@ -54,15 +62,29 @@ const REPRESENTATIVE_COLUMNS = [
 
 type RepresentativeRow = Pick<Posting, (typeof REPRESENTATIVE_COLUMNS)[number]>;
 
+// Which body this run's judgment read:
+// - "listing": a one-phase board; the stored body is what a fresh listing
+//   carries, so the text criteria read what the last run read.
+// - "stored": a two-phase board with a body on file; judged from it rather
+//   than a fresh fetch of the detail page.
+// - "absent": a two-phase board with no body on file (never fetched, or
+//   cleared by #272's rule after a text-criterion rejection); the text
+//   criteria read an empty body, so this run may not match the last one.
+export type JudgedBody = "listing" | "stored" | "absent";
+
 export interface Explanation {
   readonly ok: true;
+  // This run's judgment.
   readonly kept: boolean;
   readonly reasons: readonly Reason[];
-  // True when the row's platform reads a live detail page (a two-phase
-  // board): this run judged from whatever body is already stored rather
-  // than fetching a fresh one, so it reproduces what the last run decided,
-  // not necessarily what a live read would say today.
-  readonly usedStoredBody: boolean;
+  readonly judgedBody: JudgedBody;
+  // What the last daily run stored: `kept` is null for a posting never
+  // judged; `reasons` names the criteria that were out.
+  readonly storedKept: boolean | null;
+  readonly storedReasons: readonly string[];
+  // Whether this run reached the stored verdict: the same `kept` and the
+  // same out criteria. Null when nothing is stored to compare against.
+  readonly agreesWithStored: boolean | null;
 }
 
 export type ExplainResult = Explanation | { readonly ok: false; readonly reason: string };
@@ -90,8 +112,8 @@ export async function explainPosting(store: Store, key: string): Promise<Explain
   );
   const representative = representativeByKey(postings, criteria, boards);
 
-  const reader = READERS[row.platform];
-  const usedStoredBody = reader.body !== undefined;
+  const twoPhase = READERS[row.platform].body !== undefined;
+  const judgedBody: JudgedBody = !twoPhase ? "listing" : row.body === null ? "absent" : "stored";
 
   const { kept, reasons } = fullJudgment(
     row,
@@ -100,26 +122,80 @@ export async function explainPosting(store: Store, key: string): Promise<Explain
     boards,
     representative,
   );
-  return { ok: true, kept, reasons, usedStoredBody };
+  const storedReasons = storedOutCriteria(row.reasons);
+  const liveOut = reasons
+    .filter((reason) => reason.verdict === "out")
+    .map((reason) => reason.criterion);
+  const agreesWithStored =
+    row.kept === null ? null : row.kept === kept && sameNames(liveOut, storedReasons);
+  return {
+    ok: true,
+    kept,
+    reasons,
+    judgedBody,
+    storedKept: row.kept,
+    storedReasons,
+    agreesWithStored,
+  };
 }
+
+// `reasons` is jsonb. A row converted or judged since #273 holds the out
+// criteria's names; one not yet converted by `scripts/shrink-reasons.ts`
+// holds a `{criterion, verdict}` object per criterion, of which the "out"
+// ones are the same names.
+function storedOutCriteria(reasons: readonly unknown[] | null): string[] {
+  if (!Array.isArray(reasons)) return [];
+  return reasons.flatMap((reason: unknown) => {
+    if (typeof reason === "string") return [reason];
+    if (typeof reason !== "object" || reason === null) return [];
+    const { criterion, verdict } = reason as { criterion?: unknown; verdict?: unknown };
+    return typeof criterion === "string" && verdict === "out" ? [criterion] : [];
+  });
+}
+
+function sameNames(left: readonly string[], right: readonly string[]): boolean {
+  const sortedLeft = [...left].sort();
+  const sortedRight = [...right].sort();
+  return (
+    sortedLeft.length === sortedRight.length &&
+    sortedLeft.every((name, index) => name === sortedRight[index])
+  );
+}
+
+const BODY_NOTES: Record<JudgedBody, string | null> = {
+  listing: null,
+  stored:
+    "note: this platform reads a live detail page; this run judged the stored body " +
+    "rather than fetching one, so a live read today could differ.",
+  absent:
+    "note: this platform reads a live detail page, but no body is stored for this " +
+    "posting (never fetched, or cleared after a text-criterion rejection). This run " +
+    "judged an empty body, so the text criteria (excluded_states, country_restriction, " +
+    "missing_languages, bonus, remote) read nothing; the stored verdict is the one " +
+    "reached with the body the last run read.",
+};
 
 function printExplanation(key: string, result: ExplainResult): void {
   if (!result.ok) {
     console.log(`explain-posting: ${result.reason}`);
     return;
   }
-  console.log(`${key}:`);
+  console.log(`${key}, judged now:`);
   for (const reason of result.reasons) {
     console.log(`  ${reason.criterion} (${reason.verdict}): ${reason.detail}`);
   }
-  console.log(`kept: ${result.kept}`);
-  if (result.usedStoredBody) {
-    console.log(
-      "note: this platform reads a live detail page; this run used whatever body is " +
-        "already stored rather than fetching one, so it reproduces the last run's " +
-        "decision, not necessarily today's live listing.",
-    );
+  console.log(`kept now: ${result.kept}`);
+  if (result.storedKept === null) {
+    console.log("stored: never judged");
+  } else {
+    const out = result.storedReasons.length === 0 ? "none" : result.storedReasons.join(", ");
+    console.log(`stored: kept ${result.storedKept}, out: ${out}`);
   }
+  if (result.agreesWithStored === false) {
+    console.log("DISAGREES: this run did not reach the stored verdict.");
+  }
+  const note = BODY_NOTES[result.judgedBody];
+  if (note !== null) console.log(note);
 }
 
 async function main(): Promise<void> {

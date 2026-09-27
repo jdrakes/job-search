@@ -16,14 +16,18 @@
 --
 -- A row written before this PR still holds the old shape until it is next
 -- judged or converted by `scripts/shrink-reasons.ts` (run once, by hand,
--- after this migration — see that script's header). Nothing needs both
--- shapes read the same way in the meantime: `needsJudging`'s `hasReasonOut`
--- is `Array.isArray(reasons) && reasons.includes(criterion)`, which is
--- simply false for an unconverted row's object elements, the same as if
--- that criterion were not out at all — so an unconverted row is re-judged
--- the next time `needsJudging` says yes for an unrelated reason, same as
--- any other stale row, and converted then by `judge()` itself. Both shapes
--- are valid `jsonb`; the column's type is unchanged.
+-- promptly after this migration; see that script's header). The gap
+-- matters: `needsJudging`'s `hasReasonOut` is `Array.isArray(reasons) &&
+-- reasons.includes(criterion)`, which reads false on an unconverted row's
+-- object elements for every criterion. Its three reverse checks
+-- (duplicate, gone, unwatched), which re-judge a rejected row once the
+-- condition that rejected it has cleared, therefore never fire on an
+-- unconverted row: it stays rejected until it is converted, either by the
+-- script or by an unrelated criteria edit bumping `judged_with` past the
+-- row's, which re-judges it and writes the new shape as a side effect.
+-- Running the script promptly is what closes that gap; do not rely on any
+-- such reversal before it has run. Both shapes are valid `jsonb`; the
+-- column's type is unchanged.
 
 -- The receipt the application reads. See the init migration's header: this is
 -- NOT the CLI's own supabase_migrations.schema_migrations.
