@@ -75,8 +75,7 @@ That is all. `pg` is the only runtime dependency.
 
 4. `cp .env.example .env` and fill it in. `JOB_SEARCH_DB_URL` is the session
    pooler connection string. `SUPABASE_URL` and `SUPABASE_ANON_KEY` are the
-   other two. Leave `SUPABASE_DB_URL` empty for now; the section "One store or
-   two" says what setting it buys you.
+   other two.
 
 5. `cp -R settings.example settings`, then open `settings/config.json` and put
    your own contact point in `userAgent`. The tool will not make a single HTTP
@@ -163,8 +162,7 @@ Two ways, and both write the same single row.
 
 - `npm run criteria:load -- <file>` again. It replaces the row rather than
   merging into it, so the file is the whole of your criteria every time.
-- The Criteria tab in the list. With one store the next run reads the row the
-  page wrote; with two, it pulls the row down before it judges anything.
+- The Criteria tab in the list. The next run reads the row the page wrote.
 
 Either way, every posting is re-judged against the current criteria on the
 next run. There is no backfill to run and no migration to write. A posting's
@@ -196,20 +194,14 @@ Both are your machine's business rather than this tool's, which is why there
 is no script here that does them. Whatever you write will be shorter than one
 written to suit somebody else's paths.
 
-## One store or two
+## One store
 
-`JOB_SEARCH_DB_URL` is the store of record and is required. `SUPABASE_DB_URL`
-names a second store that the list reads, and is optional.
-
-Left empty, the run says it has no second store to pull from and skips both
-the pull and the publish. One database holds everything, and the list reads
-the same rows the run wrote. That is the shape to start with.
-
-Set, the run takes your decisions down from the second store before it judges,
-and publishes the slice the list shows back up afterwards, in that order. The
-author runs it that way because his store of record is a Postgres on his own
-machine holding every posting it has ever seen with its full text, which is
-hundreds of megabytes, while the slice the list needs is under one.
+`JOB_SEARCH_DB_URL` names the one database the run writes and the list
+reads: every posting ever seen, what the processor derives, and what you
+decide in the list, in the same rows. Your decisions and the run's output
+live in separate columns, so neither overwrites the other and nothing has
+to reconcile them. `npm test` never uses it; see `JOB_SEARCH_TEST_DB_URL`
+below.
 
 ## Three things that are deliberately separate
 
