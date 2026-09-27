@@ -86,10 +86,14 @@ export async function refresh(
   if (row !== undefined) companies.set(name, row);
 }
 
+// `onWrite` hears each row the moment its write lands, never an unchanged
+// one, so a caller logging writes keeps every line already written when a
+// later row's store call throws.
 export async function watchSurvey(
   store: Store,
   rows: readonly NamedBoard[],
   source: string,
+  onWrite?: (row: NamedBoard) => void,
 ): Promise<WatchSummary> {
   const { carriers, companies } = await boardIndex(store);
   const errors: string[] = [];
@@ -111,6 +115,7 @@ export async function watchSurvey(
       await aliased(store, row.name, source, [row.board], owner);
       aliases += 1;
       await refresh(store, companies, row.name);
+      onWrite?.(row);
       continue;
     }
 
@@ -123,6 +128,7 @@ export async function watchSurvey(
     }
     addCarrier(carriers, key, row.name);
     await refresh(store, companies, row.name);
+    onWrite?.(row);
   }
 
   return { watched, aliases, unchanged, errors };

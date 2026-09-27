@@ -621,3 +621,44 @@ test("discover boards: a boards() throw is one error line and the next source st
   assert.deepEqual(lines, ["second: new Fine lever::fine"]);
   assert.equal((await row(store, "Fine"))?.state, "watched");
 });
+
+// Breaks if the board lines are logged after the whole batch is written:
+// the first board landed, so its line is the only record of it.
+test("discover boards: a store throw on the second board still logs the first and surfaces the throw", async () => {
+  const inner = memoryStore();
+  let upserts = 0;
+  const store: Store = {
+    select: (...args) => inner.select(...args),
+    upsert: async (table, rows) => {
+      upserts += 1;
+      if (upserts === 2) throw new Error("connection reset");
+      return inner.upsert(table, rows);
+    },
+    update: (table, key, patch) => inner.update(table, key, patch),
+    delete: (table, keys) => inner.delete(table, keys),
+  };
+  const { source } = fakeBoardSource(
+    "crawl",
+    [
+      { platform: "ashby", id: "first" },
+      { platform: "lever", id: "second" },
+    ],
+    { first: "First Co", second: "Second Co" },
+  );
+  const { readers } = fakeReaders({});
+  const lines: string[] = [];
+
+  await assert.rejects(
+    discover(
+      store,
+      [source],
+      { userAgent: TEST_USER_AGENT, sleep: async () => {} },
+      readers,
+      (line) => lines.push(line),
+    ),
+    /connection reset/,
+  );
+
+  assert.deepEqual(lines, ["crawl: new First Co ashby::first"]);
+  assert.equal((await row(inner, "First Co"))?.state, "watched");
+});

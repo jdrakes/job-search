@@ -7,6 +7,7 @@ import { answering, watchSurvey } from "../src/discovery/bind.ts";
 import { HttpError } from "../src/net/http.ts";
 import type { Company, Platform } from "../src/schema.ts";
 import { memoryStore } from "../src/store/memory.ts";
+import type { Store } from "../src/store/store.ts";
 
 // Records how many times `list` ran, so a test can assert once-per-row.
 function fakeReader(
@@ -444,6 +445,67 @@ test("watchSurvey: a board only an alias carries has no owner, so a new name wit
   assert.equal(corp?.state, "watched");
   assert.equal(corp?.alias_of, null);
   assert.deepEqual(corp?.boards, [board]);
+});
+
+// A store whose `upsert` number `failAt` (1-based) throws, as a dropped
+// connection would partway through a batch.
+function storeFailingAtUpsert(inner: Store, failAt: number): Store {
+  let upserts = 0;
+  return {
+    select: (...args) => inner.select(...args),
+    upsert: async (table, rows) => {
+      upserts += 1;
+      if (upserts === failAt) throw new Error("connection reset");
+      return inner.upsert(table, rows);
+    },
+    update: (table, key, patch) => inner.update(table, key, patch),
+    delete: (table, keys) => inner.delete(table, keys),
+  };
+}
+
+// Breaks if onWrite is called after the loop rather than as each write lands.
+test("watchSurvey: a store throw mid-batch still reports every row written before it to onWrite", async () => {
+  const inner = memoryStore({
+    companies: [
+      company("Tessera", {
+        state: "watched",
+        boards: [{ platform: "greenhouse", id: "pocketly" }],
+      }),
+    ],
+  });
+  const store = storeFailingAtUpsert(inner, 2);
+  const rows = [
+    { name: "Pocketly", board: { platform: "greenhouse" as const, id: "pocketly" } },
+    { name: "Acme", board: { platform: "lever" as const, id: "acme" } },
+    { name: "Zenco", board: { platform: "ashby" as const, id: "zenco" } },
+  ];
+  const written: string[] = [];
+
+  await assert.rejects(
+    watchSurvey(store, rows, "survey", (row) => written.push(row.name)),
+    /connection reset/,
+  );
+
+  assert.deepEqual(written, ["Pocketly"]);
+  const [pocketly] = await inner.select<Company>("companies", { name: "Pocketly" });
+  assert.equal(pocketly?.state, "alias");
+});
+
+// Breaks if onWrite fires in the unchanged branch, or misses the watched one.
+test("watchSurvey: onWrite hears each watched row and never an unchanged one", async () => {
+  const store = memoryStore({
+    companies: [company("Acme Old", { state: "alias", alias_of: "Tessera" })],
+  });
+  const rows = [
+    { name: "Acme Old", board: { platform: "lever" as const, id: "acme-old" } },
+    { name: "Acme", board: { platform: "lever" as const, id: "acme" } },
+  ];
+  const written: string[] = [];
+
+  const summary = await watchSurvey(store, rows, "survey", (row) => written.push(row.name));
+
+  assert.deepEqual(summary, { watched: 1, aliases: 0, unchanged: 1, errors: [] });
+  assert.deepEqual(written, ["Acme"]);
 });
 
 test("answering: a row whose board answers is kept, one that is gone is reported gone, one that errors is reported unreachable", async () => {

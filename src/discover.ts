@@ -245,15 +245,20 @@ async function discoverBoards(
     indexName(byName, { name: target, state: "watched", alias_of: null });
   }
 
+  // Logged as each write lands, not after the batch: a store call that
+  // throws partway leaves every row already written with its line, the only
+  // record of which boards joined which company.
+  const isNewByRow = new Map(batch.map((entry) => [entry.row, entry.isNew]));
   const summary = await watchSurvey(
     store,
     batch.map((entry) => entry.row),
     source.name,
+    (row) => {
+      const isNew = isNewByRow.get(row) ?? false;
+      log(`${source.name}: ${isNew ? "new" : "added"} ${row.name} ${boardKey(row.board)}`);
+      byBoard.set(boardKey(row.board), row.name);
+    },
   );
-  for (const { row, isNew } of batch) {
-    log(`${source.name}: ${isNew ? "new" : "added"} ${row.name} ${boardKey(row.board)}`);
-    byBoard.set(boardKey(row.board), row.name);
-  }
   for (const line of summary.errors) errors.push(`${source.name} ${line}`);
 
   return {
