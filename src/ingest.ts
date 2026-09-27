@@ -38,7 +38,17 @@ export interface JudgeResult {
 
 export interface JudgeOptions {
   readonly now?: () => string;
+  readonly log?: (line: string) => void;
+  // Wall-clock milliseconds, for throttling the progress line below;
+  // distinct from `now`, which stamps a judgment. Defaults to `Date.now`.
+  readonly clock?: () => number;
 }
+
+// How often the sweep below logs how far it has gotten. A full sweep (every
+// stored posting stale at once, e.g. after a criteria edit) can run long
+// with no other output in between, which reads the same as a hang from the
+// log alone — this is the difference between the two.
+const PROGRESS_INTERVAL_MS = 30_000;
 
 export interface IngestOptions {
   readonly now?: () => string;
@@ -326,6 +336,8 @@ export async function judgeAll(
   options?: JudgeOptions,
 ): Promise<JudgeResult> {
   const now = options?.now ?? (() => new Date().toISOString());
+  const log = options?.log ?? console.log;
+  const clock = options?.clock ?? Date.now;
   const errors: string[] = [];
   const postings = await store.select<JudgingRow>("postings", undefined, JUDGING_COLUMNS);
   if (postings.length === 0) return { judged: 0, errors };
@@ -345,8 +357,15 @@ export async function judgeAll(
 
   let judged = 0;
   let pending: VerdictRow[] = [];
+  let lastProgressAt = clock();
+  let scanned = 0;
 
   for (const row of postings) {
+    scanned += 1;
+    if (clock() - lastProgressAt >= PROGRESS_INTERVAL_MS) {
+      log(`judge: ${scanned}/${postings.length} scanned, ${judged} judged so far`);
+      lastProgressAt = clock();
+    }
     // One clock reading per posting: two readings could pick a posting up
     // for aging out and then judge it as still within the max.
     const judgedAt = now();

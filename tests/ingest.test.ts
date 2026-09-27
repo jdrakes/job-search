@@ -3721,3 +3721,47 @@ test("ingest: an unchanged listing with comp but no body gets no write", async (
 
   assert.equal(written, undefined);
 });
+
+// A full sweep (every stored posting stale at once) can run long with no
+// other line in the log between its start and its end, which reads the
+// same as a hang. Breaks if the progress line stops firing.
+test("judgeAll: a long sweep logs its progress periodically", async () => {
+  const store = memoryStore({
+    companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "acme" }] })],
+    postings: [
+      posting({ key: "Acme::1", company: "Acme", platform: "greenhouse", board: "acme" }),
+      posting({ key: "Acme::2", company: "Acme", platform: "greenhouse", board: "acme" }),
+      posting({ key: "Acme::3", company: "Acme", platform: "greenhouse", board: "acme" }),
+    ],
+    criteria: [criteria()],
+  });
+  const lines: string[] = [];
+  // Advances 31 seconds every call, past the 30 s throttle every time, so
+  // each of the three scanned rows logs once.
+  let tick = 0;
+  const clock = () => {
+    tick += 31_000;
+    return tick;
+  };
+
+  const judging = await judgeAll(store, {}, { log: (line) => lines.push(line), clock });
+
+  assert.equal(judging.judged, 3);
+  assert.equal(lines.length, 3);
+  assert.match(lines[0] ?? "", /^judge: 1\/3 scanned, 0 judged so far$/);
+  assert.match(lines[2] ?? "", /^judge: 3\/3 scanned, \d+ judged so far$/);
+});
+
+// Breaks if the throttle fires on every row instead of waiting the interval.
+test("judgeAll: a quick sweep logs no progress at all", async () => {
+  const store = memoryStore({
+    companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "acme" }] })],
+    postings: [posting({ key: "Acme::1", company: "Acme", platform: "greenhouse", board: "acme" })],
+    criteria: [criteria()],
+  });
+  const lines: string[] = [];
+
+  await judgeAll(store, {}, { log: (line) => lines.push(line) });
+
+  assert.equal(lines.length, 0);
+});
