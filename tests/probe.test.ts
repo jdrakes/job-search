@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { casedSlugsFor, namesMatch, probe, slugsFor } from "../src/discovery/probe.ts";
@@ -20,6 +21,10 @@ function fakeFetch(routes: Record<string, unknown>): typeof fetch {
 }
 
 const noSleep = async () => {};
+
+function fixture(path: string): string {
+  return readFileSync(new URL(`./fixtures/${path}`, import.meta.url), "utf8");
+}
 
 // http.ts requires a configured User-Agent now that it no longer carries a
 // built-in one (src/net/http.ts); these tests fake the network entirely, so
@@ -57,7 +62,7 @@ test("probe: a board that answers under the second slug is found", async () => {
     },
   });
 
-  const boards = await probe("Acme Labs", {
+  const { boards } = await probe("Acme Labs", {
     fetchImpl,
     userAgent: TEST_USER_AGENT,
     sleep: noSleep,
@@ -73,13 +78,14 @@ test("probe: Lever tries the name's own casing after the lowercase form", async 
   const requested: string[] = [];
   const answers = fakeFetch({
     "https://api.lever.co/v0/postings/BlueMatrix?mode=json": [],
+    "https://jobs.lever.co/BlueMatrix": "<title>BlueMatrix</title>",
   });
   const fetchImpl: typeof fetch = async (input, init) => {
     requested.push(String(input));
     return answers(input, init);
   };
 
-  const boards = await probe("BlueMatrix", {
+  const { boards } = await probe("BlueMatrix", {
     fetchImpl,
     userAgent: TEST_USER_AGENT,
     sleep: noSleep,
@@ -105,7 +111,7 @@ test("probe: a platform answering both casings is recorded under the lowercase s
     },
   });
 
-  const boards = await probe("Acme", {
+  const { boards } = await probe("Acme", {
     fetchImpl,
     userAgent: TEST_USER_AGENT,
     sleep: noSleep,
@@ -124,7 +130,7 @@ test("probe: a board that answers under a name that does not match is refused", 
     },
   });
 
-  const boards = await probe("Acme", {
+  const { boards, refused } = await probe("Acme", {
     fetchImpl,
     userAgent: TEST_USER_AGENT,
     sleep: noSleep,
@@ -134,42 +140,230 @@ test("probe: a board that answers under a name that does not match is refused", 
     boards.some((board) => board.platform === "greenhouse"),
     false,
   );
+  assert.deepEqual(refused, [
+    { board: { platform: "greenhouse", id: "acme" }, reported: "A Totally Different Company" },
+  ]);
 });
 
-test("probe: a platform that reports no name is accepted on the answer alone", async () => {
+// Breaks if a refusal stops the platform's walk: the second slug is the
+// real board, and the first is still reported as refused.
+test("probe: a slug refused for its name moves on to the next candidate and is kept as refused", async () => {
   const fetchImpl = fakeFetch({
-    "https://api.ashbyhq.com/posting-api/job-board/acme?includeCompensation=true": {
-      jobs: [],
+    "https://boards-api.greenhouse.io/v1/boards/acmelabs/jobs?content=true": {
+      jobs: [{ id: "1", company_name: "Contoso" }],
+    },
+    "https://boards-api.greenhouse.io/v1/boards/acme-labs/jobs?content=true": {
+      jobs: [{ id: "2", company_name: "Acme Labs" }],
     },
   });
 
-  const boards = await probe("Acme", {
+  const { boards, refused } = await probe("Acme Labs", {
     fetchImpl,
     userAgent: TEST_USER_AGENT,
     sleep: noSleep,
   });
 
-  assert.deepEqual(
-    boards.filter((board) => board.platform === "ashby"),
-    [{ platform: "ashby", id: "acme" }],
+  assert.deepEqual(boards, [{ platform: "greenhouse", id: "acme-labs" }]);
+  assert.deepEqual(refused, [
+    { board: { platform: "greenhouse", id: "acmelabs" }, reported: "Contoso" },
+  ]);
+});
+
+// Ashby's listing names nobody, so the board page's <title> is read
+// (fixture: a Common Crawl capture, "Thyme Care Jobs").
+test("probe: an Ashby slug whose page title names the company is taken", async () => {
+  const fetchImpl = fakeFetch({
+    "https://api.ashbyhq.com/posting-api/job-board/thyme-care?includeCompensation=true": {
+      jobs: [],
+    },
+    "https://jobs.ashbyhq.com/thyme-care": fixture("commoncrawl/ashby-thyme-care-head.html"),
+  });
+
+  const { boards, refused } = await probe("Thyme Care", {
+    fetchImpl,
+    userAgent: TEST_USER_AGENT,
+    sleep: noSleep,
+  });
+
+  assert.deepEqual(boards, [{ platform: "ashby", id: "thyme-care" }]);
+  assert.deepEqual(refused, []);
+});
+
+// Breaks if a slug answering is taken as the whole of the evidence again.
+test("probe: an Ashby slug whose page title names another company is refused", async () => {
+  const fetchImpl = fakeFetch({
+    "https://api.ashbyhq.com/posting-api/job-board/acme?includeCompensation=true": { jobs: [] },
+    "https://jobs.ashbyhq.com/acme": fixture("commoncrawl/ashby-thyme-care-head.html"),
+  });
+
+  const { boards, refused } = await probe("Acme", {
+    fetchImpl,
+    userAgent: TEST_USER_AGENT,
+    sleep: noSleep,
+  });
+
+  assert.deepEqual(boards, []);
+  assert.deepEqual(refused, [{ board: { platform: "ashby", id: "acme" }, reported: "Thyme Care" }]);
+});
+
+// Breaks if a page that loads with no name is let through or skipped
+// rather than refused.
+test("probe: an Ashby slug whose page loads with no title is refused as naming nobody", async () => {
+  const fetchImpl = fakeFetch({
+    "https://api.ashbyhq.com/posting-api/job-board/acme?includeCompensation=true": { jobs: [] },
+    "https://jobs.ashbyhq.com/acme": "<html><head><meta charset='utf-8'></head></html>",
+  });
+
+  const { boards, refused } = await probe("Acme", {
+    fetchImpl,
+    userAgent: TEST_USER_AGENT,
+    sleep: noSleep,
+  });
+
+  assert.deepEqual(boards, []);
+  assert.deepEqual(refused, [{ board: { platform: "ashby", id: "acme" }, reported: null }]);
+});
+
+// Fixture: a Common Crawl capture whose Lever <title> is "Trey Research".
+test("probe: a Lever slug whose page title names the company is taken", async () => {
+  const fetchImpl = fakeFetch({
+    "https://api.lever.co/v0/postings/trey-research?mode=json": [],
+    "https://jobs.lever.co/trey-research": fixture("commoncrawl/lever-trey-research-head.html"),
+  });
+
+  const { boards, refused } = await probe("Trey Research", {
+    fetchImpl,
+    userAgent: TEST_USER_AGENT,
+    sleep: noSleep,
+  });
+
+  assert.deepEqual(boards, [{ platform: "lever", id: "trey-research" }]);
+  assert.deepEqual(refused, []);
+});
+
+test("probe: a Lever slug whose page title names another company is refused", async () => {
+  const fetchImpl = fakeFetch({
+    "https://api.lever.co/v0/postings/acme?mode=json": [],
+    "https://jobs.lever.co/acme": fixture("commoncrawl/lever-trey-research-head.html"),
+  });
+
+  const { boards, refused } = await probe("Acme", {
+    fetchImpl,
+    userAgent: TEST_USER_AGENT,
+    sleep: noSleep,
+  });
+
+  assert.deepEqual(boards, []);
+  assert.deepEqual(refused, [
+    { board: { platform: "lever", id: "acme" }, reported: "Trey Research" },
+  ]);
+});
+
+// The vendor declining to serve the page is not the page naming nobody:
+// recorded as a refusal, a real board would be filed as wrong_company for
+// good.
+test("probe: a 429 on the board page throws rather than refusing the board", async () => {
+  const fetchImpl: typeof fetch = async (input) => {
+    const url = String(input);
+    if (url === "https://api.lever.co/v0/postings/acme?mode=json") return new Response("[]");
+    if (url === "https://jobs.lever.co/acme") return new Response(null, { status: 429 });
+    return new Response(null, { status: 404 });
+  };
+
+  await assert.rejects(
+    () => probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep }, ["lever"]),
+    (error: unknown) => error instanceof HttpError && error.status === 429,
   );
 });
 
-test("probe: a board that answers with zero postings still counts", async () => {
+// Any other failure to load the name page is the same: a 403 from bot
+// protection, a one-off 503 (the probe does not retry), or a 404 on a slug
+// whose listing just answered. Breaks if the probe reads the name through
+// boardName, which turns these into a refusal naming nobody.
+for (const status of [403, 404, 503]) {
+  test(`probe: a ${status} on the board page throws rather than refusing the board`, async () => {
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = String(input);
+      if (url === "https://api.ashbyhq.com/posting-api/job-board/acme?includeCompensation=true") {
+        return new Response(JSON.stringify({ jobs: [] }));
+      }
+      if (url === "https://jobs.ashbyhq.com/acme") return new Response(null, { status });
+      return new Response(null, { status: 404 });
+    };
+
+    await assert.rejects(
+      () => probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep }, ["ashby"]),
+      (error: unknown) => error instanceof HttpError && error.status === status,
+    );
+  });
+}
+
+test("probe: a Greenhouse board with no jobs whose board endpoint answers 503 throws", async () => {
+  const fetchImpl: typeof fetch = async (input) => {
+    const url = String(input);
+    if (url === "https://boards-api.greenhouse.io/v1/boards/acme/jobs?content=true") {
+      return new Response(JSON.stringify({ jobs: [] }));
+    }
+    if (url === "https://boards-api.greenhouse.io/v1/boards/acme") {
+      return new Response(null, { status: 503 });
+    }
+    return new Response(null, { status: 404 });
+  };
+
+  await assert.rejects(
+    () => probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep }, ["greenhouse"]),
+    (error: unknown) => error instanceof HttpError && error.status === 503,
+  );
+});
+
+// Breaks if the probe's name read catches every failure, not only HttpError.
+test("probe: a network failure on the board page throws rather than refusing the board", async () => {
+  const fetchImpl: typeof fetch = async (input) => {
+    const url = String(input);
+    if (url === "https://api.lever.co/v0/postings/acme?mode=json") return new Response("[]");
+    if (url === "https://jobs.lever.co/acme") throw new TypeError("fetch failed");
+    return new Response(null, { status: 404 });
+  };
+
+  await assert.rejects(() =>
+    probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep }, ["lever"]),
+  );
+});
+
+// A Greenhouse board with nothing open has no posting to read a name from,
+// so the board endpoint's `name` decides.
+test("probe: a Greenhouse board with no jobs is taken when the board's name matches", async () => {
   const fetchImpl = fakeFetch({
     "https://boards-api.greenhouse.io/v1/boards/acme/jobs?content=true": { jobs: [] },
+    "https://boards-api.greenhouse.io/v1/boards/acme": { name: "Acme" },
   });
 
-  const boards = await probe("Acme", {
+  const { boards, refused } = await probe("Acme", {
     fetchImpl,
     userAgent: TEST_USER_AGENT,
     sleep: noSleep,
   });
 
-  assert.deepEqual(
-    boards.filter((board) => board.platform === "greenhouse"),
-    [{ platform: "greenhouse", id: "acme" }],
-  );
+  assert.deepEqual(boards, [{ platform: "greenhouse", id: "acme" }]);
+  assert.deepEqual(refused, []);
+});
+
+test("probe: a Greenhouse board with no jobs is refused when the board's name is another company's", async () => {
+  const fetchImpl = fakeFetch({
+    "https://boards-api.greenhouse.io/v1/boards/acme/jobs?content=true": { jobs: [] },
+    "https://boards-api.greenhouse.io/v1/boards/acme": { name: "Contoso" },
+  });
+
+  const { boards, refused } = await probe("Acme", {
+    fetchImpl,
+    userAgent: TEST_USER_AGENT,
+    sleep: noSleep,
+  });
+
+  assert.deepEqual(boards, []);
+  assert.deepEqual(refused, [
+    { board: { platform: "greenhouse", id: "acme" }, reported: "Contoso" },
+  ]);
 });
 
 test("probe: SmartRecruiters answering 200 with empty content is refused, not accepted", async () => {
@@ -183,7 +377,7 @@ test("probe: SmartRecruiters answering 200 with empty content is refused, not ac
     },
   });
 
-  const boards = await probe("Acme", {
+  const { boards } = await probe("Acme", {
     fetchImpl,
     userAgent: TEST_USER_AGENT,
     sleep: noSleep,
@@ -202,7 +396,7 @@ test("probe: SmartRecruiters with a matching posted company name is accepted", a
     },
   });
 
-  const boards = await probe("Acme", {
+  const { boards } = await probe("Acme", {
     fetchImpl,
     userAgent: TEST_USER_AGENT,
     sleep: noSleep,
@@ -222,7 +416,7 @@ test("probe: Workable with a matching account name and a posting is accepted", a
     },
   });
 
-  const boards = await probe("Acme", {
+  const { boards } = await probe("Acme", {
     fetchImpl,
     userAgent: TEST_USER_AGENT,
     sleep: noSleep,
@@ -244,7 +438,7 @@ test("probe: Workable with a matching account name and no posting is refused", a
     },
   });
 
-  const boards = await probe("Acme", {
+  const { boards } = await probe("Acme", {
     fetchImpl,
     userAgent: TEST_USER_AGENT,
     sleep: noSleep,
@@ -264,7 +458,7 @@ test("probe: Workable with a reported account name that does not match is refuse
     },
   });
 
-  const boards = await probe("Acme", {
+  const { boards } = await probe("Acme", {
     fetchImpl,
     userAgent: TEST_USER_AGENT,
     sleep: noSleep,
@@ -276,56 +470,24 @@ test("probe: Workable with a reported account name that does not match is refuse
   );
 });
 
-test("probe: Rippling listing at least one posting is accepted", async () => {
-  const fetchImpl = fakeFetch({
+// Rippling names no company on its listing and its board page cannot be
+// read (probe.ts, top), so a slug answering there is no evidence at all.
+test("probe: no Rippling URL is ever requested, even one that would list a posting", async () => {
+  const requested: string[] = [];
+  const answers = fakeFetch({
     "https://api.rippling.com/platform/api/ats/v1/board/acme/jobs": [{ uuid: "x" }],
   });
+  const fetchImpl: typeof fetch = async (input, init) => {
+    requested.push(String(input));
+    return answers(input, init);
+  };
 
-  const boards = await probe("Acme", {
-    fetchImpl,
-    userAgent: TEST_USER_AGENT,
-    sleep: noSleep,
-  });
+  const { boards } = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
 
+  assert.deepEqual(boards, []);
   assert.deepEqual(
-    boards.filter((board) => board.platform === "rippling"),
-    [{ platform: "rippling", id: "acme" }],
-  );
-});
-
-test("probe: Rippling listing zero postings is refused", async () => {
-  const fetchImpl = fakeFetch({
-    "https://api.rippling.com/platform/api/ats/v1/board/acme/jobs": [],
-  });
-
-  const boards = await probe("Acme", {
-    fetchImpl,
-    userAgent: TEST_USER_AGENT,
-    sleep: noSleep,
-  });
-
-  assert.equal(
-    boards.some((board) => board.platform === "rippling"),
-    false,
-  );
-});
-
-test("probe: a Rippling slug answering an error object instead of an array is refused", async () => {
-  const fetchImpl = fakeFetch({
-    "https://api.rippling.com/platform/api/ats/v1/board/acme/jobs": {
-      error_code: "RESOURCE_NOT_FOUND",
-    },
-  });
-
-  const boards = await probe("Acme", {
-    fetchImpl,
-    userAgent: TEST_USER_AGENT,
-    sleep: noSleep,
-  });
-
-  assert.equal(
-    boards.some((board) => board.platform === "rippling"),
-    false,
+    requested.filter((url) => url.includes("rippling.com")),
+    [],
   );
 });
 
@@ -335,7 +497,7 @@ test("probe: Jobvite with a matching account name and a job row is accepted", as
       '<title>Acme Careers</title><table class="jv-job-list"><tr><td class="jv-job-list-name"><a href="/acme/job/1">Engineer</a></td></tr></table>',
   });
 
-  const boards = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
+  const { boards } = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
 
   assert.deepEqual(
     boards.filter((board) => board.platform === "jobvite"),
@@ -349,7 +511,7 @@ test("probe: Jobvite with a reported account name that does not match is refused
       '<title>Other Co Careers</title><table class="jv-job-list"><tr><td class="jv-job-list-name"><a href="/acme/job/1">Engineer</a></td></tr></table>',
   });
 
-  const boards = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
+  const { boards } = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
 
   assert.equal(
     boards.some((board) => board.platform === "jobvite"),
@@ -366,7 +528,7 @@ test("probe: Jobvite's live title suffix ('{Name} Careers') strips cleanly", asy
       '<title>Margie\'s Travel Careers</title><table class="jv-job-list"><tr><td class="jv-job-list-name"><a href="/margiestravel/job/1">Engineer</a></td></tr></table>',
   });
 
-  const boards = await probe("Margie's Travel", {
+  const { boards } = await probe("Margie's Travel", {
     fetchImpl,
     userAgent: TEST_USER_AGENT,
     sleep: noSleep,
@@ -384,7 +546,7 @@ test("probe: Jobvite with a matching title but no job row is refused", async () 
       "<title>Acme Careers</title><p>No openings right now.</p>",
   });
 
-  const boards = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
+  const { boards } = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
 
   assert.equal(
     boards.some((board) => board.platform === "jobvite"),
@@ -428,7 +590,7 @@ test("probe: no BambooHR URL is ever requested, even one that would list an open
     return answers(input, init);
   };
 
-  const boards = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
+  const { boards } = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
 
   assert.deepEqual(boards, []);
   assert.deepEqual(
@@ -437,50 +599,71 @@ test("probe: no BambooHR URL is ever requested, even one that would list an open
   );
 });
 
-test("probe: Avature with at least one JobDetail link is accepted regardless of name", async () => {
+// Fixture: a live SearchJobs page whose `og:site_name` is "Bloomberg".
+test("probe: an Avature page whose og:site_name names the company is taken", async () => {
   const fetchImpl = fakeFetch({
-    "https://acme.avature.net/careers/SearchJobs":
-      '<a class="article__header__text__title" href="/en_US/careers/JobDetail/x/123">Engineer</a>',
+    "https://bloomberg.avature.net/careers/SearchJobs": fixture("avature-search-bloomberg.html"),
   });
 
-  const boards = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
+  const { boards, refused } = await probe("Bloomberg", {
+    fetchImpl,
+    userAgent: TEST_USER_AGENT,
+    sleep: noSleep,
+  });
 
-  assert.deepEqual(
-    boards.filter((board) => board.platform === "avature"),
-    [{ platform: "avature", id: "acme" }],
-  );
+  assert.deepEqual(boards, [{ platform: "avature", id: "bloomberg" }]);
+  assert.deepEqual(refused, []);
 });
 
-test("probe: Avature with no JobDetail link is refused", async () => {
+test("probe: an Avature page whose og:site_name names another company is refused", async () => {
   const fetchImpl = fakeFetch({
-    "https://acme.avature.net/careers/SearchJobs": "<title>Job Search | Acme</title>",
+    "https://acme.avature.net/careers/SearchJobs": fixture("avature-search-bloomberg.html"),
   });
 
-  const boards = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
+  const { boards, refused } = await probe("Acme", {
+    fetchImpl,
+    userAgent: TEST_USER_AGENT,
+    sleep: noSleep,
+  });
 
-  assert.equal(
-    boards.some((board) => board.platform === "avature"),
-    false,
-  );
+  assert.deepEqual(boards, []);
+  assert.deepEqual(refused, [
+    { board: { platform: "avature", id: "acme" }, reported: "Bloomberg" },
+  ]);
 });
 
-// Confirmed live 2026-09-22: one Avature tenant's listing states a title
-// with no relation to the company name at all ("Job Search | <tenant>" -
-// the plan's own finding). Avature's accept function performs no name
-// check, so a board with that differently-shaped title - queried under an
-// unrelated name - is still accepted on the JobDetail link alone.
-test("probe: Avature's differently-shaped title ('Job Search | {tenant}') never trips a name check, because there is none", async () => {
+// Breaks if the <title> ("Job Search | {tenant}" on one tenant) is read as
+// the name: only og:site_name counts, and a page without it names nobody.
+test("probe: an Avature page with job links but no og:site_name is refused as naming nobody", async () => {
   const fetchImpl = fakeFetch({
     "https://acme.avature.net/careers/SearchJobs":
-      '<title>Job Search | Fourth Coffee</title><a class="article__header__text__title" href="/en_US/careers/JobDetail/x/123">Engineer</a>',
+      '<title>Job Search | Acme</title><a class="article__header__text__title" href="/en_US/careers/JobDetail/x/123">Engineer</a>',
   });
 
-  const boards = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
+  const { boards, refused } = await probe("Acme", {
+    fetchImpl,
+    userAgent: TEST_USER_AGENT,
+    sleep: noSleep,
+  });
 
-  assert.deepEqual(
-    boards.filter((board) => board.platform === "avature"),
-    [{ platform: "avature", id: "acme" }],
-  );
+  assert.deepEqual(boards, []);
+  assert.deepEqual(refused, [{ board: { platform: "avature", id: "acme" }, reported: null }]);
+});
+
+test("probe: an Avature page with no JobDetail link is neither taken nor refused", async () => {
+  const fetchImpl = fakeFetch({
+    "https://acme.avature.net/careers/SearchJobs":
+      '<meta property="og:site_name" content="Acme" /><title>Acme Careers</title>',
+  });
+
+  const { boards, refused } = await probe("Acme", {
+    fetchImpl,
+    userAgent: TEST_USER_AGENT,
+    sleep: noSleep,
+  });
+
+  assert.deepEqual(boards, []);
+  assert.deepEqual(refused, []);
 });
 
 test("probe: Breezy with a matching account name is accepted", async () => {
@@ -488,7 +671,7 @@ test("probe: Breezy with a matching account name is accepted", async () => {
     "https://acme.breezy.hr/json": [{ id: "1", name: "Engineer", company: { name: "Acme" } }],
   });
 
-  const boards = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
+  const { boards } = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
 
   assert.deepEqual(
     boards.filter((board) => board.platform === "breezy"),
@@ -501,7 +684,7 @@ test("probe: Breezy with a reported account name that does not match is refused"
     "https://acme.breezy.hr/json": [{ id: "1", name: "Engineer", company: { name: "Other Co" } }],
   });
 
-  const boards = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
+  const { boards } = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
 
   assert.equal(
     boards.some((board) => board.platform === "breezy"),
@@ -514,7 +697,7 @@ test("probe: JazzHR with a matching account name is accepted", async () => {
     "https://acme.applytojob.com/apply/": "<title>Acme - Career Page</title>",
   });
 
-  const boards = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
+  const { boards } = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
 
   assert.deepEqual(
     boards.filter((board) => board.platform === "jazzhr"),
@@ -527,7 +710,7 @@ test("probe: JazzHR with a reported account name that does not match is refused"
     "https://acme.applytojob.com/apply/": "<title>Other Co - Career Page</title>",
   });
 
-  const boards = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
+  const { boards } = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
 
   assert.equal(
     boards.some((board) => board.platform === "jazzhr"),
@@ -544,7 +727,7 @@ test("probe: JazzHR's live title suffix ('{Name} - Career Page') strips cleanly"
       "<title>Fincher Architects - Career Page</title>",
   });
 
-  const boards = await probe("Fincher Architects", {
+  const { boards } = await probe("Fincher Architects", {
     fetchImpl,
     userAgent: TEST_USER_AGENT,
     sleep: noSleep,
@@ -563,7 +746,7 @@ test("probe: Recruitee with a matching account name is accepted", async () => {
     },
   });
 
-  const boards = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
+  const { boards } = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
 
   assert.deepEqual(
     boards.filter((board) => board.platform === "recruitee"),
@@ -578,7 +761,7 @@ test("probe: Recruitee with a reported account name that does not match is refus
     },
   });
 
-  const boards = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
+  const { boards } = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
 
   assert.equal(
     boards.some((board) => board.platform === "recruitee"),
@@ -601,7 +784,7 @@ test("probe: no Personio URL is ever requested, even one that would answer a fee
     return answers(input, init);
   };
 
-  const boards = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
+  const { boards } = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
 
   assert.deepEqual(boards, []);
   assert.deepEqual(
@@ -616,7 +799,7 @@ test("probe: HRMDirect with a matching account name is accepted", async () => {
       "<title>Careers At Acme</title>",
   });
 
-  const boards = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
+  const { boards } = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
 
   assert.deepEqual(
     boards.filter((board) => board.platform === "hrmdirect"),
@@ -630,7 +813,7 @@ test("probe: HRMDirect with a reported account name that does not match is refus
       "<title>Careers At Other Co</title>",
   });
 
-  const boards = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
+  const { boards } = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
 
   assert.equal(
     boards.some((board) => board.platform === "hrmdirect"),
@@ -647,7 +830,7 @@ test("probe: HRMDirect's live title ('Careers At {Name}') prefix-strips cleanly"
       "<title>\n\t\tCareers At Graphic Design Institute\t</title>",
   });
 
-  const boards = await probe("Graphic Design Institute", {
+  const { boards } = await probe("Graphic Design Institute", {
     fetchImpl,
     userAgent: TEST_USER_AGENT,
     sleep: noSleep,
@@ -662,13 +845,14 @@ test("probe: HRMDirect's live title ('Careers At {Name}') prefix-strips cleanly"
 test("probe: no candidate slug answering for a platform leaves that platform out", async () => {
   const fetchImpl = fakeFetch({});
 
-  const boards = await probe("Nobody Has This Board", {
+  const { boards, refused } = await probe("Nobody Has This Board", {
     fetchImpl,
     userAgent: TEST_USER_AGENT,
     sleep: noSleep,
   });
 
   assert.deepEqual(boards, []);
+  assert.deepEqual(refused, []);
 });
 
 // A wrong slug guess on Avature DNS-fails, and http.ts's ladder used to
@@ -683,7 +867,7 @@ test("probe: a network-level failure is attempted once, not retried", async () =
     });
   };
 
-  const boards = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
+  const { boards } = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
 
   assert.deepEqual(boards, []);
   assert.deepEqual(
@@ -720,7 +904,7 @@ test("probe: a 429 from an unregistered slug is attempted once, not retried", as
 // one's rather than merely being queued behind it.
 const after = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// `probe` asks all twelve platforms at once, so they answer in whatever
+// `probe` asks every platform at once, so they answer in whatever
 // order the hosts happen to be quick in. discover.ts reads the *first*
 // returned board another company already carries to decide an alias, so the
 // result must stay in SLUG_PLATFORMS order: Greenhouse (first in the table)
@@ -745,7 +929,7 @@ test("probe: boards come back in platform order, not in the order the hosts answ
     return new Response(null, { status: 404 });
   };
 
-  const boards = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
+  const { boards } = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
 
   assert.deepEqual(answered, ["hrmdirect", "greenhouse"]);
   assert.deepEqual(boards, [
@@ -754,12 +938,12 @@ test("probe: boards come back in platform order, not in the order the hosts answ
   ]);
 });
 
-// Twelve platforms, twelve different hosts, and net/http.ts rate-limits
-// per host, so probing them one after another stacked twelve unrelated
-// waits (8.5s a name, measured live 2026-09-22). Each platform's first
-// candidate must be in flight at the same moment as the other eleven; a
-// serial walk peaks at one.
-test("probe: all twelve platforms are in flight at once, not one after another", async () => {
+// Eleven platforms, eleven different hosts, and net/http.ts rate-limits
+// per host, so probing them one after another stacked unrelated waits
+// (8.5s a name, measured live 2026-09-22). Each platform's first candidate
+// must be in flight at the same moment as the other ten; a serial walk
+// peaks at one.
+test("probe: all eleven platforms are in flight at once, not one after another", async () => {
   let inFlight = 0;
   let peak = 0;
   const fetchImpl: typeof fetch = async () => {
@@ -770,10 +954,10 @@ test("probe: all twelve platforms are in flight at once, not one after another",
     return new Response(null, { status: 404 });
   };
 
-  const boards = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
+  const { boards } = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
 
   assert.deepEqual(boards, []);
-  assert.equal(peak, 12);
+  assert.equal(peak, 11);
 });
 
 // Concurrency is across platforms only: within one platform the candidates
@@ -798,7 +982,7 @@ test("probe: one platform's own candidates stay serial, never overlapping", asyn
   assert.equal(peak, 1);
 });
 
-// A caller that already knows the answer for the other ten (the deleted
+// A caller that already knows the answer for the other nine (the deleted
 // backlog pass, walking names the store has held since before a platform
 // existed) asks for a subset, and the platforms it did not name must not be
 // asked at all: ~6,400 needless Workable requests on 2026-09-22 got the
@@ -810,34 +994,36 @@ test("probe: a named subset of platforms requests only those platforms' URLs", a
     return new Response(null, { status: 404 });
   };
 
-  const boards = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep }, [
-    "rippling",
-    "breezy",
-  ]);
+  const { boards } = await probe(
+    "Acme",
+    { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep },
+    ["recruitee", "breezy"],
+  );
 
   assert.deepEqual(boards, []);
   // Sorted: the two are in flight at once, so which lands first is the
   // hosts' business, not this test's.
   assert.deepEqual(requested.toSorted(), [
     "https://acme.breezy.hr/json",
-    "https://api.rippling.com/platform/api/ats/v1/board/acme/jobs",
+    "https://acme.recruitee.com/api/offers",
   ]);
 });
 
 test("probe: a named subset returns its boards in the order the subset names them", async () => {
   const fetchImpl = fakeFetch({
     "https://acme.breezy.hr/json": [{ id: "1", name: "Engineer", company: { name: "Acme" } }],
-    "https://api.rippling.com/platform/api/ats/v1/board/acme/jobs": [{ uuid: "x" }],
+    "https://acme.recruitee.com/api/offers": { offers: [{ id: 1, company_name: "Acme" }] },
   });
 
-  const boards = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep }, [
-    "breezy",
-    "rippling",
-  ]);
+  const { boards } = await probe(
+    "Acme",
+    { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep },
+    ["breezy", "recruitee"],
+  );
 
   assert.deepEqual(boards, [
     { platform: "breezy", id: "acme" },
-    { platform: "rippling", id: "acme" },
+    { platform: "recruitee", id: "acme" },
   ]);
 });
 
@@ -870,7 +1056,7 @@ test("probe: a 429 from a platform throws rather than reading as no board", asyn
   const fetchImpl: typeof fetch = async () => new Response(null, { status: 429 });
 
   await assert.rejects(
-    () => probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep }, ["rippling"]),
+    () => probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep }, ["recruitee"]),
     (error: unknown) => error instanceof HttpError && error.status === 429,
   );
 });
@@ -878,9 +1064,11 @@ test("probe: a 429 from a platform throws rather than reading as no board", asyn
 test("probe: a 404 still reads as no board, so a dead slug costs nothing", async () => {
   const fetchImpl: typeof fetch = async () => new Response(null, { status: 404 });
 
-  const boards = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep }, [
-    "rippling",
-  ]);
+  const { boards } = await probe(
+    "Acme",
+    { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep },
+    ["recruitee"],
+  );
 
   assert.deepEqual(boards, []);
 });
@@ -890,9 +1078,11 @@ test("probe: a network-level failure still reads as no board", async () => {
     throw new TypeError("fetch failed");
   };
 
-  const boards = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep }, [
-    "breezy",
-  ]);
+  const { boards } = await probe(
+    "Acme",
+    { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep },
+    ["breezy"],
+  );
 
   assert.deepEqual(boards, []);
 });

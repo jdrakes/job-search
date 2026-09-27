@@ -207,32 +207,62 @@ export function pageTitle(html: string, platform: "ashby" | "lever"): string | n
   return title === "" ? null : title;
 }
 
+// An Avature portal names its owner in the page's `og:site_name` meta tag:
+// the tenant checked live on 2026-09-27 states `content="Bloomberg"` there,
+// while its <title> reads "Bloomberg Careers" and the portal's own name meta
+// reads "External Careers". The <title> format differs between tenants
+// (probe.ts, top), so it is not read.
+export function avatureSiteName(html: string): string | null {
+  const match = /<meta\s+property="og:site_name"\s+content="([^"]*)"/i.exec(html);
+  if (match === null) return null;
+  const name = htmlToText(match[1] ?? "").trim();
+  return name === "" ? null : name;
+}
+
 // The name a board's own page gives for the company that owns it:
 // Greenhouse's board `name`, the Ashby and Lever page `<title>` (via
-// `pageTitle`), null for every other platform or any `HttpError`.
+// `pageTitle`), Avature's `og:site_name`. Null only for a page that loaded
+// and states no name, or a platform with no such page. A page that did not
+// answer (any `HttpError`, or a network failure) is thrown: that is not the
+// page naming nobody, and the probe must not refuse a board on it
+// (probe.ts, `pageReported`).
+export async function readBoardName(board: Board, options?: HttpOptions): Promise<string | null> {
+  if (board.platform === "greenhouse") {
+    const data = await getJson<{ name?: unknown }>(
+      `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(board.id)}`,
+      options,
+    );
+    return typeof data.name === "string" && data.name !== "" ? data.name : null;
+  }
+
+  if (board.platform === "ashby") {
+    const html = await getText(`https://jobs.ashbyhq.com/${board.id}`, options);
+    return pageTitle(html, "ashby");
+  }
+
+  if (board.platform === "lever") {
+    const html = await getText(`https://jobs.lever.co/${board.id}`, options);
+    return pageTitle(html, "lever");
+  }
+
+  if (board.platform === "avature") {
+    const html = await getText(`https://${board.id}.avature.net/careers/SearchJobs`, options);
+    return avatureSiteName(html);
+  }
+
+  return null;
+}
+
+// `readBoardName` for a board whose listing already answered, where a name
+// is a label and not evidence: any `HttpError` but a 429 reads as no name,
+// so discover.ts's `resolveUrl` watches the board under its id. A 429 is
+// thrown: the vendor declined to answer, and the name is worth asking for
+// again next run.
 export async function boardName(board: Board, options?: HttpOptions): Promise<string | null> {
   try {
-    if (board.platform === "greenhouse") {
-      const data = await getJson<{ name?: unknown }>(
-        `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(board.id)}`,
-        options,
-      );
-      return typeof data.name === "string" && data.name !== "" ? data.name : null;
-    }
-
-    if (board.platform === "ashby") {
-      const html = await getText(`https://jobs.ashbyhq.com/${board.id}`, options);
-      return pageTitle(html, "ashby");
-    }
-
-    if (board.platform === "lever") {
-      const html = await getText(`https://jobs.lever.co/${board.id}`, options);
-      return pageTitle(html, "lever");
-    }
-
-    return null;
+    return await readBoardName(board, options);
   } catch (error) {
-    if (error instanceof HttpError) return null;
+    if (error instanceof HttpError && error.status !== 429) return null;
     throw error;
   }
 }

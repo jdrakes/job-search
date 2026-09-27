@@ -1,5 +1,5 @@
 // Turns a company name into candidate board slugs and tries them against
-// the twelve platforms whose id is a company-chosen slug. Workday,
+// the eleven platforms whose id is a company-chosen slug. Workday,
 // Eightfold and Amazon are never probed: their board id needs a host, site
 // and tenant no rule derives from a name (`wd5/Cisco_Careers/cisco`). iCIMS
 // is never probed either: its real id is a `jibeapply.com` host that isn't
@@ -20,17 +20,27 @@
 // `capgemini.bamboohr.com` lists four openings, both bound by a re-probe
 // that day. Its boards arrive as a pasted board URL; bamboohr.ts, the
 // reader, is unchanged.
-// Greenhouse, SmartRecruiters and Workable state the hiring company's name
-// on a posting, so a board counts only when that name matches, or a slug
-// collision would mix another company's postings under this one; Ashby and
-// Lever state none, so a slug answering is the whole of the evidence.
-// Rippling states no company name on its listing either, and a slug that
-// does not exist is a 404 the `catch` below handles like any other host's;
-// a real board with nothing open answers `[]` (slug `paper`, live
-// 2026-09-22), so a slug that lists at least one posting is the evidence.
+// Rippling is never probed either: its listing states no company name, and
+// its public board page, `ats.rippling.com/{slug}/jobs`, answered a plain
+// GET with a 307 back to itself until the client gave up at 50 redirects
+// (checked live 2026-09-27 on slug `paper`), so nothing a request can read
+// names the board's owner. A slug that answers says only that some account
+// holds it. Its boards arrive as a pasted board URL; rippling.ts, the
+// reader, is unchanged.
+// A slug answering is never the whole of the evidence: a board counts only
+// when the name it reports matches the one asked about, or a slug
+// collision would file another company's postings under this one. Most
+// listings state that name. Where one does not (Ashby, Lever, and a
+// Greenhouse board with nothing open) the board's own page is read for it
+// (`readBoardName` in boards.ts), one extra request per answering slug. A
+// board that answers but names another company, or whose page loads and
+// names nobody, is refused and returned as such, so discover.ts can tell
+// "wrong company" from "no board". A page that does not answer throws
+// instead (`pageReported` says why).
 import { getJson, getText, HttpError, type HttpOptions } from "../net/http.ts";
 import { asArray, asRecord, asText } from "../ats/ats.ts";
 import type { Board } from "../schema.ts";
+import { avatureSiteName, readBoardName } from "./boards.ts";
 
 export const SLUG_PLATFORMS = [
   "greenhouse",
@@ -38,7 +48,6 @@ export const SLUG_PLATFORMS = [
   "lever",
   "smartrecruiters",
   "workable",
-  "rippling",
   "jobvite",
   "avature",
   "breezy",
@@ -50,8 +59,8 @@ export const SLUG_PLATFORMS = [
 export type SlugPlatform = (typeof SLUG_PLATFORMS)[number];
 
 // The platforms whose public listing answers server-rendered HTML rather
-// than JSON - fetched with `getText`, the raw string handed into `ACCEPTS`
-// as `data: unknown` per the note above `ACCEPTS`'s own type. `getJson`
+// than JSON - fetched with `getText`, the raw string handed into `REPORTED`
+// as `data: unknown` per the note above `REPORTED`'s own type. `getJson`
 // would call the response's own `.json()` and throw a parse error on any of
 // these, silently dropping the platform through `probe`'s `catch`.
 const TEXT_PLATFORMS = new Set<(typeof SLUG_PLATFORMS)[number]>([
@@ -131,33 +140,46 @@ export function namesMatch(reported: string, queried: string): boolean {
   return containsWords(normalizedWords(reported), normalizedWords(queried));
 }
 
-function greenhouseAccepts(data: unknown, name: string): boolean {
-  const jobs = asArray(asRecord(data)["jobs"]);
-  const first = jobs[0];
-  const reported = first === undefined ? null : asText(asRecord(first)["company_name"]);
-  // Nothing to refute the name check with, so the slug answering suffices.
-  return reported === null || namesMatch(reported, name);
+// What one answering slug says. `null`: the answer is no evidence a board
+// exists at all (SmartRecruiters' `content: []` answers for any slug).
+// Otherwise the name the board reports for its owner, itself null when the
+// board names nobody.
+type Reported = { readonly name: string | null } | null;
+
+// The first posting's `company_name`, else the board's own `name` (read
+// separately, since a board with nothing open has no posting to read).
+async function greenhouseReported(
+  data: unknown,
+  board: Board,
+  options: HttpOptions,
+): Promise<Reported> {
+  const first = asArray(asRecord(data)["jobs"])[0];
+  const posted = first === undefined ? null : asText(asRecord(first)["company_name"]);
+  return { name: posted ?? (await readBoardName(board, options)) };
 }
 
-function ashbyAccepts(): boolean {
-  // Ashby states no company name anywhere in a posting.
-  return true;
-}
-
-function leverAccepts(): boolean {
-  // Lever states no company name anywhere in a posting.
-  return true;
+// Ashby and Lever state no company name anywhere in their listing; the
+// board page's <title> does.
+//
+// Here, and for Greenhouse above, a name page that fails to load (any HTTP
+// status, or a network error) throws out of `probe`, rather than refusing
+// the board as naming nobody: a refusal files the candidate as
+// wrong_company for good, and a probe runs with no retries, so a one-off
+// 503, or a 403 from the vendor's bot protection, would file a real company
+// wrongly. discover.ts's per-name catch leaves the candidate pending, and it
+// is probed again next run. That includes a 404 on a slug whose listing
+// just answered.
+async function pageReported(_data: unknown, board: Board, options: HttpOptions): Promise<Reported> {
+  return { name: await readBoardName(board, options) };
 }
 
 // SmartRecruiters answers 200 with `content: []` for a slug that does not
-// exist, not a 404, so an empty `content` carries no evidence and is
-// refused; a real board is found the moment it lists one posting.
-function smartrecruitersAccepts(data: unknown, name: string): boolean {
-  const entries = asArray(asRecord(data)["content"]);
-  const first = entries[0];
-  if (first === undefined) return false;
-  const reported = asText(asRecord(asRecord(first)["company"])["name"]);
-  return reported !== null && namesMatch(reported, name);
+// exist, not a 404, so an empty `content` carries no evidence; a real board
+// is found the moment it lists one posting.
+function smartrecruitersReported(data: unknown): Reported {
+  const first = asArray(asRecord(data)["content"])[0];
+  if (first === undefined) return null;
+  return { name: asText(asRecord(asRecord(first)["company"])["name"]) };
 }
 
 // Workable states the account's name at the top of its listing, but any
@@ -166,111 +188,101 @@ function smartrecruitersAccepts(data: unknown, name: string): boolean {
 // that company: one discovery run accepted 36 Workable boards of which 35
 // were empty. So, as on SmartRecruiters, an empty answer carries no
 // evidence; a board counts once it lists a posting under a matching name.
-function workableAccepts(data: unknown, name: string): boolean {
+function workableReported(data: unknown): Reported {
   const account = asRecord(data);
-  if (asArray(account["jobs"]).length === 0) return false;
-  const reported = asText(account["name"]);
-  return reported !== null && namesMatch(reported, name);
+  if (asArray(account["jobs"]).length === 0) return null;
+  return { name: asText(account["name"]) };
 }
 
-// Rippling states no company name on its listing, and a real board with
-// nothing open answers `[]`, the same as no board at all would tell us; a
-// slug that lists at least one posting is the whole of the evidence
-// (Ruling 2). A slug that does not exist is a 404, handled in `probe`'s
-// `catch` before this runs.
-function ripplingAccepts(data: unknown): boolean {
-  return asArray(data).length > 0;
-}
-
-// `ACCEPTS` must type its functions `(data: unknown, name: string) => boolean`
-// for every platform, `strict: true` (tsconfig.json) makes a function typed
-// to take `html: string` unassignable into that slot (contravariance), and
+// Every function in `REPORTED` must take `(data: unknown, ...)`:
+// `strict: true` (tsconfig.json) makes a function typed to take
+// `html: string` unassignable into that slot (contravariance), and
 // `unknown | string` collapses to plain `unknown` rather than fixing it. So
-// every HTML-based accept function below declares `data: unknown` too and
-// narrows internally with `typeof data === "string" ? data : ""`, the same
-// way the JSON-based ones above already narrow with `asRecord`/`asArray`.
+// every HTML-based function below declares `data: unknown` too and narrows
+// internally with `typeof data === "string" ? data : ""`, the same way the
+// JSON-based ones above already narrow with `asRecord`/`asArray`.
 
 const TITLE_TAG = /<title>([\s\S]*?)<\/title>/;
 
-// Jobvite's listing page states the account's name in its <title>
-// ("{Name} Careers", confirmed live on one tenant); a page
-// with at least one job row (the `jv-job-list-name` cell class, confirmed
-// in jobvite.ts's own listing parser) and a matching name is the board.
-function jobviteAccepts(data: unknown, name: string): boolean {
-  const html = typeof data === "string" ? data : "";
-  if (!html.includes('class="jv-job-list-name"')) return false;
+// The name a <title> gives between a fixed prefix and suffix, or null when
+// the title is not of that shape or leaves nothing between them.
+function titleName(html: string, prefix: string, suffix: string): string | null {
   const title = (TITLE_TAG.exec(html)?.[1] ?? "").trim();
-  if (!title.endsWith(" Careers")) return false;
-  const reported = title.slice(0, -" Careers".length).trim();
-  return reported !== "" && namesMatch(reported, name);
+  if (!title.startsWith(prefix) || !title.endsWith(suffix)) return null;
+  const name = title.slice(prefix.length, title.length - suffix.length).trim();
+  return name === "" ? null : name;
 }
 
-// Avature is a skinned portal; the two tenants checked live disagree on
-// their listing <title> format, so a name check would refuse a real board
-// as often as it confirms one. A page with at least one
-// JobDetail link is the evidence, like Ashby's and Lever's boards.
-function avatureAccepts(data: unknown): boolean {
+// Jobvite's listing page states the account's name in its <title>
+// ("{Name} Careers", confirmed live on one tenant); a page with at least
+// one job row (the `jv-job-list-name` cell class, confirmed in jobvite.ts's
+// own listing parser) is a board.
+function jobviteReported(data: unknown): Reported {
   const html = typeof data === "string" ? data : "";
-  return /\/JobDetail\//.test(html);
+  if (!html.includes('class="jv-job-list-name"')) return null;
+  return { name: titleName(html, "", " Careers") };
+}
+
+// Avature is a skinned portal whose <title> format differs between
+// tenants, so the name is read from its `og:site_name` (`avatureSiteName`
+// in boards.ts, where the live check is recorded). A page with at least one
+// JobDetail link is a board.
+function avatureReported(data: unknown): Reported {
+  const html = typeof data === "string" ? data : "";
+  if (!/\/JobDetail\//.test(html)) return null;
+  return { name: avatureSiteName(html) };
 }
 
 // Breezy states the account's name on every listing entry, in a top-level
 // `company.name` field (confirmed live: the board checked states
 // `"company":{"name":"<account name>", ...}` on every entry).
-function breezyAccepts(data: unknown, name: string): boolean {
-  const entries = asArray(data);
-  const first = entries[0];
-  if (first === undefined) return false;
-  const reported = asText(asRecord(asRecord(first)["company"])["name"]);
-  return reported !== null && namesMatch(reported, name);
+function breezyReported(data: unknown): Reported {
+  const first = asArray(data)[0];
+  if (first === undefined) return null;
+  return { name: asText(asRecord(asRecord(first)["company"])["name"]) };
 }
 
 // JazzHR's listing states the account's name in its <title>
 // ("{Name} - Career Page", confirmed live - the same suffix jazzhr.ts's
-// own detail-title parser strips).
-function jazzhrAccepts(data: unknown, name: string): boolean {
-  const html = typeof data === "string" ? data : "";
-  const title = (TITLE_TAG.exec(html)?.[1] ?? "").trim();
-  if (!title.endsWith(" - Career Page")) return false;
-  const reported = title.slice(0, -" - Career Page".length).trim();
-  return reported !== "" && namesMatch(reported, name);
+// own detail-title parser strips). A page without that title is no
+// evidence of a board.
+function jazzhrReported(data: unknown): Reported {
+  const name = titleName(typeof data === "string" ? data : "", "", " - Career Page");
+  return name === null ? null : { name };
 }
 
 // Recruitee states the account's name on every offer, in a top-level
 // `company_name` field (confirmed live: the board checked states
 // `"company_name":"<account name> GmbH"` on every offer).
-function recruiteeAccepts(data: unknown, name: string): boolean {
-  const offers = asArray(asRecord(data)["offers"]);
-  const first = offers[0];
-  if (first === undefined) return false;
-  const reported = asText(asRecord(first)["company_name"]);
-  return reported !== null && namesMatch(reported, name);
+function recruiteeReported(data: unknown): Reported {
+  const first = asArray(asRecord(data)["offers"])[0];
+  if (first === undefined) return null;
+  return { name: asText(asRecord(first)["company_name"]) };
 }
 
 // HRMDirect's listing states the account's name in its <title>
-// ("Careers At {Name}", confirmed live on one tenant).
-function hrmdirectAccepts(data: unknown, name: string): boolean {
-  const html = typeof data === "string" ? data : "";
-  const title = (TITLE_TAG.exec(html)?.[1] ?? "").trim();
-  const prefix = "Careers At ";
-  if (!title.startsWith(prefix)) return false;
-  const reported = title.slice(prefix.length).trim();
-  return reported !== "" && namesMatch(reported, name);
+// ("Careers At {Name}", confirmed live on one tenant). A page without that
+// title is no evidence of a board.
+function hrmdirectReported(data: unknown): Reported {
+  const name = titleName(typeof data === "string" ? data : "", "Careers At ", "");
+  return name === null ? null : { name };
 }
 
-const ACCEPTS: Record<(typeof SLUG_PLATFORMS)[number], (data: unknown, name: string) => boolean> = {
-  greenhouse: greenhouseAccepts,
-  ashby: ashbyAccepts,
-  lever: leverAccepts,
-  smartrecruiters: smartrecruitersAccepts,
-  workable: workableAccepts,
-  rippling: ripplingAccepts,
-  jobvite: jobviteAccepts,
-  avature: avatureAccepts,
-  breezy: breezyAccepts,
-  jazzhr: jazzhrAccepts,
-  recruitee: recruiteeAccepts,
-  hrmdirect: hrmdirectAccepts,
+const REPORTED: Record<
+  SlugPlatform,
+  (data: unknown, board: Board, options: HttpOptions) => Reported | Promise<Reported>
+> = {
+  greenhouse: greenhouseReported,
+  ashby: pageReported,
+  lever: pageReported,
+  smartrecruiters: smartrecruitersReported,
+  workable: workableReported,
+  jobvite: jobviteReported,
+  avature: avatureReported,
+  breezy: breezyReported,
+  jazzhr: jazzhrReported,
+  recruitee: recruiteeReported,
+  hrmdirect: hrmdirectReported,
 };
 
 function urlFor(platform: (typeof SLUG_PLATFORMS)[number], slug: string): string {
@@ -285,8 +297,6 @@ function urlFor(platform: (typeof SLUG_PLATFORMS)[number], slug: string): string
       return `https://api.smartrecruiters.com/v1/companies/${slug}/postings`;
     case "workable":
       return `https://apply.workable.com/api/v1/widget/accounts/${slug}`;
-    case "rippling":
-      return `https://api.rippling.com/platform/api/ats/v1/board/${slug}/jobs`;
     case "jobvite":
       return `https://jobs.jobvite.com/${slug}/jobs`;
     case "avature":
@@ -315,17 +325,37 @@ function urlFor(platform: (typeof SLUG_PLATFORMS)[number], slug: string): string
 // to exist; the list phase keeps it.
 const NO_RETRIES = { retries: 0 } as const;
 
+// A board that answered but reported another company's name, or none
+// (`reported` null).
+export interface Refusal {
+  readonly board: Board;
+  readonly reported: string | null;
+}
+
+// `boards` answered and named the company; `refused` answered and named
+// someone else or nobody.
+export interface ProbeResult {
+  readonly boards: Board[];
+  readonly refused: Refusal[];
+}
+
+interface PlatformResult {
+  readonly board: Board | null;
+  readonly refused: Refusal[];
+}
+
 // One platform's candidates, in order, stopping at the first slug that both
-// answers and passes `ACCEPTS`; a slug that answers but fails the name check
-// is not a board, and a later candidate may still be the real slug. Serial,
-// so that however many platforms run at once, this platform's own host still
-// receives one request at a time from a given name.
+// answers and reports a matching name; a slug that answers under another
+// name, or none, is refused, and a later candidate may still be the real
+// slug. Serial, so that however many platforms run at once, this platform's
+// own host still receives one request at a time from a given name.
 async function probePlatform(
-  platform: (typeof SLUG_PLATFORMS)[number],
+  platform: SlugPlatform,
   slugs: readonly string[],
   name: string,
   options: HttpOptions,
-): Promise<Board | null> {
+): Promise<PlatformResult> {
+  const refused: Refusal[] = [];
   for (const slug of slugs) {
     let data: unknown;
     try {
@@ -360,18 +390,22 @@ async function probePlatform(
       if (error instanceof HttpError && error.status === 429) throw error;
       continue;
     }
-    if (ACCEPTS[platform](data, name)) return { platform, id: slug };
+    const board: Board = { platform, id: slug };
+    const reported = await REPORTED[platform](data, board, options);
+    if (reported === null) continue;
+    if (reported.name !== null && namesMatch(reported.name, name)) return { board, refused };
+    refused.push({ board, reported: reported.name });
   }
-  return null;
+  return { board: null, refused };
 }
 
-// The twelve platforms are twelve different hosts and http.ts's
-// `rateLimit` is per-host, so asking them one after another stacked twelve
-// unrelated politeness waits end to end: measured live 2026-09-22, one name
-// cost 8.5s on average, 11s when no board was found and every candidate was
-// tried everywhere. Asked together, a name costs the slowest single
-// platform's own candidate chain rather than the sum of all twelve - about
-// 2s.
+// The platforms are different hosts and http.ts's `rateLimit` is
+// per-host, so asking them one after another stacked unrelated politeness
+// waits end to end: measured live 2026-09-22 across the twelve probed then,
+// one name cost 8.5s on average, 11s when no board was found and every
+// candidate was tried everywhere. Asked together, a name costs the slowest
+// single platform's own candidate chain rather than the sum of all of them -
+// about 2s.
 //
 // `Promise.all` and not a settle-ordered collect: the result must stay in
 // SLUG_PLATFORMS order, because discover.ts reads the *first* returned board
@@ -383,19 +417,19 @@ async function probePlatform(
 // serial. `rateLimit` reads a host's `lastAt`, sleeps, then writes it, so two
 // callers on the same host both compute the same delay and then fire
 // together. Within one name that cannot happen - one platform, one host - but
-// two names probed at once share all twelve hosts.
+// two names probed at once share every host.
 //
 // `platforms` narrows which of them are asked, for a caller that already
 // knows the answer for the rest: the deleted backlog pass walked names the
 // store has held since before a platform existed, and asking a vendor a
 // question already answered, once per name, is what earned the tool a
-// Workable block on 2026-09-22. It defaults to all twelve, so discover.ts's
-// call is unchanged.
+// Workable block on 2026-09-22. It defaults to every platform in
+// SLUG_PLATFORMS, so discover.ts's call names none.
 export async function probe(
   name: string,
   options?: HttpOptions,
   platforms: readonly SlugPlatform[] = SLUG_PLATFORMS,
-): Promise<Board[]> {
+): Promise<ProbeResult> {
   const lowercase = slugsFor(name);
   const cased = casedSlugsFor(name);
 
@@ -412,5 +446,8 @@ export async function probe(
     ),
   );
 
-  return found.filter((board) => board !== null);
+  return {
+    boards: found.map((result) => result.board).filter((board) => board !== null),
+    refused: found.flatMap((result) => result.refused),
+  };
 }

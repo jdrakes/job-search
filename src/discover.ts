@@ -16,7 +16,7 @@ import { READERS } from "./ats/readers.ts";
 import { boardKey } from "./companies.ts";
 import { answering } from "./discovery/bind.ts";
 import { boardName, boardUrl, parseBoardUrl } from "./discovery/boards.ts";
-import { probe } from "./discovery/probe.ts";
+import { probe, type ProbeResult } from "./discovery/probe.ts";
 import type { BoardSource, DiscoverySource, Source } from "./discovery/source.ts";
 import { describeError } from "./errors.ts";
 import type { HttpOptions } from "./net/http.ts";
@@ -346,19 +346,31 @@ async function resolveName(
   const known = knownMatch(registry, name);
   if (known !== null) return known;
 
-  let boards: Board[];
+  let found: ProbeResult;
   try {
-    boards = await probe(name, options);
+    found = await probe(name, options);
   } catch (err) {
     log(`${candidate.origin} ${name}: ${describeError(err)}`);
     return null;
   }
+  const { boards, refused } = found;
 
   for (const board of boards) {
     const carrier = registry.carriers.get(carrierKey(board));
     if (carrier !== undefined) return { outcome: "alias", company: carrier };
   }
-  if (boards.length === 0) return { outcome: "no_board", company: null };
+  if (boards.length === 0) {
+    if (refused.length === 0) return { outcome: "no_board", company: null };
+    // A board answered under this name's slug but named someone else, or
+    // nobody; the line says which, so a refusal that was wrong can be seen.
+    for (const refusal of refused) {
+      const reported = refusal.reported === null ? "nobody" : `"${refusal.reported}"`;
+      log(
+        `${candidate.origin} ${name}: wrong_company ${boardKey(refusal.board)} names ${reported}`,
+      );
+    }
+    return { outcome: "wrong_company", company: null };
+  }
 
   await writeCompany(store, name, boards, registry);
   log(`${candidate.origin}: new ${name} ${boards.map(boardKey).join(" ")}`);

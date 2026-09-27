@@ -141,7 +141,8 @@ export const COMPANY_FIELDS = [
 ] as const satisfies readonly (keyof Company)[];
 
 // What discover made of a candidate. `wrong_company` is reserved for a
-// board that answers under another employer's name.
+// board that answers under another employer's name, or whose page loads and
+// names nobody; a page that does not load leaves the candidate pending.
 export const OUTCOMES = [
   "watched",
   "added",

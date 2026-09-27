@@ -77,9 +77,13 @@ function fakeReaders(answers: Record<string, Answer>): {
   };
 }
 
-// A Lever board answering `[]` is a board the probe finds.
-function leverBoard(slug: string): Record<string, string> {
-  return { [`https://api.lever.co/v0/postings/${slug}?mode=json`]: "[]" };
+// A Lever board answering `[]`, whose page's <title> is `title`: the probe
+// takes it when the title names the company asked about.
+function leverBoard(slug: string, title: string): Record<string, string> {
+  return {
+    [`https://api.lever.co/v0/postings/${slug}?mode=json`]: "[]",
+    [`https://jobs.lever.co/${slug}`]: `<title>${title}</title>`,
+  };
 }
 
 interface Run {
@@ -89,16 +93,19 @@ interface Run {
   readonly requested: string[];
 }
 
-// `responses` maps an exact URL to a 200 body; every other URL is a 404.
+// `responses` maps an exact URL to a 200 body, `statuses` an exact URL to
+// an empty answer with that status; every other URL is a 404.
 async function run(
   store: Store,
   sources: DiscoverySource[],
   {
     answers = {},
     responses = {},
+    statuses = {},
   }: {
     answers?: Record<string, Answer>;
     responses?: Record<string, string>;
+    statuses?: Record<string, number>;
   } = {},
 ): Promise<Run> {
   const { readers, asked } = fakeReaders(answers);
@@ -107,6 +114,8 @@ async function run(
   const fetchImpl: typeof fetch = async (input) => {
     const url = String(input);
     requested.push(url);
+    const status = statuses[url];
+    if (status !== undefined) return new Response(null, { status });
     const body = responses[url];
     return body === undefined ? new Response(null, { status: 404 }) : new Response(body);
   };
@@ -141,7 +150,7 @@ test("discover: a new name that probes to a board is watched, and its company wr
   const store = memoryStore();
 
   const { result, lines } = await run(store, [nameSource("hn", ["Acme"])], {
-    responses: leverBoard("acme"),
+    responses: leverBoard("acme", "Acme"),
   });
 
   assert.deepEqual(await candidates(store), ["hn Acme -> watched Acme"]);
@@ -166,6 +175,87 @@ test("discover: a name with no board is no_board and writes no company", async (
   assert.deepEqual(await candidates(store), ["hn Nobody -> no_board null"]);
   assert.equal(result.resolved.no_board, 1);
   assert.deepEqual(await companyNames(store), []);
+});
+
+// Breaks if a board that answers under another company's name is taken
+// (watched) or dropped silently (no_board).
+test("discover: a name whose only answering board names another company is wrong_company, logged", async () => {
+  const store = memoryStore();
+
+  const { result, lines } = await run(store, [nameSource("hn", ["Evolve"])], {
+    responses: leverBoard("evolve", "Contoso"),
+  });
+
+  assert.deepEqual(await candidates(store), ["hn Evolve -> wrong_company null"]);
+  assert.equal(result.resolved.wrong_company, 1);
+  assert.deepEqual(await companyNames(store), []);
+  assert.deepEqual(lines, ['hn Evolve: wrong_company lever::evolve names "Contoso"']);
+});
+
+test("discover: a board whose page loads and names nobody is wrong_company, logged as naming nobody", async () => {
+  const store = memoryStore();
+
+  const { result, lines } = await run(store, [nameSource("hn", ["Evolve"])], {
+    responses: {
+      "https://api.lever.co/v0/postings/evolve?mode=json": "[]",
+      "https://jobs.lever.co/evolve": "<html><head><meta charset='utf-8'></head></html>",
+    },
+  });
+
+  assert.deepEqual(await candidates(store), ["hn Evolve -> wrong_company null"]);
+  assert.equal(result.resolved.wrong_company, 1);
+  assert.deepEqual(lines, ["hn Evolve: wrong_company lever::evolve names nobody"]);
+});
+
+// A name page that does not answer is not a page naming nobody: a 403 from
+// bot protection or a one-off 503 (the probe does not retry) would
+// otherwise file a real company as wrong_company for good. Breaks if the
+// probe reads the name page through boardName again.
+// The log line is http.ts's message: a retryable status says how many
+// retries it made, and the probe makes none.
+for (const [status, logged] of [
+  [403, "HTTP 403"],
+  [404, "HTTP 404"],
+  [503, "HTTP 503 after 0 retries"],
+] as const) {
+  test(`discover: a name page answering ${status} leaves the name pending, and the next call probes it again`, async () => {
+    const store = memoryStore();
+    const source = nameSource("hn", ["Evolve"]);
+
+    const first = await run(store, [source], {
+      responses: { "https://api.lever.co/v0/postings/evolve?mode=json": "[]" },
+      statuses: { "https://jobs.lever.co/evolve": status },
+    });
+
+    assert.deepEqual(await candidates(store), ["hn Evolve -> null null"]);
+    assert.equal(first.result.pending, 1);
+    assert.equal(first.result.resolved.wrong_company, 0);
+    assert.deepEqual(first.lines, [`hn Evolve: ${logged}`]);
+
+    const second = await run(store, [source], { responses: leverBoard("evolve", "Evolve") });
+
+    assert.ok(second.requested.includes("https://jobs.lever.co/evolve"), "probed again");
+    assert.deepEqual(await candidates(store), ["hn Evolve -> watched Evolve"]);
+    assert.deepEqual(second.lines, ["hn: new Evolve lever::evolve"]);
+  });
+}
+
+// A refused board on one platform does not outweigh a matching board on
+// another.
+test("discover: a name with one matching board and one refused board is watched on the matching one", async () => {
+  const store = memoryStore();
+
+  const { lines } = await run(store, [nameSource("hn", ["Acme"])], {
+    responses: {
+      ...leverBoard("acme", "Contoso"),
+      "https://boards-api.greenhouse.io/v1/boards/acme/jobs?content=true": JSON.stringify({
+        jobs: [{ id: "1", company_name: "Acme" }],
+      }),
+    },
+  });
+
+  assert.deepEqual(await candidates(store), ["hn Acme -> watched Acme"]);
+  assert.deepEqual(lines, ["hn: new Acme greenhouse::acme"]);
 });
 
 test("discover: a company's name from a second source is known, with a row, and not probed", async () => {
@@ -227,7 +317,7 @@ test("discover: a name whose probe finds a board another company carries is an a
   });
 
   const { result, lines } = await run(store, [nameSource("hn", ["Pocketly"])], {
-    responses: leverBoard("pocketly"),
+    responses: leverBoard("pocketly", "Pocketly"),
   });
 
   assert.deepEqual(await candidates(store), ["hn Pocketly -> alias Tessera"]);
@@ -242,7 +332,7 @@ test("discover: two names probing to one board in one run are one company and on
   const store = memoryStore();
 
   const { lines } = await run(store, [nameSource("hn", ["Acme Inc", "Acme"])], {
-    responses: leverBoard("acme"),
+    responses: leverBoard("acme", "Acme Inc"),
   });
 
   assert.deepEqual(await candidates(store), [
@@ -382,6 +472,34 @@ test("discover: an unreachable board stays unresolved, is logged, and the next c
     "commoncrawl https://jobs.lever.co/flaky -> watched flaky",
   ]);
   assert.deepEqual(second.lines, ["commoncrawl: new flaky lever::flaky"]);
+});
+
+// The board's listing answered but its name page answered 429: the vendor
+// declined to name it, so the name is asked for again rather than the board
+// being watched under its id. Breaks if boardName reads a 429 as no name.
+test("discover: a URL candidate whose name page answers 429 stays pending, and the next call names it", async () => {
+  const store = memoryStore();
+  const source = boardSource("commoncrawl", [{ platform: "lever", id: "zenco" }]);
+
+  const first = await run(store, [source], {
+    statuses: { "https://jobs.lever.co/zenco": 429 },
+  });
+
+  assert.equal(first.result.pending, 1);
+  assert.deepEqual(first.lines, ["commoncrawl lever::zenco: HTTP 429"]);
+  assert.deepEqual(await candidates(store), [
+    "commoncrawl https://jobs.lever.co/zenco -> null null",
+  ]);
+  assert.deepEqual(await companyNames(store), []);
+
+  const second = await run(store, [source], {
+    responses: { "https://jobs.lever.co/zenco": "<title>Zen Co</title>" },
+  });
+
+  assert.deepEqual(await candidates(store), [
+    "commoncrawl https://jobs.lever.co/zenco -> watched Zen Co",
+  ]);
+  assert.deepEqual(second.lines, ["commoncrawl: new Zen Co lever::zenco"]);
 });
 
 test("discover: a URL naming no board a reader can read is bad_url and nothing is asked", async () => {
