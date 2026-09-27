@@ -19,9 +19,13 @@ import { judgeText } from "./text.ts";
 
 export interface Judgment {
   readonly kept: boolean;
-  readonly reasons: readonly Reason[];
-  // Keyed by criterion: the same string each reason carries in `detail`,
-  // indexed.
+  // The names of the criteria whose verdict was "out", in the order they
+  // ran; empty for a kept posting. The detail text is `evidence`'s.
+  readonly reasons: readonly string[];
+  // Keyed by criterion, "in" and "out" alike: the `detail` of every
+  // criterion that ran. Empty for a posting neither kept nor acted on,
+  // since only those are ever shown; `fullJudgment` reproduces the rest on
+  // request.
   readonly evidence: Readonly<Record<string, string>>;
   readonly judged_with: string;
 }
@@ -34,44 +38,42 @@ function evidenceOf(reasons: readonly Reason[]): Record<string, string> {
   return evidence;
 }
 
-// The columns a verdict is reached from, not a whole `Posting`: `ingest`'s
-// judging pass has a body in hand only for the few about to be judged on
-// text. `boards` defaults to no board read on record; `judgeAll`
-// (ingest.ts) passes the index it built from `companies`.
-export function judge(
-  posting: Pick<
-    Posting,
-    | "key"
-    | "company"
-    | "platform"
-    | "board"
-    | "title"
-    | "location"
-    | "comp_high"
-    | "posted_at"
-    | "body"
-    | "last_seen"
-    | "workplace"
-    | "status"
-  >,
+type JudgedColumns = Pick<
+  Posting,
+  | "key"
+  | "company"
+  | "platform"
+  | "board"
+  | "title"
+  | "location"
+  | "comp_high"
+  | "posted_at"
+  | "body"
+  | "last_seen"
+  | "workplace"
+  | "status"
+>;
+
+// The complete verdict, a `Reason` for every criterion that ran, before
+// `judge` trims it for storage. Judging is deterministic, so this explains
+// any posting on request. The columns a verdict is reached from, not a
+// whole `Posting`: `ingest`'s judging pass has a body in hand only for the
+// few about to be judged on text. `boards` defaults to no board read on
+// record; `judgeAll` (ingest.ts) passes the index it built from `companies`.
+export function fullJudgment(
+  posting: JudgedColumns,
   criteria: Criteria,
   now: string = new Date().toISOString(),
   boards: BoardIndex = NO_BOARDS,
   representativeByKey: ReadonlyMap<string, string> = new Map(),
-): Judgment {
+): { readonly kept: boolean; readonly reasons: readonly Reason[] } {
   if (
     posting.status === null &&
     criteria.max_age_days !== null &&
     posting.posted_at !== null &&
     ageInDays(posting.posted_at, now) > criteria.max_age_days
   ) {
-    const reason = judgeAge(posting.posted_at, criteria, now);
-    return {
-      kept: false,
-      reasons: [reason],
-      evidence: evidenceOf([reason]),
-      judged_with: criteria.updated_at,
-    };
+    return { kept: false, reasons: [judgeAge(posting.posted_at, criteria, now)] };
   }
   const listing = judgeListing(posting, criteria, now, boards, representativeByKey);
   // The listing criteria are final once they say no: no text criterion
@@ -79,10 +81,24 @@ export function judge(
   const reasons = listing.kept
     ? [...listing.reasons, ...judgeText(posting, criteria).reasons]
     : [...listing.reasons];
+  return { kept: reasons.every((reason) => reason.verdict === "in"), reasons };
+}
+
+// What a verdict stores: the failed criteria by name for every posting, and
+// the detail text only where it can be read (a posting kept or acted on).
+export function judge(
+  posting: JudgedColumns,
+  criteria: Criteria,
+  now: string = new Date().toISOString(),
+  boards: BoardIndex = NO_BOARDS,
+  representativeByKey: ReadonlyMap<string, string> = new Map(),
+): Judgment {
+  const { kept, reasons } = fullJudgment(posting, criteria, now, boards, representativeByKey);
+  const acted = posting.status !== null;
   return {
-    kept: reasons.every((reason) => reason.verdict === "in"),
-    reasons,
-    evidence: evidenceOf(reasons),
+    kept,
+    reasons: reasons.filter((reason) => reason.verdict === "out").map((reason) => reason.criterion),
+    evidence: kept || acted ? evidenceOf(reasons) : {},
     judged_with: criteria.updated_at,
   };
 }
@@ -173,18 +189,10 @@ export function needsJudging(
 
 // `reasons` is jsonb and arrives as `unknown[]`, so it is checked here, at
 // the one point that reads it back. The memory store reads the column as
-// null until a verdict writes it, hence the array check first.
+// null until a verdict writes it, hence the array check first. It holds
+// only the names of criteria that were out, so membership is the verdict.
 function hasReasonOut(reasons: unknown, criterion: string): boolean {
-  if (!Array.isArray(reasons)) return false;
-  return reasons.some(
-    (reason: unknown) =>
-      typeof reason === "object" &&
-      reason !== null &&
-      "criterion" in reason &&
-      reason.criterion === criterion &&
-      "verdict" in reason &&
-      reason.verdict === "out",
-  );
+  return Array.isArray(reasons) && reasons.includes(criterion);
 }
 
 // The Duplicate criterion's representative at every key: "the latest seen
