@@ -2098,6 +2098,85 @@ test("ingest: a two-phase posting whose detail is gone is recorded with no body 
   assert.equal(judged?.workplace, null);
 });
 
+test("judgeAll: a two-phase detail that fails a criterion is judged but its body is not stored", async () => {
+  const store = memoryStore({
+    companies: [company("Acme", { boards: [{ platform: "workday", id: "acme-wd" }] })],
+    criteria: [criteria()],
+  });
+  const readers: Partial<Record<Platform, Reader>> = {
+    workday: {
+      platform: "workday",
+      list: async () => [listing("swe1", { title: "Staff Backend Engineer" })],
+      body: async (_board, id) =>
+        listing(id, { body: "5+ years of production Delphi.", workplace: "remote" }),
+    },
+  };
+
+  await ingest(store, readers);
+  const judging = await judgeAll(store, readers);
+
+  assert.equal(judging.judged, 1);
+  const [row] = await store.select<Posting>("postings", { key: "workday/acme-wd::swe1" });
+  assert.equal(row?.kept, false);
+  assert.equal(row?.body, null);
+  assert.equal(row?.workplace, "remote");
+});
+
+test("judgeAll: a two-phase detail that fails a criterion still stores its body when the posting was acted on", async () => {
+  const store = memoryStore({
+    companies: [company("Acme", { boards: [{ platform: "workday", id: "acme-wd" }] })],
+    postings: [
+      posting({
+        key: "workday/acme-wd::swe1",
+        company: "Acme",
+        platform: "workday",
+        board: "acme-wd",
+        title: "Staff Backend Engineer",
+        status: "applied",
+      }),
+    ],
+    criteria: [criteria()],
+  });
+  const readers: Partial<Record<Platform, Reader>> = {
+    workday: {
+      platform: "workday",
+      list: async () => [],
+      body: async (_board, id) =>
+        listing(id, { body: "5+ years of production Delphi.", workplace: "remote" }),
+    },
+  };
+
+  const judging = await judgeAll(store, readers);
+
+  assert.equal(judging.judged, 1);
+  const [row] = await store.select<Posting>("postings", { key: "workday/acme-wd::swe1" });
+  assert.equal(row?.kept, false);
+  assert.equal(row?.body, "5+ years of production Delphi.");
+});
+
+test("judgeAll: a two-phase detail that clears every criterion stores its body", async () => {
+  const store = memoryStore({
+    companies: [company("Acme", { boards: [{ platform: "workday", id: "acme-wd" }] })],
+    criteria: [criteria()],
+  });
+  const readers: Partial<Record<Platform, Reader>> = {
+    workday: twoPhaseReader(
+      "Staff Backend Engineer. Remote in the US. The salary range is $184,500.00 to $251,900.00.",
+    ),
+  };
+
+  await ingest(store, readers);
+  const judging = await judgeAll(store, readers);
+
+  assert.equal(judging.judged, 1);
+  const [row] = await store.select<Posting>("postings", { key: "workday/acme-wd::swe1" });
+  assert.equal(row?.kept, true);
+  assert.equal(
+    row?.body,
+    "Staff Backend Engineer. Remote in the US. The salary range is $184,500.00 to $251,900.00.",
+  );
+});
+
 test("judgeAll: a re-judge that fetches nothing keeps the stored workplace out of its verdict", async () => {
   const { store, upserts } = recording(
     memoryStore({

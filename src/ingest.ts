@@ -395,7 +395,13 @@ export async function judgeAll(
       evidence: judgment.evidence,
       judged_with: judgment.judged_with,
     };
-    pending.push(fetched ? { ...verdict, body, workplace } : verdict);
+    // A fetched detail's workplace is cheap structured data and multiple
+    // criteria read it directly, so it is kept whenever fetched regardless
+    // of verdict; the body is the 5 KB text this plan stops storing once
+    // the posting is neither kept nor acted on (`row.status`, read before
+    // this pass's write, so a posting acted on this same run still counts).
+    const keepBody = judgment.kept || row.status !== null;
+    pending.push(fetched ? { ...verdict, body: keepBody ? body : null, workplace } : verdict);
     if (pending.length >= VERDICT_FLUSH) {
       const flushed = await writeVerdicts(store, pending);
       judged += flushed.written;
