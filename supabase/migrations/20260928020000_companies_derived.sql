@@ -16,12 +16,21 @@
 -- with no board, so their postings stay out under Unwatched ("has no
 -- board"). A watched row is never deleted, board or not.
 --
+-- The 2 kept alias rows are the exception to "with no board": each still
+-- carries the board it was found on, which is another company's. Before
+-- this migration `state = 'alias'` kept them from being read; once `state`
+-- is gone, a row with a board is read, so those boards would be read a
+-- second time under the alias's name. So their boards are emptied here,
+-- while `state` can still pick them out, and they stay like the other 7:
+-- kept, never read.
+--
 -- There is no way back from here but a `pg_dump -t companies` taken before
 -- this is applied: the deleted rows and the dropped columns are not kept
 -- anywhere else in this shape.
 --
 -- Idempotent, like every migration here: once `state` is gone a re-run
--- cannot reach it, so the delete runs only while the column exists.
+-- cannot reach it, so the delete and the alias boards reset run only while
+-- the column exists.
 -- Dropping `state` drops its CHECK with it.
 
 DO $$
@@ -33,6 +42,9 @@ BEGIN
     DELETE FROM "companies" c
     WHERE c."state" IN ('discovered', 'alias')
       AND NOT EXISTS (SELECT 1 FROM "postings" p WHERE p."company" = c."name");
+
+    UPDATE "companies" SET "boards" = '[]'
+    WHERE "state" = 'alias';
   END IF;
 END $$;
 
