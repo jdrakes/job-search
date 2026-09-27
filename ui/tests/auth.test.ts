@@ -59,6 +59,25 @@ test("requestLink asks for a link without enrolling a new user", async () => {
   ]);
 });
 
+test("requestLink appends redirect_to to the request URL when given one", async () => {
+  const { requests, fetchImpl } = capturingFetch(json(200, {}));
+
+  const result = await requestLink(
+    CONFIG,
+    "someone@example.com",
+    fetchImpl,
+    "https://jobs.jamesdrakes.com/?tab=companies",
+  );
+
+  assert.deepEqual(result, { ok: true, value: null });
+  assert.deepEqual(requests, [
+    {
+      url: `${CONFIG.url}/auth/v1/otp?redirect_to=${encodeURIComponent("https://jobs.jamesdrakes.com/?tab=companies")}`,
+      body: { email: "someone@example.com", create_user: false },
+    },
+  ]);
+});
+
 test("verifyLink trades the token_hash for a session named for the response's user", async () => {
   const { requests, fetchImpl } = capturingFetch(
     json(200, {

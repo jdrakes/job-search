@@ -138,6 +138,10 @@ export const AppRoot = defineComponent({
     // of the address bar; both come from `mountApp` for the same reason.
     linkToken: { type: String as PropType<string | null>, default: null },
     forgetLinkToken: { type: Function as PropType<() => void>, default: () => () => {} },
+    // `window.location.origin + pathname`, read once at mount the same way
+    // `initialTab` is: a plain value, not a callback, because nothing about
+    // it needs to run again later. Null in a test that has no redirect to give.
+    redirectOrigin: { type: String as PropType<string | null>, default: null },
   },
   async setup(props) {
     const tab = ref<TabId>(props.initialTab);
@@ -259,7 +263,9 @@ export const AppRoot = defineComponent({
       signInBusy.value = true;
       signInError.value = null;
       try {
-        const result = await requestLink(props.config, email.value, props.httpFetch);
+        const redirectTo =
+          props.redirectOrigin === null ? null : redirectTargetFor(props.redirectOrigin, tab.value);
+        const result = await requestLink(props.config, email.value, props.httpFetch, redirectTo);
         if (result.ok) {
           signInStage.value = "sent";
         } else {
@@ -462,6 +468,17 @@ export function searchFor(id: TabId): string {
   return id === "queue" ? "" : `?tab=${id}`;
 }
 
+/**
+ * The `redirect_to` sent with a sign-in link request, so the link Supabase
+ * mails back reopens on the tab James was viewing. Unlike `searchFor`, this
+ * always writes `tab=`, even for `"queue"`: it never reaches the address
+ * bar, and always having a `?` already in `{{ .RedirectTo }}` lets the email
+ * template join `&token_hash=...` onto it unconditionally.
+ */
+export function redirectTargetFor(origin: string, tab: TabId): string {
+  return `${origin}?tab=${tab}`;
+}
+
 /** Mounts `AppRoot` under a `Suspense` boundary, required in the browser for its async `setup()`. */
 export function mountApp(selector: string, configText: string, store: SessionStore): void {
   const container = document.querySelector(selector);
@@ -493,6 +510,7 @@ export function mountApp(selector: string, configText: string, store: SessionSto
                 "",
                 window.location.pathname + searchFor(initialTab),
               ),
+            redirectOrigin: window.location.origin + window.location.pathname,
           }),
         fallback: () => h(LoadingShell, { tab: initialTab }),
       }),
