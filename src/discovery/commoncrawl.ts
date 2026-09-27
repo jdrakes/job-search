@@ -1,12 +1,11 @@
 // Common Crawl's URL index as a discovery source: every board its latest
 // crawl saved on the Ashby, Greenhouse and Lever board hosts. It names
-// boards, not companies — `discover` asks each one it has not seen before,
-// once, for the company name.
+// boards, not companies — `discover` reads each one it has not seen
+// before, once, for its name (`boardName`, `./boards.ts`).
 import { boardKey } from "../companies.ts";
 import { describeError } from "../errors.ts";
 import { getJson, getText, type HttpOptions } from "../net/http.ts";
 import type { Board } from "../schema.ts";
-import { boardName } from "./boards.ts";
 import type { BoardSource } from "./source.ts";
 
 const COLLECTIONS_URL = "https://index.commoncrawl.org/collinfo.json";
@@ -113,4 +112,4 @@ async function boards(options?: HttpOptions, log?: (line: string) => void): Prom
   return found;
 }
 
-export const commonCrawlSource: BoardSource = { name: "commoncrawl", boards, companyName: boardName };
+export const commonCrawlSource: BoardSource = { name: "commoncrawl", boards };

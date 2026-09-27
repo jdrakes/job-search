@@ -24,9 +24,9 @@ first; the work to build it is tracked elsewhere.
 - A name is probed against every applicant tracking system the tool reads;
   a company whose board answers under its name is watched from then on. A
   name with no answering board stays visible as discovered; its board, where
-  one exists, is found by the ATS survey (a by-hand pass over each such
-  company's own careers page, imported with `watch:survey`), since a name
-  alone reaches only the systems whose board id is a slug.
+  one exists, is found by hand from the company's own careers page and
+  added by pasting one of its posting URLs, since a name alone reaches
+  only the systems whose board id is a slug.
 - A watched board that stops answering (gone, not merely empty) returns
   its company to discovered after two runs, so the next survey finds it
   again and it comes back if the company moved to another system. Two runs,

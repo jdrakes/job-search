@@ -1,8 +1,9 @@
 // A board URL is external input, parsed into a typed `Board` once at this
 // boundary. It replaces the survey's hand-spelled columns (`workdayBoard`,
-// `icimsBoard` in the deleted `scripts/watch-survey.ts`): a person pastes a
-// public URL copied from a browser — the board's own page or one posting
-// under it — and gets back the board a reader in `src/ats/` can read.
+// `icimsBoard` in the ATS survey's now-deleted by-hand tool): a person
+// pastes a public URL copied from a browser — the board's own page or one
+// posting under it — and gets back the board a reader in `src/ats/` can
+// read.
 //
 // Supported: Greenhouse, Ashby, Lever (the three Common Crawl already
 // walks), Workday, Eightfold and iCIMS (the three the survey spelled by

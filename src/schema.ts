@@ -2,7 +2,7 @@
 // file's interfaces (`satisfies`) and the migration's column list
 // (tests/schema.test.ts), so a column can only drift if both are edited.
 
-export const TABLES = ["postings", "companies", "criteria", "reprobe_runs", "candidates"] as const;
+export const TABLES = ["postings", "companies", "criteria", "candidates"] as const;
 export type Table = (typeof TABLES)[number];
 
 export const PLATFORMS = [
@@ -228,50 +228,11 @@ export const CRITERIA_FIELDS = [
   "assumed_bonus_pct",
 ] as const satisfies readonly (keyof Criteria)[];
 
-// One row per `scripts/reprobe.ts` pass. The backlog pass is by hand,
-// costs thousands of vendor requests and takes hours, and nothing recorded
-// that one had run: on 2026-09-23 a pass re-asked six platforms the
-// backlog had been cleared against the day before, ~14,000 requests for
-// nothing, and the redundancy only showed once it had returned zero across
-// 2,100 names.
-//
-// `platforms` is the pass's platform list sorted and comma-joined, so two
-// runs naming the same set in a different order match. `refused_at` is the
-// name a vendor's 429 stopped the pass on, and it is where the next pass
-// over the same platforms resumes. `finished` is null while a pass is
-// running and stays null if it is killed, which is what distinguishes
-// "never completed" from "completed and found nothing" - the distinction
-// whose absence cost the morning.
-export interface ReprobeRun {
-  readonly started: string;
-  readonly platforms: string;
-  readonly names: number;
-  readonly probed: number;
-  readonly watched: number;
-  readonly aliases: number;
-  readonly errors: number;
-  readonly refused_at: string | null;
-  readonly finished: string | null;
-}
-
-export const REPROBE_RUN_FIELDS = [
-  "started",
-  "platforms",
-  "names",
-  "probed",
-  "watched",
-  "aliases",
-  "errors",
-  "refused_at",
-  "finished",
-] as const satisfies readonly (keyof ReprobeRun)[];
-
 // Read by `src/store/memory.ts` to answer a select with the table's whole
 // column list, the way Postgres does.
 export const TABLE_FIELDS = {
   postings: POSTING_FIELDS,
   companies: COMPANY_FIELDS,
   criteria: CRITERIA_FIELDS,
-  reprobe_runs: REPROBE_RUN_FIELDS,
   candidates: CANDIDATE_FIELDS,
 } as const satisfies Record<Table, readonly string[]>;

@@ -32,6 +32,5 @@ export const PRIMARY_KEYS = {
   postings: "key",
   companies: "name",
   criteria: "id",
-  reprobe_runs: "started",
   candidates: "id",
 } as const satisfies Record<Table, string>;

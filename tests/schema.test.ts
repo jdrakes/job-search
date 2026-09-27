@@ -10,7 +10,6 @@ import {
   PLATFORMS,
   POSTING_FIELDS,
   postingKey,
-  REPROBE_RUN_FIELDS,
   STATUSES,
   TABLES,
 } from "../src/schema.ts";
@@ -22,7 +21,7 @@ const MIGRATION_PATH = `${MIGRATIONS_DIR}/20260915000000_three_stores.sql`;
 // Each column lives on its own line as `"name" ...` inside the CREATE
 // TABLE block, the convention every migration here follows. The block is
 // looked up across every migration rather than in one fixed file, because
-// a table is declared wherever it is declared: `reprobe_runs` has a
+// a table is declared wherever it is declared: `candidates` has a
 // migration of its own. The last migration to CREATE a name wins, since
 // `criteria` is created by the init, again by its own migration, and again
 // by three_stores, which drops the earlier one first.
@@ -124,10 +123,6 @@ test("the migration's companies columns match COMPANY_FIELDS, in order", () => {
 
 test("the migration's criteria columns match CRITERIA_FIELDS, in order", () => {
   assert.deepEqual(columnsOf("criteria"), [...CRITERIA_FIELDS]);
-});
-
-test("the migration's reprobe_runs columns match REPROBE_RUN_FIELDS, in order", () => {
-  assert.deepEqual(columnsOf("reprobe_runs"), [...REPROBE_RUN_FIELDS]);
 });
 
 test("the migration's candidates columns match CANDIDATE_FIELDS, in order", () => {

@@ -350,7 +350,8 @@ async function probePlatform(
       // Throwing, rather than returning some "unknown" a caller may ignore:
       // discover.ts's per-name catch already skips the name without adding
       // it to `known`, so it is probed again tomorrow, which is the right
-      // handling and needs no change. scripts/reprobe.ts stops the pass.
+      // handling and needs no change. The backlog pass this guarded against
+      // stopped the same way.
       //
       // 429 only, deliberately. A 5xx is also not an answer, but no probe
       // has been measured failing that way, and a case is not handled here
@@ -384,11 +385,11 @@ async function probePlatform(
 // two names probed at once share all twelve hosts.
 //
 // `platforms` narrows which of them are asked, for a caller that already
-// knows the answer for the rest: scripts/reprobe.ts walks names the store
-// has held since before a platform existed, and asking a vendor a question
-// already answered, once per name, is what earned the tool a Workable block
-// on 2026-09-22. It defaults to all twelve, so discover.ts's call is
-// unchanged.
+// knows the answer for the rest: the deleted backlog pass walked names the
+// store has held since before a platform existed, and asking a vendor a
+// question already answered, once per name, is what earned the tool a
+// Workable block on 2026-09-22. It defaults to all twelve, so discover.ts's
+// call is unchanged.
 export async function probe(
   name: string,
   options?: HttpOptions,

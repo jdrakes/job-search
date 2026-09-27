@@ -49,15 +49,10 @@ function nameSource(name: string, names: string[] | (() => Promise<string[]>)): 
   return { name, companies: async () => (typeof names === "function" ? names() : names) };
 }
 
-// `companyName` is never asked: discover reads a board's name with
-// `boardName` itself, so it throws here to say so.
 function boardSource(name: string, boards: Board[] | (() => Promise<Board[]>)): BoardSource {
   return {
     name,
     boards: async () => (typeof boards === "function" ? boards() : boards),
-    companyName: async () => {
-      throw new Error("discover must not call companyName");
-    },
   };
 }
 
