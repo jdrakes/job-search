@@ -47,8 +47,8 @@ export function isGone(platform: Platform, error: unknown): boolean {
 }
 
 // The row is read back rather than taken from the caller: the caller holds
-// the row as the run began, and a sibling board's mark written since would
-// be lost under it.
+// the row as the run began, and a sibling board's removal or `last_read`
+// written since would be lost under it.
 async function writeBoards(
   store: Store,
   name: string,

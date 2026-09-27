@@ -255,6 +255,9 @@ test("ingest: a board that 404s is removed at once, its company reported returne
 
   const first = await ingest(store, readers);
   assert.deepEqual(first.returned, ["Acme greenhouse/acme-gh"]);
+  assert.deepEqual(first.gone, [
+    { company: "Acme", board: { platform: "greenhouse", id: "acme-gh" } },
+  ]);
   assert.deepEqual(first.errors, ["Acme greenhouse/acme-gh: HTTP 404"]);
   const [afterFirst] = await store.select<Company>("companies", { name: "Acme" });
   assert.deepEqual(afterFirst, company("Acme"), "the row stays, with no board");
@@ -276,6 +279,7 @@ test("ingest: a board answering 429 is an error line every run and is never remo
 
   assert.deepEqual(result.errors, ["Acme greenhouse/acme-gh: HTTP 429"]);
   assert.deepEqual(result.returned, []);
+  assert.deepEqual(result.gone, []);
   const [row] = await store.select<Company>("companies", { name: "Acme" });
   assert.deepEqual(row?.boards, [{ platform: "greenhouse", id: "acme-gh" }]);
 });
@@ -302,6 +306,34 @@ test("ingest: a workday board answering 400 is removed at once; a greenhouse boa
   assert.deepEqual(bolt?.boards, [{ platform: "greenhouse", id: "bolt" }]);
 });
 
+// Breaks if only the board that emptied the company is reported, or if the
+// company's name is reported as a label to be parsed back.
+test("ingest: every board removed this run is reported gone with its company's full name", async () => {
+  const store = memoryStore({
+    companies: [
+      company("Wellspring Health", {
+        boards: [
+          { platform: "greenhouse", id: "wellspring" },
+          { platform: "lever", id: "wellspring" },
+        ],
+      }),
+    ],
+    criteria: [criteria()],
+  });
+  const readers: Partial<Record<Platform, Reader>> = {
+    greenhouse: goneReader("greenhouse", 404),
+    lever: goneReader("lever", 404),
+  };
+
+  const result = await ingest(store, readers);
+
+  assert.deepEqual(result.gone, [
+    { company: "Wellspring Health", board: { platform: "greenhouse", id: "wellspring" } },
+    { company: "Wellspring Health", board: { platform: "lever", id: "wellspring" } },
+  ]);
+  assert.deepEqual(result.returned, ["Wellspring Health lever/wellspring"]);
+});
+
 test("ingest: a company with two boards loses only the dead one and is not returned", async () => {
   const store = memoryStore({
     companies: [
@@ -319,9 +351,15 @@ test("ingest: a company with two boards loses only the dead one and is not retur
     lever: { platform: "lever", list: async (board) => [listing(`${board.id}-1`)] },
   };
 
-  await ingest(store, readers, { now: () => "2026-09-15T06:00:00.000Z" });
+  const first = await ingest(store, readers, { now: () => "2026-09-15T06:00:00.000Z" });
   const result = await ingest(store, readers, { now: () => "2026-09-16T06:00:00.000Z" });
 
+  // Reported gone all the same, so the company is suggested again.
+  assert.deepEqual(first.gone, [
+    { company: "Acme", board: { platform: "greenhouse", id: "acme-gh" } },
+  ]);
+  assert.deepEqual(first.returned, []);
+  assert.deepEqual(result.gone, []);
   assert.deepEqual(result.returned, []);
   assert.equal(result.listed, 1);
   const [row] = await store.select<Company>("companies", { name: "Acme" });
