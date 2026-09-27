@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
+import process from "node:process";
 import { test } from "node:test";
+import pg from "pg";
 import {
   CANDIDATE_FIELDS,
   COMPANY_FIELDS,
@@ -197,3 +199,106 @@ test("PRIMARY_KEYS names the column the migration declares PRIMARY KEY, per tabl
     assert.equal(primaryKeyOf(table), PRIMARY_KEYS[table], table);
   }
 });
+
+// The list's INSERT on `candidates` (20260928050000_candidates_list),
+// against the test database with that migration applied: the column
+// privilege and the policy are Postgres's to enforce, so only Postgres can
+// say they hold. One transaction as `authenticated`, every attempt behind
+// a savepoint, all of it rolled back, so no row is left behind. Skipped
+// with its reason when the URL is unset; never `JOB_SEARCH_DB_URL`.
+const TEST_DB_URL = process.env["JOB_SEARCH_TEST_DB_URL"] ?? "";
+const testDbSkip = TEST_DB_URL === "" ? "JOB_SEARCH_TEST_DB_URL unset" : null;
+
+type Attempt =
+  | { readonly ok: true; readonly rows: readonly Record<string, unknown>[] }
+  | { readonly ok: false; readonly code: string; readonly message: string };
+
+async function asTheList(statements: readonly string[]): Promise<readonly Attempt[]> {
+  const client = new pg.Client({ connectionString: TEST_DB_URL });
+  await client.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SET LOCAL ROLE authenticated");
+    const attempts: Attempt[] = [];
+    for (const statement of statements) {
+      await client.query("SAVEPOINT attempt");
+      try {
+        const result = await client.query(statement);
+        attempts.push({ ok: true, rows: result.rows });
+      } catch (error) {
+        const failure = error as { code?: string; message?: string };
+        attempts.push({ ok: false, code: failure.code ?? "", message: failure.message ?? "" });
+      }
+      await client.query("ROLLBACK TO SAVEPOINT attempt");
+    }
+    await client.query("ROLLBACK");
+    return attempts;
+  } finally {
+    await client.end();
+  }
+}
+
+test(
+  "the list may insert a candidate with only name and origin james; the defaults fill id and added_at",
+  testDbSkip === null ? {} : { skip: testDbSkip },
+  async () => {
+    // Breaks without the GRANT INSERT, the authenticated_add policy, or
+    // either column default (id and added_at are NOT NULL).
+    const [added] = await asTheList([
+      `INSERT INTO "candidates" ("name", "origin") VALUES ('Example Co', 'james') ` +
+        `RETURNING "id", "added_at", "outcome"`,
+    ]);
+    assert.ok(added?.ok, `insert refused: ${added?.ok === false ? added.message : ""}`);
+    const row = added.rows[0];
+    assert.match(
+      String(row?.["id"]),
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+    assert.ok(row?.["added_at"] instanceof Date);
+    assert.equal(row?.["outcome"], null);
+  },
+);
+
+test(
+  "the list may insert a URL-only candidate from peers",
+  testDbSkip === null ? {} : { skip: testDbSkip },
+  async () => {
+    // Breaks if the policy's origin list drops 'peers' or the grant drops url.
+    const [added] = await asTheList([
+      `INSERT INTO "candidates" ("url", "origin", "evidence") ` +
+        `VALUES ('https://example.com/jobs/1', 'peers', 'a colleague named it')`,
+    ]);
+    assert.equal(added?.ok, true);
+  },
+);
+
+test(
+  "the list may not insert a candidate whose origin is a discovery source",
+  testDbSkip === null ? {} : { skip: testDbSkip },
+  async () => {
+    // Breaks if the policy's WITH CHECK stops pinning origin.
+    const [refused] = await asTheList([
+      `INSERT INTO "candidates" ("name", "origin") VALUES ('Example Co', 'builtin.com')`,
+    ]);
+    assert.equal(refused?.ok, false);
+    assert.equal(refused?.ok === false && refused.code, "42501");
+    assert.match(refused?.ok === false ? refused.message : "", /row-level security/);
+  },
+);
+
+test(
+  "the list may not write a candidate's outcome, company or id",
+  testDbSkip === null ? {} : { skip: testDbSkip },
+  async () => {
+    // Breaks if the column grant widens past name, url, origin, evidence.
+    const attempts = await asTheList([
+      `INSERT INTO "candidates" ("name", "origin", "outcome") VALUES ('Example Co', 'james', 'watched')`,
+      `INSERT INTO "candidates" ("name", "origin", "company") VALUES ('Example Co', 'james', 'Example Co')`,
+      `INSERT INTO "candidates" ("id", "name", "origin") VALUES ('chosen-id', 'Example Co', 'james')`,
+    ]);
+    assert.deepEqual(
+      attempts.map((attempt) => (attempt.ok ? "added" : attempt.code)),
+      ["42501", "42501", "42501"],
+    );
+  },
+);
