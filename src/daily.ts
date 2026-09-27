@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { boardsOf, readable } from "./companies.ts";
 import { loadCriteria } from "./criteria.ts";
-import { discover, type DiscoverResult } from "./discover.ts";
+import { discover, suggestAgain, type DiscoverResult } from "./discover.ts";
 import { builtInSource } from "./discovery/builtin.ts";
 import { commonCrawlSource } from "./discovery/commoncrawl.ts";
 import { hnSource } from "./discovery/hn.ts";
@@ -15,7 +15,7 @@ import type { DiscoverySource, Source } from "./discovery/source.ts";
 import { theMuseSource } from "./discovery/themuse.ts";
 import { weWorkRemotelySource } from "./discovery/weworkremotely.ts";
 import { describeError } from "./errors.ts";
-import { ingest, judgeAll } from "./ingest.ts";
+import { type GoneBoard, ingest, judgeAll } from "./ingest.ts";
 import { phase } from "./phase.ts";
 import { loadSettings, type Settings } from "./settings.ts";
 import { openStore } from "./store/open.ts";
@@ -171,6 +171,19 @@ export function discoverLine(result: DiscoverResult): string {
   );
 }
 
+// Wrapped, like discovery and publish: a refused candidates write costs the
+// morning its re-suggestions, not its judging and publish.
+export async function suggestGone(
+  store: Store,
+  gone: readonly GoneBoard[],
+): Promise<{ ok: true; value: number } | { ok: false; reason: string }> {
+  try {
+    return { ok: true, value: await suggestAgain(store, gone) };
+  } catch (error) {
+    return { ok: false, reason: describeError(error) };
+  }
+}
+
 async function main(): Promise<number> {
   const store = openStore();
   const settings = loadSettings();
@@ -214,6 +227,15 @@ async function main(): Promise<number> {
   }
   for (const line of result.returned) {
     console.log(`  returned: ${line}`);
+  }
+
+  // A company that lost a board this run is suggested again by name, so it
+  // is probed fresh the next morning like any other candidate
+  // (`resolveName`, discover.ts) instead of staying unwatched for good.
+  if (result.gone.length > 0) {
+    const suggested = await suggestGone(store, result.gone);
+    if (suggested.ok) console.log(`gone: ${suggested.value} candidates suggested`);
+    else console.error(`gone: suggesting again failed, judging anyway: ${suggested.reason}`);
   }
 
   // Every HTTP request this phase makes is a body fetch.

@@ -27,8 +27,16 @@ export interface IngestResult {
   readonly listed: number;
   readonly recorded: number;
   readonly errors: readonly string[];
-  // Companies whose last board this run removed, as `<company> <platform>/<id>`.
+  // Companies whose last board this run removed, as `<company> <platform>/<id>`:
+  // log lines, never read back.
   readonly returned: readonly string[];
+  // Every board this run removed, with its company's name.
+  readonly gone: readonly GoneBoard[];
+}
+
+export interface GoneBoard {
+  readonly company: string;
+  readonly board: Board;
 }
 
 export interface JudgeResult {
@@ -487,6 +495,7 @@ interface ListedCompany {
   readonly recorded: number;
   readonly errors: readonly string[];
   readonly returned: readonly string[];
+  readonly gone: readonly GoneBoard[];
 }
 
 async function listCompany(
@@ -500,6 +509,7 @@ async function listCompany(
 ): Promise<ListedCompany> {
   const errors: string[] = [];
   const returned: string[] = [];
+  const gone: GoneBoard[] = [];
   const read: Board[] = [];
   let listed = 0;
 
@@ -529,8 +539,10 @@ async function listCompany(
       // The bookkeeping is a store write; a refusal is one more error line,
       // never a thrown run.
       try {
-        if (isGone(board.platform, err) && (await boardGone(store, company, board)).returned) {
-          returned.push(label);
+        if (isGone(board.platform, err)) {
+          const removed = await boardGone(store, company, board);
+          gone.push({ company: company.name, board });
+          if (removed.returned) returned.push(label);
         }
       } catch (writeErr) {
         errors.push(`${label}: recording gone board: ${describeError(writeErr)}`);
@@ -587,7 +599,7 @@ async function listCompany(
     if (rows.length > 0) await store.upsert("postings", rows);
   } catch (err) {
     errors.push(`${company.name}: recording ${rows.length} postings: ${describeError(err)}`);
-    return { listed, recorded: 0, errors, returned };
+    return { listed, recorded: 0, errors, returned, gone };
   }
   // Written only once the rows are in: a board marked read whose rows were
   // refused would have its postings judged gone against a read that never
@@ -597,7 +609,7 @@ async function listCompany(
   } catch (err) {
     errors.push(`${company.name}: recording board reads: ${describeError(err)}`);
   }
-  return { listed, recorded: rows.length, errors, returned };
+  return { listed, recorded: rows.length, errors, returned, gone };
 }
 
 // Every column a re-list can write, bar `body`: `body_hash` stands for it.
@@ -735,6 +747,7 @@ export async function ingest(
     recorded: results.reduce((sum, result) => sum + result.recorded, 0),
     errors: [...errors, ...results.flatMap((result) => result.errors)],
     returned: results.flatMap((result) => result.returned),
+    gone: results.flatMap((result) => result.gone),
   };
 }
 

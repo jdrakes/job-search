@@ -47,8 +47,8 @@ export function isGone(platform: Platform, error: unknown): boolean {
 }
 
 // The row is read back rather than taken from the caller: the caller holds
-// the row as the run began, and a sibling board's mark written since would
-// be lost under it.
+// the row as the run began, and a sibling board's removal or `last_read`
+// written since would be lost under it.
 async function writeBoards(
   store: Store,
   name: string,
@@ -61,28 +61,23 @@ async function writeBoards(
   return row;
 }
 
-// First gone run marks the board; the next removes it. A company left with
-// no board is simply not read (`readable`); `returned` reports the run that
-// removed its last one.
+// A board that answers gone is removed from its company at once, no
+// two-run mark. A company left with no board is simply not read
+// (`readable`); `returned` reports whether this call took its last one.
 export async function boardGone(
   store: Store,
   company: Company,
   board: Board,
 ): Promise<{ returned: boolean }> {
-  const marked = boardsOf(company).find((candidate) => sameBoard(candidate, board))?.gone;
   const row = await writeBoards(store, company.name, (boards) =>
-    marked === undefined
-      ? boards.map((candidate) =>
-          sameBoard(candidate, board) ? { ...candidate, gone: 1 } : candidate,
-        )
-      : boards.filter((candidate) => !sameBoard(candidate, board)),
+    boards.filter((candidate) => !sameBoard(candidate, board)),
   );
-  return { returned: marked !== undefined && row !== null && row.boards.length === 0 };
+  return { returned: row !== null && row.boards.length === 0 };
 }
 
 // A board that listed and had its rows recorded carries the run's start as
-// `last_read` and loses any gone mark; the company's other boards are
-// untouched. No boards read, no write.
+// `last_read`; the company's other boards are untouched. No boards read, no
+// write.
 export async function recordBoardsRead(
   store: Store,
   company: Company,

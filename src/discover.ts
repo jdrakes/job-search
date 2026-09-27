@@ -19,6 +19,7 @@ import { boardName, boardUrl, parseBoardUrl } from "./discovery/boards.ts";
 import { probe, type ProbeResult } from "./discovery/probe.ts";
 import type { BoardSource, DiscoverySource, Source } from "./discovery/source.ts";
 import { describeError } from "./errors.ts";
+import type { GoneBoard } from "./ingest.ts";
 import type { HttpOptions } from "./net/http.ts";
 import {
   OUTCOMES,
@@ -325,7 +326,7 @@ async function resolveUrl(
   const match = registry.companies.get(nameKey(name));
   if (match?.dropped === true) return { outcome: "dropped", company: match.name };
   if (match !== undefined) {
-    await addBoard(store, match.name, board);
+    await addBoards(store, match.name, [board]);
     registry.carriers.set(carrierKey(board), match.name);
     log(`${candidate.origin}: added ${match.name} ${boardKey(board)}`);
     return { outcome: "added", company: match.name };
@@ -343,7 +344,13 @@ async function resolveName(
   options: HttpOptions | undefined,
   log: (line: string) => void,
 ): Promise<Resolution | null> {
-  const known = knownMatch(registry, name);
+  // A `gone` candidate names a company already on file that just lost a
+  // board: its name is known, but the known-name arm would leave it there
+  // for good, so this origin alone skips it and is probed like any new
+  // name. `own` is that company's name as filed, null when no row has it.
+  const gone = candidate.origin === "gone";
+  const own = gone ? (registry.companies.get(nameKey(name))?.name ?? null) : null;
+  const known = gone ? null : knownMatch(registry, name);
   if (known !== null) return known;
 
   let found: ProbeResult;
@@ -355,12 +362,13 @@ async function resolveName(
   }
   const { boards, refused } = found;
 
+  // A board the `gone` company itself still carries is its own, not an
+  // alias for it.
   for (const board of boards) {
     const carrier = registry.carriers.get(carrierKey(board));
-    if (carrier !== undefined) return { outcome: "alias", company: carrier };
+    if (carrier !== undefined && carrier !== own) return { outcome: "alias", company: carrier };
   }
   if (boards.length === 0) {
-    if (refused.length === 0) return { outcome: "no_board", company: null };
     // A board answered under this name's slug but named someone else, or
     // nobody; the line says which, so a refusal that was wrong can be seen.
     for (const refusal of refused) {
@@ -369,12 +377,70 @@ async function resolveName(
         `${candidate.origin} ${name}: wrong_company ${boardKey(refusal.board)} names ${reported}`,
       );
     }
+    // A `gone` name is already a company's own, so a refusal is no new
+    // company misfiled: only "still no board".
+    if (gone || refused.length === 0) return { outcome: "no_board", company: null };
     return { outcome: "wrong_company", company: null };
   }
+
+  if (gone) return addFound(store, candidate, own ?? name, boards, registry, log);
 
   await writeCompany(store, name, boards, registry);
   log(`${candidate.origin}: new ${name} ${boards.map(boardKey).join(" ")}`);
   return { outcome: "watched", company: name };
+}
+
+// A `gone` candidate's probe found boards none of which another company
+// carries. Those its company lacks are added to it; if it already carries
+// every one, the name is `known`. A company row missing by now (deleted
+// since the run began, or never there) is `no_board`: nothing was written.
+async function addFound(
+  store: Store,
+  candidate: Candidate,
+  name: string,
+  boards: readonly Board[],
+  registry: Registry,
+  log: (line: string) => void,
+): Promise<Resolution> {
+  const lacking = boards.filter((board) => !registry.carriers.has(carrierKey(board)));
+  if (lacking.length === 0) return { outcome: "known", company: name };
+  if (!(await addBoards(store, name, lacking))) return { outcome: "no_board", company: null };
+  for (const board of lacking) registry.carriers.set(carrierKey(board), name);
+  log(`${candidate.origin}: added ${name} ${lacking.map(boardKey).join(" ")}`);
+  return { outcome: "added", company: name };
+}
+
+// Called once, after the list phase, with every board ingest removed this
+// run (`IngestResult`'s `gone`, ingest.ts). One unresolved candidate per
+// company, however many of its boards went, so it is probed again the next
+// morning like any other name; `origin` `"gone"` is read by `resolveName`
+// above to skip the known-name arm a company already on file would
+// otherwise take.
+export async function suggestAgain(store: Store, gone: readonly GoneBoard[]): Promise<number> {
+  const byCompany = new Map<string, Board[]>();
+  for (const { company, board } of gone) {
+    const boards = byCompany.get(company);
+    if (boards === undefined) byCompany.set(company, [board]);
+    else boards.push(board);
+  }
+  if (byCompany.size === 0) return 0;
+
+  const now = new Date().toISOString();
+  const rows: Candidate[] = [...byCompany].map(([company, boards]) => ({
+    id: randomUUID(),
+    name: company,
+    url: null,
+    origin: "gone",
+    evidence: `${boards.length === 1 ? "board" : "boards"} ${boards
+      .map((board) => `${board.platform}/${board.id}`)
+      .join(" ")} answered gone`,
+    added_at: now,
+    outcome: null,
+    outcome_at: null,
+    company: null,
+  }));
+  await store.upsert("candidates", rows);
+  return rows.length;
 }
 
 async function writeCompany(
@@ -389,12 +455,16 @@ async function writeCompany(
   for (const board of boards) registry.carriers.set(carrierKey(board), name);
 }
 
-// The row is read back rather than taken from the index: a board's gone
-// mark written since the run began would be lost under a stale copy.
+// The row is read back rather than taken from the index: a board removed
+// or read since the run began (ingest.ts) would be undone by a stale copy.
 // Existing boards are kept and a board already there is not added twice.
-async function addBoard(store: Store, name: string, board: Board): Promise<void> {
+// False when no row has the name, so nothing was written.
+async function addBoards(store: Store, name: string, boards: readonly Board[]): Promise<boolean> {
   const [current] = await store.select<Company>("companies", { name });
-  if (current === undefined) return;
-  if (current.boards.some((existing) => boardKey(existing) === boardKey(board))) return;
-  await store.upsert("companies", [{ ...current, boards: [...current.boards, board] }]);
+  if (current === undefined) return false;
+  const held = new Set(current.boards.map(boardKey));
+  const fresh = boards.filter((board) => !held.has(boardKey(board)));
+  if (fresh.length === 0) return true;
+  await store.upsert("companies", [{ ...current, boards: [...current.boards, ...fresh] }]);
+  return true;
 }

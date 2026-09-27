@@ -821,7 +821,7 @@ test("boardIndex: an undropped company's boards are readable, and its name is on
     company("Acme", {
       boards: [
         { platform: "greenhouse", id: "acme-gh", last_read: "2026-09-16T06:00:00.000Z" },
-        { platform: "lever", id: "acme-lv", gone: 1 },
+        { platform: "lever", id: "acme-lv" },
       ],
     }),
   ]);

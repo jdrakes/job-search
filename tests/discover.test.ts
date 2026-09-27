@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { Reader } from "../src/ats/ats.ts";
-import { discoverLine } from "../src/daily.ts";
-import { discover, type DiscoverResult } from "../src/discover.ts";
+import { discoverLine, suggestGone } from "../src/daily.ts";
+import { discover, suggestAgain, type DiscoverResult } from "../src/discover.ts";
 import type { BoardSource, DiscoverySource, Source } from "../src/discovery/source.ts";
 import { HttpError } from "../src/net/http.ts";
 import type { Board, Candidate, Company, Platform } from "../src/schema.ts";
@@ -297,6 +297,240 @@ test("discover: a company with no board is known by name, not probed, and untouc
   assert.deepEqual(requested, []);
   assert.deepEqual(await candidates(store), ["hn Pocketly -> known Pocketly"]);
   assert.deepEqual(await companyRow(store, "Pocketly"), company("Pocketly"));
+});
+
+// Unlike an ordinary name, a `gone` candidate for a company already on file
+// (one that just lost its last board) skips the known-name arm above and is
+// probed like a brand new name; a board found is added to that same company,
+// never a second row.
+test("discover: a gone candidate for a known company with no board is probed, and a found board is added to it", async () => {
+  const store = memoryStore({
+    companies: [company("Pocketly")],
+    candidates: [
+      candidate({
+        name: "Pocketly",
+        origin: "gone",
+        evidence: "board lever/pocketly answered gone",
+      }),
+    ],
+  });
+
+  const { result, lines, requested } = await run(store, [], {
+    responses: leverBoard("pocketly", "Pocketly"),
+  });
+
+  assert.notDeepEqual(requested, [], "the known name was probed, not skipped");
+  assert.deepEqual(await candidates(store), ["gone Pocketly -> added Pocketly"]);
+  assert.equal(result.resolved.added, 1);
+  assert.deepEqual(lines, ["gone: added Pocketly lever::pocketly"]);
+  assert.deepEqual(await companyRow(store, "Pocketly"), {
+    name: "Pocketly",
+    boards: [{ platform: "lever", id: "pocketly" }],
+    reason: null,
+    dropped_at: null,
+  });
+});
+
+test("discover: a gone candidate for a known company whose probe finds no board is no_board, and the company stays boardless", async () => {
+  const store = memoryStore({
+    companies: [company("Pocketly")],
+    candidates: [
+      candidate({
+        name: "Pocketly",
+        origin: "gone",
+        evidence: "board lever/pocketly answered gone",
+      }),
+    ],
+  });
+
+  const { result } = await run(store, []);
+
+  assert.deepEqual(await candidates(store), ["gone Pocketly -> no_board null"]);
+  assert.equal(result.resolved.no_board, 1);
+  assert.deepEqual(await companyRow(store, "Pocketly"), company("Pocketly"));
+});
+
+// A company that lost one board and keeps another is suggested again too.
+// Breaks if the alias check counts the company's own board as another
+// company's, which resolved it as its own alias.
+test("discover: a gone candidate whose probe finds only a board its company still carries is known, not alias", async () => {
+  const store = memoryStore({
+    companies: [company("Acme", { boards: [{ platform: "lever", id: "acme" }] })],
+    candidates: [
+      candidate({ name: "Acme", origin: "gone", evidence: "board greenhouse/acme answered gone" }),
+    ],
+  });
+
+  const { lines } = await run(store, [], { responses: leverBoard("acme", "Acme") });
+
+  assert.deepEqual(await candidates(store), ["gone Acme -> known Acme"]);
+  assert.deepEqual(lines, []);
+  assert.deepEqual(
+    await companyRow(store, "Acme"),
+    company("Acme", { boards: [{ platform: "lever", id: "acme" }] }),
+  );
+});
+
+test("discover: a gone candidate whose probe finds its own board and a new one adds only the new one", async () => {
+  const store = memoryStore({
+    companies: [company("Acme", { boards: [{ platform: "lever", id: "acme" }] })],
+    candidates: [
+      candidate({ name: "Acme", origin: "gone", evidence: "board ashby/acme answered gone" }),
+    ],
+  });
+
+  const { lines } = await run(store, [], {
+    responses: {
+      ...leverBoard("acme", "Acme"),
+      "https://boards-api.greenhouse.io/v1/boards/acme/jobs?content=true": JSON.stringify({
+        jobs: [{ id: "1", company_name: "Acme" }],
+      }),
+    },
+  });
+
+  assert.deepEqual(await candidates(store), ["gone Acme -> added Acme"]);
+  assert.deepEqual(lines, ["gone: added Acme greenhouse::acme"]);
+  assert.deepEqual(
+    await companyRow(store, "Acme"),
+    company("Acme", {
+      boards: [
+        { platform: "lever", id: "acme" },
+        { platform: "greenhouse", id: "acme" },
+      ],
+    }),
+  );
+});
+
+// Breaks if a gone candidate returns no_board before logging its refusals.
+test("discover: a gone candidate whose only answering board names another company is no_board, and the refusal is logged", async () => {
+  const store = memoryStore({
+    companies: [company("Evolve")],
+    candidates: [
+      candidate({ name: "Evolve", origin: "gone", evidence: "board ashby/evolve answered gone" }),
+    ],
+  });
+
+  const { lines } = await run(store, [], { responses: leverBoard("evolve", "Contoso") });
+
+  assert.deepEqual(await candidates(store), ["gone Evolve -> no_board null"]);
+  assert.deepEqual(lines, ['gone Evolve: wrong_company lever::evolve names "Contoso"']);
+});
+
+// Breaks if a found board is reported added while no row took it.
+test("discover: a gone candidate whose company row is missing is no_board and writes no company", async () => {
+  const store = memoryStore({
+    candidates: [
+      candidate({ name: "Ghost", origin: "gone", evidence: "board ashby/ghost answered gone" }),
+    ],
+  });
+
+  const { lines } = await run(store, [], { responses: leverBoard("ghost", "Ghost") });
+
+  assert.deepEqual(await candidates(store), ["gone Ghost -> no_board null"]);
+  assert.deepEqual(lines, []);
+  assert.deepEqual(await companyNames(store), []);
+});
+
+// Projected and sorted: the store returns candidates by random id.
+async function goneRows(store: Store): Promise<object[]> {
+  const rows = await store.select<Candidate>("candidates");
+  return rows
+    .map((row) => ({
+      name: row.name,
+      url: row.url,
+      origin: row.origin,
+      evidence: row.evidence,
+      outcome: row.outcome,
+      company: row.company,
+    }))
+    .sort((left, right) => (left.name ?? "").localeCompare(right.name ?? ""));
+}
+
+// Breaks if the name is parsed back out of a display label, which cut a
+// multi-word name at its first space.
+test("suggestAgain: one candidate per company, named in full and carrying the board as evidence", async () => {
+  const store = memoryStore();
+
+  const inserted = await suggestAgain(store, [
+    { company: "Wellspring Health", board: { platform: "greenhouse", id: "wellspring" } },
+    { company: "Globex", board: { platform: "lever", id: "globex-lv" } },
+  ]);
+
+  assert.equal(inserted, 2);
+  assert.deepEqual(await goneRows(store), [
+    {
+      name: "Globex",
+      url: null,
+      origin: "gone",
+      evidence: "board lever/globex-lv answered gone",
+      outcome: null,
+      company: null,
+    },
+    {
+      name: "Wellspring Health",
+      url: null,
+      origin: "gone",
+      evidence: "board greenhouse/wellspring answered gone",
+      outcome: null,
+      company: null,
+    },
+  ]);
+});
+
+// Breaks if suggestAgain stops grouping by company.
+test("suggestAgain: two gone boards of one company give one candidate naming both", async () => {
+  const store = memoryStore();
+
+  const inserted = await suggestAgain(store, [
+    { company: "Acme", board: { platform: "greenhouse", id: "acme-gh" } },
+    { company: "Acme", board: { platform: "lever", id: "acme-lv" } },
+  ]);
+
+  assert.equal(inserted, 1);
+  assert.deepEqual(await goneRows(store), [
+    {
+      name: "Acme",
+      url: null,
+      origin: "gone",
+      evidence: "boards greenhouse/acme-gh lever/acme-lv answered gone",
+      outcome: null,
+      company: null,
+    },
+  ]);
+});
+
+// Breaks if daily.ts's wrapper lets the write's throw escape, which ended
+// the run before judge and publish.
+test("suggestGone: a refused candidates write is returned as a reason, not thrown", async () => {
+  const store: Store = {
+    ...memoryStore(),
+    async upsert() {
+      throw new Error("candidates: refused");
+    },
+  };
+
+  const result = await suggestGone(store, [
+    { company: "Acme", board: { platform: "greenhouse", id: "acme-gh" } },
+  ]);
+
+  assert.deepEqual(result, { ok: false, reason: "candidates: refused" });
+});
+
+test("suggestAgain: no gone boards writes nothing", async () => {
+  const inner = memoryStore();
+  let writes = 0;
+  const store: Store = {
+    ...inner,
+    async upsert(table, rows) {
+      writes += 1;
+      return inner.upsert(table, rows);
+    },
+  };
+
+  const inserted = await suggestAgain(store, []);
+
+  assert.equal(inserted, 0);
+  assert.equal(writes, 0);
 });
 
 test("discover: one origin naming a name twice, in one run or two, is one row", async () => {
