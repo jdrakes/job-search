@@ -155,6 +155,8 @@ const JUDGING_COLUMNS = [
   // its stored reason.
   "kept",
   "reasons",
+  // Read by `judge()` to decide age alone for a posting not acted on.
+  "status",
 ] as const satisfies readonly (keyof Posting)[];
 
 type JudgingRow = Pick<Posting, (typeof JUDGING_COLUMNS)[number]>;

@@ -1702,6 +1702,95 @@ test("ingest: a two-phase detail stating its comp writes the stated band, not th
   assert.equal(row?.comp_high, 165_000);
 });
 
+// The listing criteria already refuse a posting past the max age, so
+// `wantsBody` never fetches its body; `judge()` alone makes the verdict
+// age-only. Breaks if `judge()` stops short-circuiting on age (the reasons
+// grow to the full sweep) or if `wantsBody` starts fetching (the reader fails).
+test("judgeAll: a stored posting not acted on past the max age is judged on age alone, with no body fetch", async () => {
+  const { store, upserts } = recording(
+    memoryStore({
+      companies: [company("Acme", { boards: [{ platform: "workday", id: "acme-wd" }] })],
+      postings: [
+        posting({
+          key: "workday/acme-wd::swe1",
+          company: "Acme",
+          platform: "workday",
+          board: "acme-wd",
+          title: "Staff Backend Engineer",
+          posted_at: "2026-08-08T00:00:00.000Z", // 40 days before now
+          status: null,
+        }),
+      ],
+      criteria: [criteria({ max_age_days: 35 })],
+    }),
+  );
+
+  const readers: Partial<Record<Platform, Reader>> = {
+    workday: {
+      platform: "workday",
+      list: async () => [],
+      body: async () => {
+        assert.fail("a posting past the max age and not acted on must not fetch a body");
+      },
+    },
+  };
+
+  const judging = await judgeAll(store, readers, { now: () => "2026-09-17T00:00:00.000Z" });
+  assert.equal(judging.judged, 1);
+
+  const written = upserts
+    .filter((call) => call.table === "postings")
+    .flatMap((call) => call.rows)
+    .find((row) => (row as Posting).key === "workday/acme-wd::swe1");
+  assert.ok(written);
+  assert.equal("body" in (written as object), false);
+  assert.equal("workplace" in (written as object), false);
+
+  const [row] = await store.select<Posting>("postings", { key: "workday/acme-wd::swe1" });
+  assert.equal(row?.kept, false);
+  assert.deepEqual(
+    (row?.reasons as Array<{ criterion: string }>).map((reason) => reason.criterion),
+    ["age"],
+  );
+});
+
+// Breaks if `judge()`'s age-only short-circuit stops checking `status`.
+test("judgeAll: a stored posting acted on past the max age still runs the full judgment", async () => {
+  const { store } = recording(
+    memoryStore({
+      companies: [company("Acme", { boards: [{ platform: "workday", id: "acme-wd" }] })],
+      postings: [
+        posting({
+          key: "workday/acme-wd::swe1",
+          company: "Acme",
+          platform: "workday",
+          board: "acme-wd",
+          title: "Staff Backend Engineer",
+          posted_at: "2026-08-08T00:00:00.000Z", // 40 days before now
+          status: "applied",
+        }),
+      ],
+      criteria: [criteria({ max_age_days: 35 })],
+    }),
+  );
+
+  const readers: Partial<Record<Platform, Reader>> = {
+    workday: {
+      platform: "workday",
+      list: async () => [],
+      body: async (_board, id) => listing(id, { body: "A fully remote role, open across the US." }),
+    },
+  };
+
+  await judgeAll(store, readers, { now: () => "2026-09-17T00:00:00.000Z" });
+
+  // Unchanged from today: the age criterion inside `judgeListing` already
+  // drops an aged posting on its own, so the listing sweep's full nine
+  // reasons come back, not the age-alone short-circuit's one.
+  const [row] = await store.select<Posting>("postings", { key: "workday/acme-wd::swe1" });
+  assert.ok((row?.reasons as unknown[]).length > 1);
+});
+
 test("ingest: a two-phase detail stating no comp falls back to the prose's", async () => {
   const store = memoryStore({
     companies: [company("Acme", { boards: [{ platform: "workday", id: "acme-wd" }] })],
@@ -2265,6 +2354,7 @@ test("ingest: the judging pass reads every posting without its body", async () =
     "judged_with",
     "kept",
     "reasons",
+    "status",
   ]);
   assert.deepEqual(
     selects.filter((call) => call.table === "postings" && call.eq !== undefined),

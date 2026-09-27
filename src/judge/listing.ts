@@ -271,7 +271,7 @@ function postedAgo(days: number): string {
 
 // `now` is handed in, never read here, so a test and a run judge the same
 // posting the same way.
-function judgeAge(postedAt: string | null, criteria: Criteria, now: string): Reason {
+export function judgeAge(postedAt: string | null, criteria: Criteria, now: string): Reason {
   if (criteria.max_age_days === null) {
     return { criterion: "age", verdict: "in", detail: "no max age set" };
   }
