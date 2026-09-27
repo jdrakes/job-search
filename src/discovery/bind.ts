@@ -9,8 +9,8 @@ export interface NamedBoard {
   readonly board: Board;
 }
 
-// The probe watches only a slug that answers; the survey wrote its rows by
-// hand from careers pages that may since have moved, and the store keeps
+// The probe watches only a slug that answers; a pasted URL names a board
+// off a careers page that may since have moved, and the store keeps
 // nothing about a board a company lost. So each board is asked once
 // before either store is written. Gone and unreachable are told apart so
 // a bad morning at the vendor is re-run, not recorded.

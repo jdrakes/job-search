@@ -21,35 +21,41 @@ first; the work to build it is tracked elsewhere.
   `settings/config.json`; a source of the operator's own is pointed at by
   `extraSourcePath` rather than added here, and is handed the level words the
   criteria name.
-- A name is probed against every applicant tracking system the tool reads;
-  a company whose board answers under its name is watched from then on. A
-  name with no answering board stays visible as discovered; its board, where
-  one exists, is found by hand from the company's own careers page and
-  added by pasting one of its posting URLs, since a name alone reaches
-  only the systems whose board id is a slug.
-- A watched board that stops answering (gone, not merely empty) returns
-  its company to discovered after two runs, so the next survey finds it
-  again and it comes back if the company moved to another system. Two runs,
-  not one: a single failed read is a bad morning, not a closed board. This
-  is not a judgement of the company and not a drop; the name stays visible,
-  as any discovered name does.
+- Every name enters as a candidate, whatever suggested it: a source's list,
+  a board Common Crawl found, or a URL pasted by hand. Discover resolves
+  each candidate once, to one outcome. A name probed against every
+  applicant tracking system the tool reads becomes a watched company once a
+  board answers; a name with no answering board is a candidate with no
+  board, not a company. Its board, where one exists, is found by hand from
+  the company's own careers page and added by pasting one of its posting
+  URLs, since a name alone reaches only the systems whose board id derives
+  from it.
+- A watched board that stops answering (gone, not merely empty) is dropped
+  from its company after two runs, leaving the company boardless if it
+  carried no other. Two runs, not one: a single failed read is a bad
+  morning, not a closed board. This is not a judgement of the company and
+  not a drop; the company's name stays on record, and its postings leave
+  the queue under Unwatched. If the company moved to another system,
+  finding it again means pasting one of its new posting URLs; a name
+  already on record as a company is not reprobed.
 - Discovery never judges a company. Dropping one is James's, in the list: a
   dropped company is not read and is not re-added when its name is seen
   again, and its postings still waiting on him leave the queue at the next
   run (the Unwatched criterion).
-- A name whose probe answers with a board another company already carries
-  is recorded as that company's alias and watched no further, so one req
-  is one row whatever names point at it.
+- A name that probes to a board another company already carries resolves
+  to that company's alias; no company row is written for it, so one req is
+  one row whatever names point at it.
 - A platform is added, as an ATS reader or a discovery source, only on
   technical grounds, never on whether its companies look like a match:
   that narrowing is the processor's job, not discovery's. Required, all
   four: public and reachable without login, a key or a paid plan; returns
   at least a title, and ideally location, workplace and comp, per posting;
   a way to bind a company to its board, either a predictable per-company
-  slug for the automated probe or a fixed board id addable by hand through
-  the ATS survey; and a stable structure, a plain HTTP/JSON API, not a
-  page that only renders through JavaScript, so it does not need a new
-  dependency to read and does not break on every redesign.
+  slug for the automated probe or a fixed board id addable by hand by
+  pasting one of its posting URLs; and a stable structure, a plain
+  HTTP/JSON API, not a page that only renders through JavaScript, so it
+  does not need a new dependency to read and does not break on every
+  redesign.
 
 ## Ingestion
 
@@ -112,8 +118,8 @@ first; the work to build it is tracked elsewhere.
     a de-listed posting is out at the next run, and a board that did not
     answer costs its postings nothing. A posting listed again is back in.
   - Unwatched: a posting whose board nothing reads any more is out at the
-    next run. Its company was dropped, or returned to discovered, or the
-    board was removed from a company still watched elsewhere. The reason
+    next run. Its company was dropped, has no board at all, or the board
+    was removed from a company still watched under another one. The reason
     names which. Not Gone: nothing will list it again, so no read will
     ever decide it. A posting he acted on stays in the record, as every
     acted-on posting does.
@@ -204,16 +210,24 @@ first; the work to build it is tracked elsewhere.
 
 ## Data
 
-Three things are stored: postings, companies, criteria.
+Four things are stored: postings, companies, candidates, criteria.
 
-A company carries two facts in two columns, because two hands write them:
-what the processor observed (discovered; watched once a board answers; or
-an alias, a name whose board another company already carries) and whether
-James dropped it, with his reason. Neither writer touches the other's
-column. A dropped company keeps whatever the processor last saw; clearing
-the drop restores nothing else. This is the shape postings already have
-(status is James's, the verdict is the processor's) and it is what lets the
-sentence below hold without a guess about who wrote last.
+Every name enters as a candidate, whatever suggested it, carrying two facts
+from two hands: what its input said (a name, a URL, or both, where it came
+from and that source's evidence) and what discover made of it once resolved
+(an outcome, and the company the outcome names). Discover alone resolves a
+candidate, once, and discover alone writes `companies`.
+
+A company carries what nothing else can say: its name, its boards (which
+discover writes as it finds or loses them), and whether James dropped it,
+with his reason. Neither writer touches the other's column: discover never
+touches the drop, and dropping a company never touches its boards. A
+dropped company keeps whatever discover last wrote there; clearing the drop
+restores nothing else. This is the shape postings already have (status is
+James's, the verdict is the processor's) and it is what lets the sentence
+below hold without a guess about who wrote last. Everything else once said
+of a company is derived: whether it is read, from having a board and no
+drop; where it came from and its aliases, from its candidates.
 
 They live in two places, split by who authors them. The store of record is a
 Postgres on the machine the run runs on: every posting ever seen, with its
