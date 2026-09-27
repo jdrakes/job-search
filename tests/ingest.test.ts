@@ -1354,7 +1354,8 @@ test("ingest: a failed hash read logs an error and lists with every body written
     ) {
       if (
         table === "postings" &&
-        columns?.join(",") === "key,body_hash,comp_high,workplace,status,gone_at"
+        columns?.join(",") ===
+          "key,company,title,url,location,posted_at,body_hash,comp_low,comp_high,workplace,status,gone_at"
       ) {
         throw new Error("column postings.body_hash does not exist");
       }
@@ -3521,4 +3522,202 @@ test("ingest: a board whose read fails marks none of its postings gone and clear
   assert.deepEqual(listedPostingKeys(upserts), []);
   assert.equal(await goneAtOf(store, GONE_A), null);
   assert.equal(await goneAtOf(store, GONE_B), "2026-09-12T00:00:00.000Z");
+});
+
+// A re-list identical to what is stored is no write: the daily run lists
+// every posting, and rewriting each unchanged row every day is the churn
+// `toRow` returning null removes. Only a real write would overwrite
+// `UNCHANGED_JUDGED_WITH`.
+const UNCHANGED_KEY = "greenhouse/acme-gh::same";
+const UNCHANGED_BODY = "Build the platform.";
+const UNCHANGED_JUDGED_WITH = "2026-09-14T00:00:00Z";
+
+function unchangedListing(overrides: Partial<Listing> = {}): Listing {
+  return listing("same", {
+    title: "Staff Backend Engineer",
+    url: "https://example.com/same",
+    location: "Remote, US",
+    postedAt: "2026-09-01",
+    compLow: 200_000,
+    compHigh: 250_000,
+    body: UNCHANGED_BODY,
+    workplace: "hybrid",
+    ...overrides,
+  });
+}
+
+function unchangedStored(overrides: Partial<Posting> = {}): Posting {
+  return posting({
+    key: UNCHANGED_KEY,
+    company: "Acme",
+    platform: "greenhouse",
+    board: "acme-gh",
+    title: "Staff Backend Engineer",
+    url: "https://example.com/same",
+    location: "Remote, US",
+    posted_at: "2026-09-01",
+    comp_low: 200_000,
+    comp_high: 250_000,
+    body: UNCHANGED_BODY,
+    body_hash: hashOf(UNCHANGED_BODY),
+    workplace: "hybrid",
+    judged_with: UNCHANGED_JUDGED_WITH,
+    ...overrides,
+  });
+}
+
+// One ingest of one listing over the given stored rows. No criteria row by
+// default, so every body is kept and the unchanged-hash branch decides.
+async function relist(
+  stored: Posting[],
+  listed: Listing,
+  criteriaRows: Criteria[] = [],
+): Promise<{ written: Record<string, unknown> | undefined; recorded: number; store: Store }> {
+  const { store, upserts } = recording(
+    memoryStore({ companies: [ACME], postings: stored, criteria: criteriaRows }),
+  );
+  const result = await ingest(store, oneBoard([listed]), { now: tickingClock() });
+  assert.deepEqual(result.errors, []);
+  const written = upserts
+    .filter((call) => call.table === "postings")
+    .flatMap((call) => call.rows)
+    .find((row) => (row as Posting).key === UNCHANGED_KEY) as Record<string, unknown> | undefined;
+  return { written, recorded: result.recorded, store };
+}
+
+// Breaks if the unchanged-hash branch returns `row` instead of null, or if
+// `listCompany` stops adding a null row's key to `seenKeys` (it would be
+// marked gone).
+test("ingest: a re-listed posting identical to what is stored gets no write and is not marked gone", async () => {
+  const { written, recorded, store } = await relist([unchangedStored()], unchangedListing());
+
+  assert.equal(written, undefined);
+  assert.equal(recorded, 0);
+  const [row] = await store.select<Posting>("postings", { key: UNCHANGED_KEY });
+  assert.equal(row?.judged_with, UNCHANGED_JUDGED_WITH);
+  assert.equal(row?.gone_at, null);
+});
+
+// Breaks if `fieldsChanged` stops comparing the title.
+test("ingest: a re-listed posting whose title changed is written with the new title", async () => {
+  const { written } = await relist(
+    [unchangedStored()],
+    unchangedListing({ title: "Principal Backend Engineer" }),
+  );
+
+  assert.equal(written?.["title"], "Principal Backend Engineer");
+});
+
+// Breaks if `fieldsChanged` stops comparing `posted_at`.
+test("ingest: a re-listed posting whose posted date changed is written", async () => {
+  const { written } = await relist(
+    [unchangedStored()],
+    unchangedListing({ postedAt: "2026-09-20" }),
+  );
+
+  assert.equal(written?.["posted_at"], "2026-09-20");
+});
+
+// Breaks if `fieldsChanged` stops comparing the url.
+test("ingest: a re-listed posting whose url changed is written", async () => {
+  const { written } = await relist(
+    [unchangedStored()],
+    unchangedListing({ url: "https://example.com/moved" }),
+  );
+
+  assert.equal(written?.["url"], "https://example.com/moved");
+});
+
+// Breaks if `fieldsChanged` stops comparing the location.
+test("ingest: a re-listed posting whose location changed is written", async () => {
+  const { written } = await relist([unchangedStored()], unchangedListing({ location: "Denver" }));
+
+  assert.equal(written?.["location"], "Denver");
+});
+
+// Breaks if `fieldsChanged` stops comparing the company a key is stored under.
+test("ingest: a re-listed posting stored under another company name is written under this one", async () => {
+  const { written } = await relist([unchangedStored({ company: "Acme Old" })], unchangedListing());
+
+  assert.equal(written?.["company"], "Acme");
+});
+
+// Breaks if `rowChanged` stops comparing `comp_low`: it feeds no verdict,
+// so nothing else would notice it.
+test("ingest: a re-listed posting whose low band changed is written without a re-judge", async () => {
+  const { written } = await relist([unchangedStored()], unchangedListing({ compLow: 180_000 }));
+
+  assert.equal(written?.["comp_low"], 180_000);
+  assert.equal("judged_with" in (written ?? {}), false);
+});
+
+// Breaks if a return collapses to null: clearing `gone_at` is a real change
+// even when every listed field is the same.
+test("ingest: a returning posting with every listed field unchanged is still written, back and re-judged", async () => {
+  const { written } = await relist(
+    [unchangedStored({ gone_at: "2026-09-12T00:00:00.000Z" })],
+    unchangedListing(),
+  );
+
+  assert.equal(written?.["gone_at"], null);
+  assert.equal(written?.["judged_with"], null);
+});
+
+// Breaks if `stored === undefined` stops counting as changed.
+test("ingest: a posting never stored before is written", async () => {
+  const { written } = await relist([], unchangedListing());
+
+  assert.equal(written?.["title"], "Staff Backend Engineer");
+  assert.equal(written?.["body"], UNCHANGED_BODY);
+});
+
+// A title with no role word: the listing criteria drop it, so its body is
+// not kept.
+const DROPPED_TITLE = "Title same";
+
+// Breaks if the `!keep` branch returns `cleared` when there was nothing
+// stored to clear and nothing else changed.
+test("ingest: a dropped posting with no stored body and nothing changed gets no write", async () => {
+  const { written } = await relist(
+    [unchangedStored({ title: DROPPED_TITLE, body: null, body_hash: null })],
+    unchangedListing({ title: DROPPED_TITLE }),
+    [criteria()],
+  );
+
+  assert.equal(written, undefined);
+});
+
+// Breaks if the `!keep` branch collapses to null while a stored body is
+// being cleared.
+test("ingest: a dropped posting whose stored body is cleared is written even with nothing else changed", async () => {
+  const { written } = await relist(
+    [unchangedStored({ title: DROPPED_TITLE })],
+    unchangedListing({ title: DROPPED_TITLE }),
+    [criteria()],
+  );
+
+  assert.equal(written?.["body"], null);
+  assert.equal(written?.["body_hash"], null);
+});
+
+// Breaks if the no-body, no-comp early return sends `bare` when it repeats
+// the stored row.
+test("ingest: an unchanged listing with no body and no comp gets no write", async () => {
+  const { written } = await relist(
+    [unchangedStored({ body: null, body_hash: null })],
+    unchangedListing({ body: null, compLow: null, compHigh: null }),
+  );
+
+  assert.equal(written, undefined);
+});
+
+// Breaks if the no-body early return (comp stated) sends `row` when it
+// repeats the stored row.
+test("ingest: an unchanged listing with comp but no body gets no write", async () => {
+  const { written } = await relist(
+    [unchangedStored({ body: null, body_hash: null })],
+    unchangedListing({ body: null }),
+  );
+
+  assert.equal(written, undefined);
 });

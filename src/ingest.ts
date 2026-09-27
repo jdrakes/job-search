@@ -44,8 +44,9 @@ export interface IngestOptions {
   readonly now?: () => string;
 }
 
-// The columns a re-list always writes. `first_seen` is not among them: the
-// column default records the first insert.
+// The columns every written re-list carries. `first_seen` is not among
+// them: the column default records the first insert. A re-list that would
+// change nothing is not written at all; see `toRow`.
 type ListedFields = Pick<
   Posting,
   "key" | "company" | "platform" | "board" | "title" | "url" | "location" | "posted_at"
@@ -87,7 +88,7 @@ function toRow(
   timestamp: string,
   stored: StoredListing | undefined,
   criteria: Criteria | undefined,
-): ListedRow {
+): ListedRow | null {
   const fields: ListedFields = {
     key: postingKey(board, listing.id),
     company,
@@ -98,6 +99,18 @@ function toRow(
     location: listing.location,
     posted_at: listing.postedAt,
   };
+  // `null` below means the upsert would rewrite the row with what it already
+  // holds, so there is no write. `stored === undefined` (never recorded, or
+  // the pre-run sweep's read failed) always counts as changed: there is
+  // nothing to compare against, or the comparison cannot be trusted.
+  // `platform` and `board` are not compared: `key` is built from them.
+  const fieldsChanged =
+    stored === undefined ||
+    stored.company !== company ||
+    stored.title !== listing.title ||
+    stored.url !== listing.url ||
+    stored.location !== listing.location ||
+    stored.posted_at !== listing.postedAt;
   const statesWorkplace = listing.body !== null || listing.workplace !== null;
   // A posting on record as gone that this read lists again: back, and its
   // last verdict (reached on its absence) is judged again.
@@ -114,7 +127,11 @@ function toRow(
   // Nothing to read a comp from: the comp columns stay out of the payload
   // and the store keeps what the judging pass wrote.
   if (listing.body === null && listing.compLow === null && listing.compHigh === null) {
-    return verdictStale ? { ...bare, judged_with: null } : bare;
+    if (verdictStale) return { ...bare, judged_with: null };
+    // `bare` is the listed fields, plus `workplace` only where the listing
+    // states one; a changed workplace or a return is `verdictStale`, taken
+    // above. So with the listed fields unchanged it repeats the stored row.
+    return fieldsChanged ? bare : null;
   }
   // Integer columns; a board can post an hourly rate, which Postgres would
   // refuse and lose the whole batch over. An hourly figure is far below any
@@ -127,7 +144,14 @@ function toRow(
   // A band that disagrees with what is stored needs a fresh verdict.
   const verdictInputChanged =
     verdictStale || (stored !== undefined && stored.comp_high !== row.comp_high);
-  if (listing.body === null) return verdictInputChanged ? { ...row, judged_with: null } : row;
+  // Every column `row` carries, against what is stored: the listed fields,
+  // `workplace` and `comp_high` (both in `verdictInputChanged`), and
+  // `comp_low`, which feeds no verdict but is still a write.
+  const rowChanged = fieldsChanged || verdictInputChanged || stored.comp_low !== row.comp_low;
+  if (listing.body === null) {
+    if (verdictInputChanged) return { ...row, judged_with: null };
+    return rowChanged ? row : null;
+  }
   // A body is stored unless nothing can ever read it. Readers: a posting
   // acted on; one whose board states `remote` or `onsite`, which
   // `scripts/score-remote.ts` scores the text detector against whatever the
@@ -158,16 +182,22 @@ function toRow(
       new Map(),
     ).kept;
   if (!keep) {
-    const cleared: ListedRow =
-      (stored?.body_hash ?? null) !== null ? { ...row, body: null, body_hash: null } : row;
-    return verdictInputChanged ? { ...cleared, judged_with: null } : cleared;
+    // A stored body being cleared is a write whatever else holds; with none
+    // stored, `cleared` is `row` and no write is needed unless it changed.
+    const clearsBody = (stored?.body_hash ?? null) !== null;
+    const cleared: ListedRow = clearsBody ? { ...row, body: null, body_hash: null } : row;
+    if (verdictInputChanged) return { ...cleared, judged_with: null };
+    return clearsBody || rowChanged ? cleared : null;
   }
   const hash = bodyHash(listing.body);
   // An unchanged body is left out of the payload, so the row goes as a small
   // listing-fields update instead of the text the store already has.
+  // With `row` unchanged too, the upsert would rewrite the row as it is.
   if (hash === (stored?.body_hash ?? null)) {
-    return verdictInputChanged ? { ...row, judged_with: null } : row;
+    if (verdictInputChanged) return { ...row, judged_with: null };
+    return rowChanged ? row : null;
   }
+  // From here the body differs from the stored hash: always a write.
   const withBody: ListedRow = { ...row, body: listing.body, body_hash: hash };
   // A body landing where none was stored: the last verdict was reached
   // without its text, so it is judged again with it.
@@ -503,8 +533,11 @@ async function listCompany(
         continue;
       }
       const key = postingKey(board, listing.id);
+      // Seen whether or not it needs a write, so the sweep below never marks
+      // an unchanged posting gone.
       seenKeys.add(key);
-      batch.set(key, toRow(company.name, board, listing, now(), stored.get(key), criteria));
+      const row = toRow(company.name, board, listing, now(), stored.get(key), criteria);
+      if (row !== null) batch.set(key, row);
     }
 
     // Only here, after a read that answered: a failed read says nothing
@@ -547,24 +580,54 @@ async function listCompany(
   return { listed, recorded: rows.length, errors, returned };
 }
 
+// Every column a re-list can write, bar `body`: `body_hash` stands for it.
 interface StoredListing {
+  readonly company: string;
+  readonly title: string | null;
+  readonly url: string | null;
+  readonly location: string | null;
+  readonly posted_at: string | null;
   readonly body_hash: string | null;
+  readonly comp_low: number | null;
   readonly comp_high: number | null;
   readonly workplace: Workplace | null;
   readonly status: Status | null;
   readonly gone_at: string | null;
 }
 
+const STORED_LISTING_COLUMNS = [
+  "company",
+  "title",
+  "url",
+  "location",
+  "posted_at",
+  "body_hash",
+  "comp_low",
+  "comp_high",
+  "workplace",
+  "status",
+  "gone_at",
+] as const satisfies readonly (keyof StoredListing)[];
+type StoredListingColumn = (typeof STORED_LISTING_COLUMNS)[number];
+
 // One select of small columns for the whole run.
 async function storedListings(store: Store): Promise<Map<string, StoredListing>> {
-  const rows = await store.select<
-    Pick<Posting, "key" | "body_hash" | "comp_high" | "workplace" | "status" | "gone_at">
-  >("postings", undefined, ["key", "body_hash", "comp_high", "workplace", "status", "gone_at"]);
+  const rows = await store.select<Pick<Posting, "key" | StoredListingColumn>>(
+    "postings",
+    undefined,
+    ["key", ...STORED_LISTING_COLUMNS],
+  );
   return new Map(
     rows.map((row) => [
       row.key,
       {
+        company: row.company,
+        title: row.title,
+        url: row.url,
+        location: row.location,
+        posted_at: row.posted_at,
         body_hash: row.body_hash,
+        comp_low: row.comp_low,
         comp_high: row.comp_high,
         workplace: row.workplace,
         status: row.status,
