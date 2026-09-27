@@ -12,4 +12,4 @@ DROP TABLE IF EXISTS "reprobe_runs";
 
 -- The receipt the application reads. See the init migration's header: this is
 -- NOT the CLI's own supabase_migrations.schema_migrations.
-INSERT INTO "schema_migrations" ("id") VALUES ('20260928010000_drop_reprobe_runs');
+INSERT INTO "schema_migrations" ("id") VALUES ('20260928010000_drop_reprobe_runs') ON CONFLICT DO NOTHING;
