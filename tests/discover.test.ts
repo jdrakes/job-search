@@ -622,6 +622,26 @@ test("discover boards: a boards() throw is one error line and the next source st
   assert.equal((await row(store, "Fine"))?.state, "watched");
 });
 
+// Breaks if discoverBoards stops passing its `log` to `boards()`: the
+// source's own partial-failure line would vanish.
+test("discover boards: a source's partial-failure line reaches the log and its boards are still watched", async () => {
+  const store = memoryStore();
+  const source: BoardSource = {
+    name: "crawl",
+    boards: async (_options, log) => {
+      log?.("test source: partial failure");
+      return [{ platform: "lever", id: "fine" }];
+    },
+    companyName: async () => "Fine",
+  };
+
+  const { result, lines } = await runBoards(store, [source]);
+
+  assert.deepEqual(lines, ["test source: partial failure", "crawl: new Fine lever::fine"]);
+  assert.deepEqual(result.errors, []);
+  assert.equal((await row(store, "Fine"))?.state, "watched");
+});
+
 // Breaks if the board lines are logged after the whole batch is written:
 // the first board landed, so its line is the only record of it.
 test("discover boards: a store throw on the second board still logs the first and surfaces the throw", async () => {

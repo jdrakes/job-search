@@ -186,7 +186,7 @@ async function discoverBoards(
 
   let boards;
   try {
-    boards = await source.boards(options);
+    boards = await source.boards(options, log);
   } catch (err) {
     errors.push(`${source.name}: ${describeError(err)}`);
     return { seen: 0, probed: 0, watched: 0, aliases: 0, errors };

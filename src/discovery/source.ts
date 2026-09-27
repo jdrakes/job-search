@@ -9,10 +9,12 @@ export interface Source {
 // A source that names boards rather than companies: it does not know what a
 // board's company is called, only that the board exists. `discover` asks
 // `companyName` itself, once per board it has not seen before, rather than
-// having the source guess at a name up front.
+// having the source guess at a name up front. `boards` reports a part it
+// could not reach through `log` and returns the rest; it throws only when it
+// has nothing to return.
 export interface BoardSource {
   readonly name: string;
-  boards(options?: HttpOptions): Promise<Board[]>;
+  boards(options?: HttpOptions, log?: (line: string) => void): Promise<Board[]>;
   companyName(board: Board, options?: HttpOptions): Promise<string | null>;
 }
 
