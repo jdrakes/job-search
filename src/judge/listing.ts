@@ -294,36 +294,40 @@ export function judgeAge(postedAt: string | null, criteria: Criteria, now: strin
 }
 
 // What the judging sweep knows about the boards it judges against, read
-// once from `companies` (`judgeAll`, ingest.ts). `watched` is keyed by
-// `boardKey`, built from undropped, watched rows only; `stateOf` carries
-// every company by name, `dropped` the names with `dropped_at` set.
-// `NO_BOARDS` finds nothing unwatched.
+// once from `companies` (`judgeAll`, ingest.ts). `readable` is keyed by
+// `boardKey`, built from undropped companies only; `named` is every company
+// on record, `boardless` the names with no board, `dropped` the names with
+// `dropped_at` set. `NO_BOARDS` finds nothing unwatched.
 export interface BoardIndex {
-  readonly watched: ReadonlySet<string>;
-  readonly stateOf: ReadonlyMap<string, Pick<Company, "state" | "alias_of">>;
+  readonly readable: ReadonlySet<string>;
+  readonly named: ReadonlySet<string>;
+  readonly boardless: ReadonlySet<string>;
   readonly dropped: ReadonlySet<string>;
 }
 
 export const NO_BOARDS: BoardIndex = {
-  watched: new Set(),
-  stateOf: new Map(),
+  readable: new Set(),
+  named: new Set(),
+  boardless: new Set(),
   dropped: new Set(),
 };
 
 export function boardIndex(companies: readonly Company[]): BoardIndex {
-  const watched = new Set<string>();
-  const stateOf = new Map<string, Pick<Company, "state" | "alias_of">>();
+  const readable = new Set<string>();
+  const named = new Set<string>();
+  const boardless = new Set<string>();
   const dropped = new Set<string>();
   for (const company of companies) {
-    stateOf.set(company.name, { state: company.state, alias_of: company.alias_of });
+    named.add(company.name);
+    if (company.boards.length === 0) boardless.add(company.name);
     if (company.dropped_at !== null) dropped.add(company.name);
     // A dropped company's boards are not read, so nothing asks after them.
-    if (company.state !== "watched" || company.dropped_at !== null) continue;
+    if (company.dropped_at !== null) continue;
     for (const board of company.boards) {
-      watched.add(boardKey(board));
+      readable.add(boardKey(board));
     }
   }
-  return { watched, stateOf, dropped };
+  return { readable, named, boardless, dropped };
 }
 
 // True once a posting is on record as gone: `gone_at` is set the first time
@@ -345,22 +349,20 @@ function judgeGone(posting: Pick<Posting, "gone_at">): Reason {
   };
 }
 
-// True when the posting's company is dropped or no longer watched, or is
-// watched but this board is not one of its own: `judgeUnwatched`'s "out"
-// conditions, mirrored the way `goneBy` mirrors `judgeGone`, for
-// `judge.ts`'s re-judge trigger. A posting with no board, or whose company
-// is not on record, is never unwatched — nothing to compare, and an orphan
-// row is not a judgement.
+// True when the posting's company is dropped or has no board, or has
+// boards but not this one: `judgeUnwatched`'s "out" conditions, mirrored
+// the way `goneBy` mirrors `judgeGone`, for `judge.ts`'s re-judge trigger.
+// A posting with no board, or whose company is not on record, is never
+// unwatched — nothing to compare, and an orphan row is not a judgement.
 export function unwatchedBy(
   posting: Pick<Posting, "company" | "platform" | "board">,
   boards: BoardIndex,
 ): boolean {
   if (posting.board === null) return false;
-  const company = boards.stateOf.get(posting.company);
-  if (company === undefined) return false;
+  if (!boards.named.has(posting.company)) return false;
   if (boards.dropped.has(posting.company)) return true;
-  if (company.state !== "watched") return true;
-  return !boards.watched.has(boardKey({ platform: posting.platform, id: posting.board }));
+  if (boards.boardless.has(posting.company)) return true;
+  return !boards.readable.has(boardKey({ platform: posting.platform, id: posting.board }));
 }
 
 function judgeUnwatched(
@@ -370,12 +372,11 @@ function judgeUnwatched(
   if (posting.board === null) {
     return { criterion: "unwatched", verdict: "in", detail: "posting names no board" };
   }
-  const company = boards.stateOf.get(posting.company);
-  if (company === undefined) {
+  if (!boards.named.has(posting.company)) {
     return { criterion: "unwatched", verdict: "in", detail: "company not on record" };
   }
-  // The flag before the state: a drop is the operator's word on the company,
-  // whatever the processor's column says.
+  // The flag first: a drop is the operator's word on the company, whatever
+  // boards it carries.
   if (boards.dropped.has(posting.company)) {
     return {
       criterion: "unwatched",
@@ -383,22 +384,15 @@ function judgeUnwatched(
       detail: `company ${posting.company} is dropped`,
     };
   }
-  if (company.state === "discovered") {
+  if (boards.boardless.has(posting.company)) {
     return {
       criterion: "unwatched",
       verdict: "out",
-      detail: `company ${posting.company} returned to discovered`,
-    };
-  }
-  if (company.state === "alias") {
-    return {
-      criterion: "unwatched",
-      verdict: "out",
-      detail: `company ${posting.company} is an alias of ${company.alias_of ?? "another company"}`,
+      detail: `company ${posting.company} has no board`,
     };
   }
   const key = boardKey({ platform: posting.platform, id: posting.board });
-  if (!boards.watched.has(key)) {
+  if (!boards.readable.has(key)) {
     return {
       criterion: "unwatched",
       verdict: "out",

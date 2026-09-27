@@ -1,5 +1,5 @@
 /**
- * Every company, grouped by state. The one action is Drop, and it asks why
+ * Every company, grouped by whether it is read. The one action is Drop, and it asks why
  * for the same reason Closing a posting does: disagreeing with the pipeline
  * without saying why teaches it nothing.
  */
@@ -14,26 +14,23 @@ import {
   type PropType,
 } from "vue";
 
-import type { Company, CompanyState, PostingSummary } from "../../src/schema.ts";
+import type { Company, PostingSummary } from "../../src/schema.ts";
 import { setCompanyDrop, type CompanyDropPatch } from "./api.ts";
 import type { AppConfig } from "./config.ts";
 import { EmptyState } from "./empty-state.ts";
 import { focusAfterClose, trapFocus, type DialogClose } from "./focus-trap.ts";
 import { Toast, useToast } from "./toast.ts";
 
-// A drop is the operator's flag, not a state, so the page's groups are one more
-// than the states: a dropped company sits in Dropped whatever its state.
-export type CompanyGroupKey = CompanyState | "dropped";
+// Derived from the row, never stored: a company is read when it has a board
+// and is not dropped. Read leads because it is where the work is.
+export type CompanyGroupKey = "read" | "no_board" | "dropped";
 
-// Not `COMPANY_STATES`' declaration order: watched leads because it is
-// where the work is.
-const GROUP_ORDER: readonly CompanyGroupKey[] = ["watched", "discovered", "dropped", "alias"];
+const GROUP_ORDER: readonly CompanyGroupKey[] = ["read", "no_board", "dropped"];
 
 const GROUP_LABELS: Record<CompanyGroupKey, string> = {
-  watched: "Watched",
-  discovered: "Discovered",
+  read: "Read",
+  no_board: "No board",
   dropped: "Dropped",
-  alias: "Aliases",
 };
 
 export interface CompanyGroup {
@@ -43,7 +40,8 @@ export interface CompanyGroup {
 }
 
 export function groupOf(company: Company): CompanyGroupKey {
-  return company.dropped_at !== null ? "dropped" : company.state;
+  if (company.dropped_at !== null) return "dropped";
+  return company.boards.length > 0 ? "read" : "no_board";
 }
 
 /** A company with none is absent. */
@@ -56,7 +54,7 @@ export function countsByCompany(queue: readonly PostingSummary[]): ReadonlyMap<s
 }
 
 /** Bucketed by `groupOf`, each group by queued postings, most first, then name. */
-export function groupByState(
+export function groupCompanies(
   companies: readonly Company[],
   counts: ReadonlyMap<string, number>,
 ): CompanyGroup[] {
@@ -79,11 +77,9 @@ export function boardLabel(company: Company): string {
   return company.boards.map((board) => `${board.platform}:${board.id}`).join(", ");
 }
 
-/** the operator's reason if he gave one; otherwise the owner an alias points at; otherwise nothing. */
+/** The operator's reason if he gave one; otherwise nothing. */
 export function whyText(company: Company): string | null {
-  if (company.reason) return company.reason;
-  if (company.alias_of) return `alias of ${company.alias_of}`;
-  return null;
+  return company.reason || null;
 }
 
 export function dropRefusal(reason: string): string | null {
@@ -155,7 +151,7 @@ export const CompaniesView = defineComponent({
     onBeforeUnmount(() => untrap?.());
 
     const counts = computed(() => countsByCompany(props.queue));
-    const groups = computed(() => groupByState(props.companies, counts.value));
+    const groups = computed(() => groupCompanies(props.companies, counts.value));
     const queuedOf = (company: Company): string => queuedLabel(counts.value.get(company.name) ?? 0);
 
     function openDrop(company: Company): void {
@@ -237,7 +233,7 @@ export const CompaniesView = defineComponent({
                 <span class="queued" :class="{ none: !counts.get(company.name) }">{{ queuedOf(company) }}</span>
                 <span class="why" v-if="whyText(company)">{{ whyText(company) }}</span>
               </div>
-              <span class="acts" v-if="groupOf(company) !== 'dropped' && groupOf(company) !== 'alias'">
+              <span class="acts" v-if="groupOf(company) !== 'dropped'">
                 <button
                   type="button"
                   class="act close"

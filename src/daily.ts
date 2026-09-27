@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-import { boardsOf, watched } from "./companies.ts";
+import { boardsOf, readable } from "./companies.ts";
 import { loadCriteria } from "./criteria.ts";
 import { discover, type DiscoverResult } from "./discover.ts";
 import { builtInSource } from "./discovery/builtin.ts";
@@ -215,9 +215,9 @@ async function main(): Promise<number> {
     console.error(`discover failed, ingesting anyway: ${describeError(error)}`);
   }
 
-  // Read separately from `ingest`'s own call to `watched`: the only way to
+  // Read separately from `ingest`'s own call to `readable`: the only way to
   // tell "every board failed" from "some boards listed zero postings".
-  const companies = await watched(store);
+  const companies = await readable(store);
   const totalBoards = companies.reduce((sum, company) => sum + boardsOf(company).length, 0);
 
   const result = await phase("list", () => ingest(store, readers), console.log);

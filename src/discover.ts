@@ -95,13 +95,6 @@ async function readRegistry(
   };
 
   for (const row of companyRows) {
-    // An alias row is not a company: the candidates migration gave each one
-    // a resolved `alias` candidate, which is what keeps its name known, and
-    // a later migration deletes the row.
-    if (row.state === "alias") {
-      registry.resolvedNames.add(nameKey(row.name));
-      continue;
-    }
     registry.companies.set(nameKey(row.name), { name: row.name, dropped: row.dropped_at !== null });
     for (const board of row.boards) registry.carriers.set(carrierKey(board), row.name);
   }
@@ -337,7 +330,7 @@ async function resolveUrl(
     log(`${candidate.origin}: added ${match.name} ${boardKey(board)}`);
     return { outcome: "added", company: match.name };
   }
-  await writeCompany(store, name, [board], candidate.origin, registry);
+  await writeCompany(store, name, [board], registry);
   log(`${candidate.origin}: new ${name} ${boardKey(board)}`);
   return { outcome: "watched", company: name };
 }
@@ -367,7 +360,7 @@ async function resolveName(
   }
   if (boards.length === 0) return { outcome: "no_board", company: null };
 
-  await writeCompany(store, name, boards, candidate.origin, registry);
+  await writeCompany(store, name, boards, registry);
   log(`${candidate.origin}: new ${name} ${boards.map(boardKey).join(" ")}`);
   return { outcome: "watched", company: name };
 }
@@ -376,19 +369,9 @@ async function writeCompany(
   store: Store,
   name: string,
   boards: readonly Board[],
-  origin: string,
   registry: Registry,
 ): Promise<void> {
-  const row: Company = {
-    name,
-    state: "watched",
-    boards,
-    source: origin,
-    reason: null,
-    first_seen: new Date().toISOString(),
-    dropped_at: null,
-    alias_of: null,
-  };
+  const row: Company = { name, boards, reason: null, dropped_at: null };
   await store.upsert("companies", [row]);
   registry.companies.set(nameKey(name), { name, dropped: false });
   for (const board of boards) registry.carriers.set(carrierKey(board), name);
@@ -396,13 +379,10 @@ async function writeCompany(
 
 // The row is read back rather than taken from the index: a board's gone
 // mark written since the run began would be lost under a stale copy.
-// Existing boards are kept and a board already there is not added twice. A
-// company gaining a board is read, so a `discovered` one becomes `watched`.
+// Existing boards are kept and a board already there is not added twice.
 async function addBoard(store: Store, name: string, board: Board): Promise<void> {
   const [current] = await store.select<Company>("companies", { name });
   if (current === undefined) return;
-  const boards = current.boards.some((existing) => boardKey(existing) === boardKey(board))
-    ? current.boards
-    : [...current.boards, board];
-  await store.upsert("companies", [{ ...current, boards, state: "watched" }]);
+  if (current.boards.some((existing) => boardKey(existing) === boardKey(board))) return;
+  await store.upsert("companies", [{ ...current, boards: [...current.boards, board] }]);
 }

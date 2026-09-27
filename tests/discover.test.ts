@@ -19,13 +19,9 @@ const TEST_USER_AGENT = "test-bot (+https://example.com)";
 function company(name: string, overrides: Partial<Company> = {}): Company {
   return {
     name,
-    state: "watched",
     boards: [],
-    source: "test",
     reason: null,
-    first_seen: "2026-09-15T00:00:00Z",
     dropped_at: null,
-    alias_of: null,
     ...overrides,
   };
 }
@@ -154,10 +150,12 @@ test("discover: a new name that probes to a board is watched, and its company wr
   assert.equal(result.pending, 0);
   assert.deepEqual(result.errors, []);
   assert.deepEqual(lines, ["hn: new Acme lever::acme"]);
-  const row = await companyRow(store, "Acme");
-  assert.equal(row?.state, "watched");
-  assert.equal(row?.source, "hn");
-  assert.deepEqual(row?.boards, [{ platform: "lever", id: "acme" }]);
+  assert.deepEqual(await companyRow(store, "Acme"), {
+    name: "Acme",
+    boards: [{ platform: "lever", id: "acme" }],
+    reason: null,
+    dropped_at: null,
+  });
 });
 
 test("discover: a name with no board is no_board and writes no company", async () => {
@@ -201,16 +199,14 @@ test("discover: a name known only as a resolved candidate is known with no compa
   ]);
 });
 
-test("discover: an alias row still in companies keeps its name known, and is not probed", async () => {
-  const store = memoryStore({
-    companies: [company("Pocketly", { state: "alias", alias_of: "Tessera" })],
-  });
+test("discover: a company with no board is known by name, not probed, and untouched", async () => {
+  const store = memoryStore({ companies: [company("Pocketly")] });
 
   const { requested } = await run(store, [nameSource("hn", ["Pocketly"])]);
 
   assert.deepEqual(requested, []);
-  assert.deepEqual(await candidates(store), ["hn Pocketly -> known null"]);
-  assert.equal((await companyRow(store, "Pocketly"))?.state, "alias");
+  assert.deepEqual(await candidates(store), ["hn Pocketly -> known Pocketly"]);
+  assert.deepEqual(await companyRow(store, "Pocketly"), company("Pocketly"));
 });
 
 test("discover: one origin naming a name twice, in one run or two, is one row", async () => {
@@ -283,10 +279,10 @@ test("discover: a URL with no name whose board a company now carries is known to
   ]);
 });
 
-for (const state of ["watched", "discovered"] as const) {
-  test(`discover: a URL candidate named like a ${state} company adds the board to it, and it is watched`, async () => {
+for (const before of [[{ platform: "lever", id: "acme-old" } as const], []]) {
+  test(`discover: a URL candidate named like a company with ${before.length} boards adds the board to it`, async () => {
     const store = memoryStore({
-      companies: [company("Acme", { state, boards: [{ platform: "lever", id: "acme-old" }] })],
+      companies: [company("Acme", { boards: before })],
       candidates: [candidate({ name: "A.C.M.E", url: "https://jobs.ashbyhq.com/acme-hq" })],
     });
 
@@ -297,13 +293,10 @@ for (const state of ["watched", "discovered"] as const) {
     assert.equal(result.resolved.added, 1);
     assert.deepEqual(lines, ["ui: added Acme ashby::acme-hq"]);
     assert.deepEqual(await companyNames(store), ["Acme"]);
-    const row = await companyRow(store, "Acme");
-    assert.equal(row?.state, "watched");
-    assert.equal(row?.source, "test", "the company keeps the source that first named it");
-    assert.deepEqual(row?.boards, [
-      { platform: "lever", id: "acme-old" },
-      { platform: "ashby", id: "acme-hq" },
-    ]);
+    assert.deepEqual(
+      await companyRow(store, "Acme"),
+      company("Acme", { boards: [...before, { platform: "ashby", id: "acme-hq" }] }),
+    );
   });
 }
 
@@ -453,7 +446,10 @@ test("discover: a board whose page gives no name is watched under its id", async
   ]);
 
   assert.deepEqual(lines, ["commoncrawl: new zenco lever::zenco"]);
-  assert.equal((await companyRow(store, "zenco"))?.state, "watched");
+  assert.deepEqual(
+    await companyRow(store, "zenco"),
+    company("zenco", { boards: [{ platform: "lever", id: "zenco" }] }),
+  );
 });
 
 test("discover: a failing source is one error line and the next source still suggests", async () => {

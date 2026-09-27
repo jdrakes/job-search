@@ -56,17 +56,14 @@ async function writeBoards(
 ): Promise<Company | null> {
   const [current] = await store.select<Company>("companies", { name });
   if (current === undefined) return null;
-  const boards = rewrite(current.boards);
-  const row: Company =
-    boards.length === 0 && current.state === "watched"
-      ? { ...current, boards, state: "discovered" }
-      : { ...current, boards };
+  const row: Company = { ...current, boards: rewrite(current.boards) };
   await store.upsert("companies", [row]);
   return row;
 }
 
 // First gone run marks the board; the next removes it. A company left with
-// no boards returns to `discovered`, which is what `returned` reports.
+// no board is simply not read (`readable`); `returned` reports the run that
+// removed its last one.
 export async function boardGone(
   store: Store,
   company: Company,
@@ -80,7 +77,7 @@ export async function boardGone(
         )
       : boards.filter((candidate) => !sameBoard(candidate, board)),
   );
-  return { returned: row !== null && row.state !== company.state };
+  return { returned: marked !== undefined && row !== null && row.boards.length === 0 };
 }
 
 // A board that listed and had its rows recorded carries the run's start as
@@ -103,78 +100,8 @@ export async function recordBoardsRead(
   );
 }
 
-// The set the ingest job walks: `watched` and not dropped. A `watched`
-// company with no boards yet has nothing to list.
-export async function watched(store: Store): Promise<Company[]> {
-  const rows = await store.select<Company>("companies", { state: "watched", dropped_at: null });
+// The set the ingest job walks: not dropped, and at least one board to list.
+export async function readable(store: Store): Promise<Company[]> {
+  const rows = await store.select<Company>("companies", { dropped_at: null });
   return rows.filter((company) => company.boards.length > 0);
-}
-
-// A name never seen becomes `discovered`. A name already present keeps its
-// state and gains any board it did not have; existing boards are never
-// replaced. An `alias` is left untouched: it is never revived as
-// `discovered`. A dropped company's boards are the processor's and move as
-// any row's do; the flag alone keeps it unread.
-export async function seen(
-  store: Store,
-  name: string,
-  source: string,
-  boards: readonly Board[],
-): Promise<void> {
-  const existing = await store.select<Company>("companies", { name });
-  const current = existing[0];
-  const now = new Date().toISOString();
-
-  if (current === undefined) {
-    const row: Company = {
-      name,
-      state: "discovered",
-      boards,
-      source,
-      reason: null,
-      first_seen: now,
-      dropped_at: null,
-      alias_of: null,
-    };
-    await store.upsert("companies", [row]);
-    return;
-  }
-
-  if (current.state === "alias") return;
-
-  const merged = [...current.boards];
-  for (const board of boards) {
-    if (!merged.some((existingBoard) => sameBoard(existingBoard, board))) {
-      merged.push(board);
-    }
-  }
-
-  const row: Company = { ...current, boards: merged };
-  await store.upsert("companies", [row]);
-}
-
-// A board another company already carries means this name is that company:
-// recorded `alias` with the owner, so it is never read and never revived.
-// `dropped_at` and `reason` are the operator's and stay as the row has them.
-export async function aliased(
-  store: Store,
-  name: string,
-  source: string,
-  boards: readonly Board[],
-  owner: string,
-): Promise<void> {
-  const existing = await store.select<Company>("companies", { name });
-  const current = existing[0];
-  const now = new Date().toISOString();
-  const row: Company = {
-    name,
-    state: "alias",
-    boards,
-    source: current?.source ?? source,
-    reason: current?.reason ?? null,
-    first_seen: current?.first_seen ?? now,
-    dropped_at: current?.dropped_at ?? null,
-    alias_of: owner,
-  };
-  await store.upsert("companies", [row]);
 }

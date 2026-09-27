@@ -61,13 +61,9 @@ function posting(key: string, overrides: Partial<Posting> = {}): Posting {
 function company(name: string, overrides: Partial<Company> = {}): Company {
   return {
     name,
-    state: "watched",
     boards: [{ platform: "greenhouse", id: "acme" }],
-    source: "hn",
     reason: null,
-    first_seen: "2026-09-10T00:00:00.000Z",
     dropped_at: null,
-    alias_of: null,
     ...overrides,
   };
 }
@@ -172,7 +168,7 @@ test("pullDecisions: a company dropped in the list reaches the local store with 
   const [pulled] = await local.select<Company>("companies");
   assert.equal(pulled?.dropped_at, "2026-09-18T17:17:00.000Z");
   assert.equal(pulled?.reason, "no remote roles");
-  assert.equal(pulled?.state, "watched");
+  assert.deepEqual(pulled?.boards, [{ platform: "greenhouse", id: "acme" }]);
   assert.equal(result.companies, 1);
 });
 
@@ -192,18 +188,14 @@ test("pullDecisions: a drop cleared in the list clears the local one", async () 
   assert.equal(result.companies, 1);
 });
 
-test("pullDecisions: a company's state, boards and source are not pulled back over the local ones", async () => {
+test("pullDecisions: a company's boards are not pulled back over the local ones", async () => {
   const local = memoryStore({ companies: [company("Acme")] });
-  const hosted = memoryStore({
-    companies: [company("Acme", { state: "discovered", boards: [], source: "stale" })],
-  });
+  const hosted = memoryStore({ companies: [company("Acme", { boards: [] })] });
 
   const result = await pullDecisions(local, hosted);
 
   const [pulled] = await local.select<Company>("companies");
-  assert.equal(pulled?.state, "watched");
   assert.deepEqual(pulled?.boards, [{ platform: "greenhouse", id: "acme" }]);
-  assert.equal(pulled?.source, "hn");
   assert.equal(result.companies, 0);
 });
 
@@ -366,6 +358,29 @@ test("publishSlice does not write the four columns James authors", async () => {
   assert.equal(after.note, "phone screen booked");
 });
 
+// Breaks if a column joins COMPANY_FIELDS without a decision about the
+// list, or if the drop's two columns stop being held back.
+test("publishSlice sends a company's name and boards and nothing else", async () => {
+  const local = memoryStore({
+    companies: [
+      company("Acme", { dropped_at: "2026-09-18T17:17:00.000Z", reason: "no remote roles" }),
+    ],
+  });
+  const inner = memoryStore();
+  const sent: Record<string, unknown>[] = [];
+  const hosted: Store = {
+    ...inner,
+    async upsert(table, rows) {
+      if (table === "companies") sent.push(...(rows as Record<string, unknown>[]));
+      return inner.upsert(table, rows);
+    },
+  };
+
+  await publishSlice(local, hosted);
+
+  assert.deepEqual(sent, [{ name: "Acme", boards: [{ platform: "greenhouse", id: "acme" }] }]);
+});
+
 test("publishSlice does not write the two company columns James authors", async () => {
   // The local row is a run's read of a company James dropped after the
   // run's pull: the processor's columns go up, the drop stays.
@@ -382,7 +397,7 @@ test("publishSlice does not write the two company columns James authors", async 
   const hosted = memoryStore({
     companies: [
       company("Acme", {
-        state: "discovered",
+        boards: [],
         dropped_at: "2026-09-18T17:17:00.000Z",
         reason: "no remote roles",
       }),
@@ -395,7 +410,6 @@ test("publishSlice does not write the two company columns James authors", async 
   assert.ok(after !== undefined);
   assert.equal(after.dropped_at, "2026-09-18T17:17:00.000Z", "the drop James made survives");
   assert.equal(after.reason, "no remote roles");
-  assert.equal(after.state, "watched");
   assert.deepEqual(after.boards, [
     { platform: "greenhouse", id: "acme", last_read: "2026-09-18T17:10:00.000Z" },
     { platform: "lever", id: "acme-inc" },

@@ -1,10 +1,10 @@
-// The daily job: list every watched company's boards, then judge every
+// The daily job: list every readable company's boards, then judge every
 // posting in the store. Every row shape below leans on `Store#upsert`'s
 // contract for what an omitted column means; see `store.ts` and `toRow`.
 import { createHash } from "node:crypto";
 
 import { compInText, type Listing, type Reader } from "./ats/ats.ts";
-import { boardGone, boardsOf, isGone, recordBoardsRead, watched } from "./companies.ts";
+import { boardGone, boardsOf, isGone, readable, recordBoardsRead } from "./companies.ts";
 import { loadCriteria } from "./criteria.ts";
 import { describeError } from "./errors.ts";
 import { judge, needsJudging, representativeByKey } from "./judge/judge.ts";
@@ -27,7 +27,7 @@ export interface IngestResult {
   readonly listed: number;
   readonly recorded: number;
   readonly errors: readonly string[];
-  // Companies returned to `discovered` this run, as `<company> <platform>/<id>`.
+  // Companies whose last board this run removed, as `<company> <platform>/<id>`.
   readonly returned: readonly string[];
 }
 
@@ -669,7 +669,7 @@ export async function ingest(
   options?: IngestOptions,
 ): Promise<IngestResult> {
   const now = options?.now ?? (() => new Date().toISOString());
-  const companies = await watched(store);
+  const companies = await readable(store);
 
   // A failed sweep read is one error line: an empty map means every body
   // gets written this run.

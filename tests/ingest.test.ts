@@ -62,13 +62,9 @@ function recording(inner: Store): {
 function company(name: string, overrides: Partial<Company> = {}): Company {
   return {
     name,
-    state: "watched",
     boards: [],
-    source: "test",
     reason: null,
-    first_seen: "2026-09-15T00:00:00.000Z",
     dropped_at: null,
-    alias_of: null,
     ...overrides,
   };
 }
@@ -250,7 +246,7 @@ function goneReader(platform: Platform, status: number): Reader {
   };
 }
 
-test("ingest: a board that 404s twice is removed on the second run and its company returned to discovered", async () => {
+test("ingest: a board that 404s twice is removed on the second run, its company reported returned and no longer read", async () => {
   const store = memoryStore({
     companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "acme-gh" }] })],
     criteria: [criteria()],
@@ -261,15 +257,13 @@ test("ingest: a board that 404s twice is removed on the second run and its compa
   assert.deepEqual(first.returned, []);
   assert.deepEqual(first.errors, ["Acme greenhouse/acme-gh: HTTP 404"]);
   const [afterFirst] = await store.select<Company>("companies", { name: "Acme" });
-  assert.equal(afterFirst?.state, "watched");
   assert.deepEqual(afterFirst?.boards, [{ platform: "greenhouse", id: "acme-gh", gone: 1 }]);
 
   const second = await ingest(store, readers);
   assert.deepEqual(second.returned, ["Acme greenhouse/acme-gh"]);
   assert.deepEqual(second.errors, ["Acme greenhouse/acme-gh: HTTP 404"]);
   const [afterSecond] = await store.select<Company>("companies", { name: "Acme" });
-  assert.equal(afterSecond?.state, "discovered");
-  assert.deepEqual(afterSecond?.boards, []);
+  assert.deepEqual(afterSecond, company("Acme"), "the row stays, with no board");
 
   // Nothing left to walk.
   const third = await ingest(store, readers);
@@ -301,7 +295,6 @@ test("ingest: a board that 404s once and then lists loses its mark", async () =>
   assert.deepEqual(result.errors, []);
   assert.equal(result.listed, 1);
   const [cleared] = await store.select<Company>("companies", { name: "Acme" });
-  assert.equal(cleared?.state, "watched");
   assert.deepEqual(cleared?.boards, [
     { platform: "greenhouse", id: "acme-gh", last_read: "2026-09-16T06:00:00.000Z" },
   ]);
@@ -320,7 +313,6 @@ test("ingest: a board answering 429 is an error line every run and is never mark
   assert.deepEqual(result.errors, ["Acme greenhouse/acme-gh: HTTP 429"]);
   assert.deepEqual(result.returned, []);
   const [row] = await store.select<Company>("companies", { name: "Acme" });
-  assert.equal(row?.state, "watched");
   assert.deepEqual(row?.boards, [{ platform: "greenhouse", id: "acme-gh" }]);
 });
 
@@ -342,13 +334,12 @@ test("ingest: a workday board answering 400 twice is gone; a greenhouse board an
 
   assert.deepEqual(result.returned, ["Acme workday/acme/site"]);
   const [acme] = await store.select<Company>("companies", { name: "Acme" });
-  assert.equal(acme?.state, "discovered");
+  assert.deepEqual(acme?.boards, []);
   const [bolt] = await store.select<Company>("companies", { name: "Bolt" });
-  assert.equal(bolt?.state, "watched");
   assert.deepEqual(bolt?.boards, [{ platform: "greenhouse", id: "bolt" }]);
 });
 
-test("ingest: a company with two boards loses only the dead one and stays watched", async () => {
+test("ingest: a company with two boards loses only the dead one and is not returned", async () => {
   const store = memoryStore({
     companies: [
       company("Acme", {
@@ -371,7 +362,6 @@ test("ingest: a company with two boards loses only the dead one and stays watche
   assert.deepEqual(result.returned, []);
   assert.equal(result.listed, 1);
   const [row] = await store.select<Company>("companies", { name: "Acme" });
-  assert.equal(row?.state, "watched");
   assert.deepEqual(row?.boards, [
     { platform: "lever", id: "acme-lv", last_read: "2026-09-16T06:00:00.000Z" },
   ]);
@@ -488,7 +478,6 @@ test("ingest: a board that 404s keeps its gone mark while its answering sibling 
   await ingest(store, readers, { now: () => "2026-09-18T06:00:00.000Z" });
 
   const [row] = await store.select<Company>("companies", { name: "Acme" });
-  assert.equal(row?.state, "watched");
   assert.deepEqual(row?.boards, [
     { platform: "greenhouse", id: "acme-gh", gone: 1 },
     { platform: "lever", id: "acme-lv", last_read: "2026-09-18T06:00:00.000Z" },
@@ -3211,7 +3200,7 @@ test("ingest then judgeAll: a posting the board stops listing is gone after one 
   assert.equal(board?.boards[0]?.last_read, "2026-09-16T06:00:00.000Z");
 });
 
-test("judgeAll: a kept posting whose company became an alias is judged out unwatched; a status survives the same way", async () => {
+test("judgeAll: a kept posting whose company has no board is judged out unwatched; a status survives the same way", async () => {
   const kept = (key: string, overrides: Partial<Posting> = {}): Posting =>
     posting({
       key,
@@ -3225,13 +3214,7 @@ test("judgeAll: a kept posting whose company became an alias is judged out unwat
       ...overrides,
     });
   const store = memoryStore({
-    companies: [
-      company("Acme", {
-        state: "alias",
-        alias_of: "Acme Inc",
-        boards: [{ platform: "greenhouse", id: "acme-gh" }],
-      }),
-    ],
+    companies: [company("Acme")],
     postings: [
       kept("Acme::swe1"),
       kept("Acme::swe2", { status: "applied", applied_at: "2026-09-10T00:00:00Z" }),
@@ -3241,14 +3224,14 @@ test("judgeAll: a kept posting whose company became an alias is judged out unwat
 
   const judging = await judgeAll(store, {});
 
-  assert.equal(judging.judged, 2, "the company's state alone moves both postings");
+  assert.equal(judging.judged, 2, "the company's lost board alone moves both postings");
   const [row] = await store.select<Posting>("postings", { key: "Acme::swe1" });
   assert.equal(row?.kept, false);
   assert.deepEqual(row?.reasons, ["unwatched"]);
 
   const [statusRow] = await store.select<Posting>("postings", { key: "Acme::swe2" });
   assert.equal(statusRow?.kept, false);
-  assert.equal(statusRow?.evidence["unwatched"], "company Acme is an alias of Acme Inc");
+  assert.equal(statusRow?.evidence["unwatched"], "company Acme has no board");
   assert.equal(statusRow?.status, "applied", "the processor never changes a posting's status");
 });
 

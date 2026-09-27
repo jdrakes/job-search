@@ -10,7 +10,7 @@ import {
   CompaniesView,
   countsByCompany,
   dropRefusal,
-  groupByState,
+  groupCompanies,
   groupOf,
   queuedLabel,
   whyText,
@@ -35,16 +35,15 @@ function render(component: object, props: Record<string, unknown>): Promise<stri
 function company(name: string, overrides: Partial<Company> = {}): Company {
   return {
     name,
-    state: "discovered",
     boards: [],
-    source: null,
     reason: null,
-    first_seen: "2026-09-15T00:00:00Z",
     dropped_at: null,
-    alias_of: null,
     ...overrides,
   };
 }
+
+// A company with a board, so it is read.
+const READ: Partial<Company> = { boards: [{ platform: "greenhouse", id: "board" }] };
 
 /** Only the company matters to these tests. */
 function queued(companyName: string, id: string): Posting {
@@ -84,35 +83,35 @@ const CONFIG: AppConfig = {
 };
 const ACCESS_TOKEN = "user-jwt";
 
-// The design's order, not the alphabetical order PostgREST returns rows in.
-
-test("groupOf reads dropped_at first, and only falls back to state when it is null", () => {
-  assert.equal(groupOf(company("Acme", { state: "watched" })), "watched");
-  assert.equal(groupOf(company("Acme", { state: "discovered" })), "discovered");
-  assert.equal(groupOf(company("Acme", { state: "alias", alias_of: "Beta" })), "alias");
+test("groupOf reads dropped_at first, then whether the company has a board", () => {
+  assert.equal(groupOf(company("Acme", READ)), "read");
+  assert.equal(groupOf(company("Acme")), "no_board");
   assert.equal(
-    groupOf(company("Acme", { state: "watched", dropped_at: "2026-09-18T12:17:00Z" })),
+    groupOf(company("Acme", { ...READ, dropped_at: "2026-09-18T12:17:00Z" })),
     "dropped",
   );
+  assert.equal(groupOf(company("Acme", { dropped_at: "2026-09-18T12:17:00Z" })), "dropped");
 });
 
-test("groupByState buckets into watched, discovered, dropped, alias, in that order", () => {
-  const watched = company("Acme", { state: "watched" });
-  const discovered = company("Beta", { state: "discovered" });
-  // A drop is the flag, not the state: this one is still `watched`.
-  const dropped = company("Gamma", { state: "watched", dropped_at: "2026-09-18T12:17:00Z" });
-  const alias = company("Delta", { state: "alias", alias_of: "Acme" });
+// The design's order, not the alphabetical order PostgREST returns rows in.
+test("groupCompanies buckets into read, no board, dropped, in that order, labelled so", () => {
+  const read = company("Acme", READ);
+  const boardless = company("Beta");
+  const dropped = company("Gamma", { ...READ, dropped_at: "2026-09-18T12:17:00Z" });
 
-  const groups = groupByState([alias, dropped, discovered, watched], NO_COUNTS);
+  const groups = groupCompanies([dropped, boardless, read], NO_COUNTS);
 
   assert.deepEqual(
-    groups.map((group) => group.key),
-    ["watched", "discovered", "dropped", "alias"],
+    groups.map((group) => [group.key, group.label]),
+    [
+      ["read", "Read"],
+      ["no_board", "No board"],
+      ["dropped", "Dropped"],
+    ],
   );
-  assert.deepEqual(groups[0]?.companies, [watched]);
-  assert.deepEqual(groups[1]?.companies, [discovered]);
+  assert.deepEqual(groups[0]?.companies, [read]);
+  assert.deepEqual(groups[1]?.companies, [boardless]);
   assert.deepEqual(groups[2]?.companies, [dropped]);
-  assert.deepEqual(groups[3]?.companies, [alias]);
 });
 
 test("countsByCompany counts the queue's postings by company name", () => {
@@ -122,13 +121,13 @@ test("countsByCompany counts the queue's postings by company name", () => {
   assert.equal(counts.get("Gamma"), undefined);
 });
 
-test("groupByState orders each group by queued postings, most first, then name", () => {
-  const none = company("Zed", { state: "watched" });
-  const one = company("Beta", { state: "watched" });
-  const two = company("Acme", { state: "watched" });
-  const alsoNone = company("Alpha", { state: "watched" });
+test("groupCompanies orders each group by queued postings, most first, then name", () => {
+  const none = company("Zed", READ);
+  const one = company("Beta", READ);
+  const two = company("Acme", READ);
+  const alsoNone = company("Alpha", READ);
   const counts = countsByCompany([queued("Beta", "1"), queued("Acme", "1"), queued("Acme", "2")]);
-  const groups = groupByState([none, one, alsoNone, two], counts);
+  const groups = groupCompanies([none, one, alsoNone, two], counts);
   assert.deepEqual(
     groups[0]?.companies.map((c) => c.name),
     ["Acme", "Beta", "Alpha", "Zed"],
@@ -141,8 +140,8 @@ test("queuedLabel says the count in words", () => {
   assert.equal(queuedLabel(3), "3 in queue");
 });
 
-test("groupByState leaves a bucket empty rather than dropping it", () => {
-  const groups = groupByState([company("Acme", { state: "watched" })], NO_COUNTS);
+test("groupCompanies leaves a bucket empty rather than dropping it", () => {
+  const groups = groupCompanies([company("Acme", READ)], NO_COUNTS);
   assert.deepEqual(groups[1]?.companies, []);
   assert.deepEqual(groups[2]?.companies, []);
 });
@@ -161,15 +160,10 @@ test("boardLabel is empty text for a company with no boards", () => {
   assert.equal(boardLabel(company("Acme", { boards: [] })), "");
 });
 
-test("whyText prefers the operator's reason, falls back to the alias owner, else nothing", () => {
+test("whyText is the operator's reason, else nothing", () => {
   assert.equal(whyText(company("Acme", { reason: "acquired" })), "acquired");
-  assert.equal(whyText(company("Acme", { alias_of: "Beta" })), "alias of Beta");
-  assert.equal(
-    whyText(company("Acme", { reason: "acquired", alias_of: "Beta" })),
-    "acquired",
-    "a reason wins over alias_of when a row somehow carries both",
-  );
   assert.equal(whyText(company("Acme")), null);
+  assert.equal(whyText(company("Acme", { reason: "" })), null);
 });
 
 test("dropRefusal refuses an empty or whitespace-only reason", () => {
@@ -182,25 +176,22 @@ test("dropRefusal allows a real reason", () => {
 });
 
 test("CompaniesView renders each group with its count and its companies", async () => {
-  const watched = company("Acme", {
-    state: "watched",
-    boards: [{ platform: "greenhouse", id: "acme" }],
-  });
+  const read = company("Acme", { boards: [{ platform: "greenhouse", id: "acme" }] });
   const dropped = company("Gamma", {
-    state: "watched",
+    ...READ,
     dropped_at: "2026-09-18T12:17:00Z",
     reason: "acquired",
   });
 
   const html = await render(CompaniesView, {
-    companies: [watched, dropped],
+    companies: [read, dropped],
     queue: [],
     config: CONFIG,
     accessToken: ACCESS_TOKEN,
   });
 
-  assert.match(html, /Watched.*?\(1\)/);
-  assert.match(html, /Discovered.*?\(0\)/);
+  assert.match(html, /Read.*?\(1\)/);
+  assert.match(html, /No board.*?\(0\)/);
   assert.match(html, /Dropped.*?\(1\)/);
   assert.match(html, /Acme/);
   assert.match(html, /greenhouse:acme/);
@@ -208,12 +199,13 @@ test("CompaniesView renders each group with its count and its companies", async 
   assert.match(html, /acquired/);
 });
 
-test("CompaniesView offers Drop on a watched or discovered company but not on one already dropped", async () => {
-  const watched = company("Acme", { state: "watched" });
-  const dropped = company("Gamma", { state: "watched", dropped_at: "2026-09-18T12:17:00Z" });
+test("CompaniesView offers Drop on a read or boardless company but not on one already dropped", async () => {
+  const read = company("Acme", READ);
+  const boardless = company("Beta");
+  const dropped = company("Gamma", { ...READ, dropped_at: "2026-09-18T12:17:00Z" });
 
   const html = await render(CompaniesView, {
-    companies: [watched, dropped],
+    companies: [read, boardless, dropped],
     queue: [],
     config: CONFIG,
     accessToken: ACCESS_TOKEN,
@@ -221,13 +213,13 @@ test("CompaniesView offers Drop on a watched or discovered company but not on on
 
   // The button writes no word on screen; the one it announces is what says
   // a row offers Drop at all.
-  const dropButtons = [...html.matchAll(/aria-label="Drop [^"]+"/g)];
-  assert.equal(dropButtons.length, 1);
+  const dropButtons = [...html.matchAll(/aria-label="Drop [^"]+"/g)].map((match) => match[0]);
+  assert.deepEqual(dropButtons, ['aria-label="Drop Acme"', 'aria-label="Drop Beta"']);
 });
 
 test("CompaniesView renders a dropped company with no .acts, and the list carries the dropped class", async () => {
   const dropped = company("Gamma", {
-    state: "watched",
+    ...READ,
     dropped_at: "2026-09-18T12:17:00Z",
     reason: "acquired",
   });
@@ -245,26 +237,8 @@ test("CompaniesView renders a dropped company with no .acts, and the list carrie
   assert.match(html, /class="list dropped"/);
 });
 
-test("CompaniesView renders an alias card with 'alias of X' and no Drop button", async () => {
-  const alias = company("Delta", { state: "alias", alias_of: "Acme" });
-
-  const html = await render(CompaniesView, {
-    companies: [alias],
-    queue: [],
-    config: CONFIG,
-    accessToken: ACCESS_TOKEN,
-  });
-
-  assert.match(html, /alias of Acme/);
-  assert.doesNotMatch(html, /<span class="acts"/);
-  assert.doesNotMatch(html, /aria-label="Drop /);
-});
-
 test("CompaniesView renders 'no board yet' for a company with no boards", async () => {
-  const noBoardsCompany = company("Acme", {
-    state: "watched",
-    boards: [],
-  });
+  const noBoardsCompany = company("Acme");
 
   const html = await render(CompaniesView, {
     companies: [noBoardsCompany],
@@ -278,8 +252,8 @@ test("CompaniesView renders 'no board yet' for a company with no boards", async 
 });
 
 test("CompaniesView shows each company's queued count, none in the muted type", async () => {
-  const acme = company("Acme", { state: "watched" });
-  const beta = company("Beta", { state: "watched" });
+  const acme = company("Acme", READ);
+  const beta = company("Beta", READ);
   const html = await render(CompaniesView, {
     companies: [acme, beta],
     queue: [queued("Acme", "1"), queued("Acme", "2"), queued("Acme", "3")],
@@ -292,7 +266,7 @@ test("CompaniesView shows each company's queued count, none in the muted type", 
 });
 
 test("initialDropping opens the drop dialog as an accessible, labelled modal", async () => {
-  const acme = company("Acme", { state: "watched" });
+  const acme = company("Acme", READ);
 
   const html = await render(CompaniesView, {
     companies: [acme],
@@ -315,7 +289,7 @@ test("initialDropping opens the drop dialog as an accessible, labelled modal", a
 test("the drop dialog's aria-labelledby stays one IDREF when the company name holds whitespace", async () => {
   // aria-labelledby is a space-separated IDREF list; this name is a real
   // one in this project's data.
-  const messy = company("Overland Transport & Logistics", { state: "watched" });
+  const messy = company("Overland Transport & Logistics", READ);
 
   const html = await render(CompaniesView, {
     companies: [messy],
@@ -339,7 +313,7 @@ test("the Companies panel is programmatically focusable, so a committed Drop has
   // `<div>` and `.acts` stops rendering), so the panel is the anchor, and it
   // cannot take focus from script without tabindex="-1".
   const html = await render(CompaniesView, {
-    companies: [company("Acme", { state: "watched" })],
+    companies: [company("Acme", READ)],
     queue: [],
     config: CONFIG,
     accessToken: ACCESS_TOKEN,
@@ -355,7 +329,7 @@ test("a committed Drop sends focus to the panel, since the card it was issued fr
   const restoreDom = stubDom();
   const restoreFetch = stubFetch(() => Promise.resolve(patchedOne()));
   const app = mountTree(CompaniesView, {
-    companies: [company("Acme", { state: "watched" })],
+    companies: [company("Acme", READ)],
     queue: [],
     config: CONFIG,
     accessToken: ACCESS_TOKEN,
@@ -387,10 +361,10 @@ test("a committed Drop hands the name and the patch up, and keeps no copy of its
   // It emits now, and AppRoot holds the answer.
   const restoreDom = stubDom();
   const restoreFetch = stubFetch(() => Promise.resolve(patchedOne()));
-  const watched = company("Acme", { state: "watched" });
+  const read = company("Acme", READ);
   const handed: { name: string; patch: { dropped_at: string; reason: string } }[] = [];
   const app = mountTree(CompaniesView, {
-    companies: [watched],
+    companies: [read],
     queue: [],
     config: CONFIG,
     accessToken: ACCESS_TOKEN,
@@ -414,10 +388,10 @@ test("a committed Drop hands the name and the patch up, and keeps no copy of its
     assert.ok(handed[0]?.patch.dropped_at, "the patch carries when it was dropped");
 
     // It renders from its props alone now. Its props did not change, so Acme
-    // is still under Watched here: the move happens when AppRoot hands the
+    // is still under Read here: the move happens when AppRoot hands the
     // patched row back down. A local map would put it under Dropped instead,
     // which is exactly the copy that died on a tab switch.
-    assert.equal(watched.dropped_at, null, "the row it was handed is untouched");
+    assert.equal(read.dropped_at, null, "the row it was handed is untouched");
     const dropped = elementsWithClass(app.root, "dropped");
     assert.ok(
       !dropped.some((list) => textOf(list).includes("Acme")),
@@ -431,7 +405,7 @@ test("a committed Drop hands the name and the patch up, and keeps no copy of its
 });
 
 test("with no initialDropping, no dialog renders at all", async () => {
-  const acme = company("Acme", { state: "watched" });
+  const acme = company("Acme", READ);
 
   const html = await render(CompaniesView, {
     companies: [acme],

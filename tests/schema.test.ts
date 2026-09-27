@@ -4,7 +4,6 @@ import { test } from "node:test";
 import {
   CANDIDATE_FIELDS,
   COMPANY_FIELDS,
-  COMPANY_STATES,
   CRITERIA_FIELDS,
   OUTCOMES,
   PLATFORMS,
@@ -154,23 +153,15 @@ test("the migrations' postings.status CHECK matches STATUSES, in order", () => {
   assert.deepEqual(vocabularyOf("postings", "status"), [...STATUSES]);
 });
 
-test("the migrations' companies.state CHECK matches COMPANY_STATES, in order", () => {
-  assert.deepEqual(vocabularyOf("companies", "state"), [...COMPANY_STATES]);
-});
-
 test("the migrations' candidates.outcome CHECK matches OUTCOMES, in order", () => {
   assert.deepEqual(vocabularyOf("candidates", "outcome"), [...OUTCOMES]);
 });
 
-test("the last companies.state CHECK names discovered, watched, alias: a drop is no longer a state", () => {
-  // Pinned by hand, not through COMPANY_STATES: the company_drop migration
-  // moved the drop to `dropped_at`, so a later migration that re-admits
-  // 'dropped' (or drops 'alias') fails here even if schema.ts follows it.
-  assert.deepEqual(vocabularyOf("companies", "state"), ["discovered", "watched", "alias"]);
-});
-
-test("the migrations' ADD COLUMN statements append to COMPANY_FIELDS in order", () => {
-  assert.deepEqual(columnsOf("companies").slice(-2), ["dropped_at", "alias_of"]);
+test("the companies_derived migration leaves companies with name, boards and the drop", () => {
+  // Pinned by hand, not through COMPANY_FIELDS: state, source, first_seen
+  // and alias_of were three_stores and company_drop columns, so a
+  // columnsOf that ignored their DROP COLUMN would still list them.
+  assert.deepEqual(columnsOf("companies"), ["name", "boards", "reason", "dropped_at"]);
 });
 
 test("the migration drops the old criteria table before recreating it", () => {

@@ -150,7 +150,7 @@ export async function loadCompanies(
 ): Promise<ReadResult<Company[]>> {
   const params = new URLSearchParams();
   params.set("select", COMPANY_FIELDS.join(","));
-  params.set("order", totalOrder("companies", "state.asc"));
+  params.set("order", totalOrder("companies", "name.asc"));
   return selectAll<Company>(config, accessToken, "companies", params, httpFetch);
 }
 
@@ -223,8 +223,8 @@ export async function setStatus(
   return patchOne(config, accessToken, "postings", "key", key, { ...patch }, httpFetch);
 }
 
-// the operator's two columns on a company; `state` is the processor's and the
-// hosted grant refuses it.
+// The operator's two columns on a company; `boards` is the processor's and
+// the hosted grant refuses it.
 export type CompanyDropPatch = Pick<Company, "dropped_at" | "reason">;
 
 export async function setCompanyDrop(

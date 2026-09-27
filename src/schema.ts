@@ -30,11 +30,6 @@ export type Platform = (typeof PLATFORMS)[number];
 export const STATUSES = ["applied", "interviewing", "rejected", "offer", "closed"] as const;
 export type Status = (typeof STATUSES)[number];
 
-// The processor's column. A drop is the operator's and lives in `dropped_at` and
-// `reason` beside it; `alias` is a name whose board another company owns.
-export const COMPANY_STATES = ["discovered", "watched", "alias"] as const;
-export type CompanyState = (typeof COMPANY_STATES)[number];
-
 export const WORKPLACES = ["remote", "hybrid", "onsite"] as const;
 export type Workplace = (typeof WORKPLACES)[number];
 
@@ -126,30 +121,23 @@ export const POSTING_LIST_FIELDS = POSTING_FIELDS.filter(
 );
 export type PostingSummary = Omit<Posting, "body" | "body_hash" | "workplace" | "gone_at">;
 
-// `state`, `boards`, `source`, `alias_of` and the timestamps are the
-// processor's; `dropped_at` and `reason` are the operator's and no publish writes
-// them. A watched company with `dropped_at` set is not read.
+// `boards` is the processor's (discover writes it); `dropped_at` and
+// `reason` are the operator's and no publish writes them. Everything else
+// said of a company is derived: it is read when it is not dropped and has a
+// board (`readable`, companies.ts); where it came from and its aliases are
+// its candidates'.
 export interface Company {
   readonly name: string;
-  readonly state: CompanyState;
   readonly boards: readonly Board[];
-  readonly source: string | null;
   readonly reason: string | null;
-  readonly first_seen: string;
   readonly dropped_at: string | null;
-  // The owning company's name when `state` is `alias`; null otherwise.
-  readonly alias_of: string | null;
 }
 
 export const COMPANY_FIELDS = [
   "name",
-  "state",
   "boards",
-  "source",
   "reason",
-  "first_seen",
   "dropped_at",
-  "alias_of",
 ] as const satisfies readonly (keyof Company)[];
 
 // What discover made of a candidate. `wrong_company` is reserved for a

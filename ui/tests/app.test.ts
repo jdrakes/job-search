@@ -347,13 +347,13 @@ test("a failed criteria read shows its own reason but leaves Companies populated
   const { fetchImpl } = recordingFetch([
     jsonReply([]),
     jsonReply([]),
-    jsonReply([{ name: "Acme", state: "watched", boards: [], source: null, reason: null }]),
+    jsonReply([{ name: "Acme", boards: [], reason: null, dropped_at: null }]),
     statusReply(500, "relation does not exist"),
   ]);
 
   const onCompanies = await render(signedInProps(fetchImpl, { initialTab: "companies" }));
   assert.match(onCompanies, /Acme/);
-  assert.match(onCompanies, /Watched.*?\(1\)/);
+  assert.match(onCompanies, /No board.*?\(1\)/);
 });
 
 test("a failed criteria read shows its reason on the Criteria tab and renders no form", async () => {
@@ -850,16 +850,12 @@ test("reads in flight when the user signs out are not written back to the reads 
   }
 });
 
-/** A watched company with nothing in the queue, for the drop tests. */
-const WATCHED_COMPANY: Company = {
+/** A read company with nothing in the queue, for the drop tests. */
+const READ_COMPANY: Company = {
   name: "Acme",
-  state: "watched",
-  boards: [],
-  source: null,
+  boards: [{ platform: "greenhouse", id: "acme" }],
   reason: null,
-  first_seen: "2026-09-01",
   dropped_at: null,
-  alias_of: null,
 };
 
 /** Opens the drop dialog on `name` and commits it with a reason. */
@@ -1016,7 +1012,7 @@ test("a drop survives the tab switch that unmounts the Companies view", async ()
   const restoreFetch = stubFetch(() => Promise.resolve(patchedOne()));
   const app = mountRoot({
     config: CONFIG,
-    store: storeWithRound([], [], "score", [WATCHED_COMPANY]),
+    store: storeWithRound([], [], "score", [READ_COMPANY]),
     httpFetch: unanswered,
     now: () => NOW,
   });
@@ -1048,18 +1044,18 @@ test("a drop survives the tab switch that unmounts the Companies view", async ()
 test("a drop made while a round is in flight survives that round landing", async () => {
   // Ruling 3 again, for companies: the round was issued before he dropped,
   // so its answer cannot carry the drop. Clearing the whole map on success
-  // would put the company back under Watched.
+  // would put the company back under Read.
   const restoreDom = stubDom();
   const restoreFetch = stubFetch(() => Promise.resolve(patchedOne()));
   const round = heldRound([
     jsonReply([]),
     jsonReply([]),
-    jsonReply([WATCHED_COMPANY]),
+    jsonReply([READ_COMPANY]),
     jsonReply([CRITERIA_ROW]),
   ]);
   const app = mountRoot({
     config: CONFIG,
-    store: storeWithRound([], [], "score", [WATCHED_COMPANY]),
+    store: storeWithRound([], [], "score", [READ_COMPANY]),
     httpFetch: round.fetchImpl,
     now: () => NOW,
   });
@@ -1137,13 +1133,9 @@ test("the Companies tab counts what is waiting, so a decision takes its posting 
     companies: [
       {
         name: "Acme",
-        state: "watched",
         boards: [{ platform: "greenhouse", id: "acme" }],
-        source: null,
         reason: null,
-        first_seen: "2026-09-01T00:00:00Z",
         dropped_at: null,
-        alias_of: null,
       },
     ],
     criteria: CRITERIA_ROW,
@@ -1246,13 +1238,9 @@ test("no view skips a heading level under the page's one h1", async () => {
     companies: [
       {
         name: "Acme",
-        state: "watched",
         boards: [{ platform: "greenhouse", id: "acme" }],
-        source: null,
         reason: null,
-        first_seen: "2026-09-01T00:00:00Z",
         dropped_at: null,
-        alias_of: null,
       },
     ],
     criteria: CRITERIA_ROW,
@@ -1280,7 +1268,7 @@ test("no view skips a heading level under the page's one h1", async () => {
     // for; a fixture that stopped rendering them would pass on the `h1`
     // alone and prove nothing.
     assert.equal(measured.get("queue"), 3, "the h1 and the Queue's two company bands");
-    assert.equal(measured.get("companies"), 5, "the h1 and the four state groups");
+    assert.equal(measured.get("companies"), 4, "the h1 and the three groups");
   } finally {
     app.unmount();
     restoreDom();

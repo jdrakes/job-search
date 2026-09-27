@@ -56,13 +56,9 @@ function posting(overrides: Partial<Posting> & Pick<Posting, "key" | "company">)
 function company(name: string, overrides: Partial<Company> = {}): Company {
   return {
     name,
-    state: "watched",
     boards: [{ platform: "greenhouse", id: "board", last_read: "2026-09-16T06:00:00.000Z" }],
-    source: "test",
     reason: null,
-    first_seen: "2026-09-15T00:00:00.000Z",
     dropped_at: null,
-    alias_of: null,
     ...overrides,
   };
 }

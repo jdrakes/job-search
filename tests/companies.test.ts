@@ -2,14 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  aliased,
   boardGone,
   boardKey,
   boardsOf,
   isGone,
+  readable,
   recordBoardsRead,
-  seen,
-  watched,
 } from "../src/companies.ts";
 import { HttpError } from "../src/net/http.ts";
 import type { Company } from "../src/schema.ts";
@@ -19,84 +17,19 @@ import type { Store } from "../src/store/store.ts";
 function company(name: string, overrides: Partial<Company> = {}): Company {
   return {
     name,
-    state: "discovered",
     boards: [],
-    source: "test",
     reason: null,
-    first_seen: "2026-09-15T00:00:00Z",
     dropped_at: null,
-    alias_of: null,
     ...overrides,
   };
 }
 
-test("seen: a name never seen before lands as discovered, carrying its boards", async () => {
-  const store = memoryStore();
-  await seen(store, "Acme", "discovery", [{ platform: "greenhouse", id: "acme" }]);
-
-  const [row] = await store.select<Company>("companies", { name: "Acme" });
-  assert.ok(row);
-  assert.equal(row?.state, "discovered");
-  assert.equal(row?.source, "discovery");
-  assert.deepEqual(row?.boards, [{ platform: "greenhouse", id: "acme" }]);
-});
-
-test("seen: a second sighting adds a new board without changing state", async () => {
+test("readable: returns only undropped companies that carry at least one board", async () => {
   const store = memoryStore({
     companies: [
-      company("Acme", {
-        state: "watched",
-        boards: [{ platform: "greenhouse", id: "acme" }],
-      }),
-    ],
-  });
-
-  await seen(store, "Acme", "discovery", [{ platform: "lever", id: "acme-inc" }]);
-
-  const [row] = await store.select<Company>("companies", { name: "Acme" });
-  assert.ok(row);
-  assert.equal(row?.state, "watched");
-  assert.deepEqual(row?.boards, [
-    { platform: "greenhouse", id: "acme" },
-    { platform: "lever", id: "acme-inc" },
-  ]);
-});
-
-test("seen: a board the company already carries is not duplicated", async () => {
-  const store = memoryStore({
-    companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "acme" }] })],
-  });
-
-  await seen(store, "Acme", "discovery", [{ platform: "greenhouse", id: "acme" }]);
-
-  const [row] = await store.select<Company>("companies", { name: "Acme" });
-  assert.deepEqual(row?.boards, [{ platform: "greenhouse", id: "acme" }]);
-});
-
-test("seen: an alias stays an alias and gains nothing", async () => {
-  const alias = company("Acme", {
-    state: "alias",
-    alias_of: "Acme Inc",
-    boards: [],
-  });
-  const store = memoryStore({ companies: [alias] });
-
-  await seen(store, "Acme", "discovery", [{ platform: "greenhouse", id: "acme" }]);
-
-  const [row] = await store.select<Company>("companies", { name: "Acme" });
-  // No column moves at all.
-  assert.deepEqual(row, alias);
-});
-
-test("watched: returns only watched, undropped companies that carry at least one board", async () => {
-  const store = memoryStore({
-    companies: [
-      company("HasBoard", { state: "watched", boards: [{ platform: "ashby", id: "x" }] }),
-      company("NoBoard", { state: "watched", boards: [] }),
-      company("Discovered", { state: "discovered", boards: [{ platform: "ashby", id: "y" }] }),
-      company("Alias", { state: "alias", boards: [{ platform: "ashby", id: "z" }] }),
+      company("HasBoard", { boards: [{ platform: "ashby", id: "x" }] }),
+      company("NoBoard", { boards: [] }),
       company("Dropped", {
-        state: "watched",
         boards: [{ platform: "ashby", id: "w" }],
         dropped_at: "2026-09-18T12:17:00.000Z",
         reason: "no remote roles",
@@ -104,72 +37,11 @@ test("watched: returns only watched, undropped companies that carry at least one
     ],
   });
 
-  const rows = await watched(store);
+  const rows = await readable(store);
   assert.deepEqual(
     rows.map((row) => row.name),
     ["HasBoard"],
   );
-});
-
-test("seen: a dropped company's boards merge; the drop stays as it was", async () => {
-  const store = memoryStore({
-    companies: [
-      company("Acme", {
-        state: "watched",
-        boards: [{ platform: "greenhouse", id: "acme" }],
-        dropped_at: "2026-09-18T12:17:00.000Z",
-        reason: "no remote roles",
-      }),
-    ],
-  });
-
-  await seen(store, "Acme", "discovery", [{ platform: "lever", id: "acme-inc" }]);
-
-  const [row] = await store.select<Company>("companies", { name: "Acme" });
-  assert.equal(row?.state, "watched");
-  assert.deepEqual(row?.boards, [
-    { platform: "greenhouse", id: "acme" },
-    { platform: "lever", id: "acme-inc" },
-  ]);
-  assert.equal(row?.dropped_at, "2026-09-18T12:17:00.000Z");
-  assert.equal(row?.reason, "no remote roles");
-});
-
-test("aliased: a new name lands as alias naming its owner, with no reason and no drop", async () => {
-  const store = memoryStore();
-  const boards = [{ platform: "greenhouse", id: "acme" } as const];
-
-  await aliased(store, "Acme Inc", "discovery", boards, "Acme");
-
-  const [row] = await store.select<Company>("companies", { name: "Acme Inc" });
-  assert.equal(row?.state, "alias");
-  assert.equal(row?.alias_of, "Acme");
-  assert.equal(row?.reason, null);
-  assert.equal(row?.dropped_at, null);
-  assert.equal(row?.source, "discovery");
-  assert.deepEqual(row?.boards, boards);
-});
-
-test("aliased: a dropped name becomes an alias and keeps its dropped_at and reason", async () => {
-  const store = memoryStore({
-    companies: [
-      company("Acme Inc", {
-        state: "watched",
-        boards: [{ platform: "greenhouse", id: "acme" }],
-        dropped_at: "2026-09-18T12:17:00.000Z",
-        reason: "no remote roles",
-      }),
-    ],
-  });
-
-  await aliased(store, "Acme Inc", "survey", [{ platform: "greenhouse", id: "acme" }], "Acme");
-
-  const [row] = await store.select<Company>("companies", { name: "Acme Inc" });
-  assert.equal(row?.state, "alias");
-  assert.equal(row?.alias_of, "Acme");
-  assert.equal(row?.dropped_at, "2026-09-18T12:17:00.000Z");
-  assert.equal(row?.reason, "no remote roles");
-  assert.equal(row?.source, "test");
 });
 
 test("boardsOf: reads a company's boards", () => {
@@ -222,10 +94,10 @@ test("isGone: a rate limit, a server error and a plain error are never gone", ()
   assert.equal(isGone("greenhouse", "HTTP 404"), false);
 });
 
-test("boardGone: the first gone run marks the board and the company stays watched", async () => {
+test("boardGone: the first gone run marks the board and returns nothing", async () => {
   const board = { platform: "greenhouse", id: "acme" } as const;
   const store = memoryStore({
-    companies: [company("Acme", { state: "watched", boards: [board] })],
+    companies: [company("Acme", { boards: [board] })],
   });
 
   const [before] = await store.select<Company>("companies", { name: "Acme" });
@@ -234,14 +106,13 @@ test("boardGone: the first gone run marks the board and the company stays watche
 
   assert.deepEqual(result, { returned: false });
   const [row] = await store.select<Company>("companies", { name: "Acme" });
-  assert.equal(row?.state, "watched");
   assert.deepEqual(row?.boards, [{ platform: "greenhouse", id: "acme", gone: 1 }]);
 });
 
-test("boardGone: the second gone run removes the board and returns the company to discovered", async () => {
+test("boardGone: the second gone run removes the last board, keeps the row and reports it returned", async () => {
   const board = { platform: "greenhouse", id: "acme", gone: 1 } as const;
   const store = memoryStore({
-    companies: [company("Acme", { state: "watched", boards: [board] })],
+    companies: [company("Acme", { boards: [board] })],
   });
 
   const [before] = await store.select<Company>("companies", { name: "Acme" });
@@ -250,15 +121,15 @@ test("boardGone: the second gone run removes the board and returns the company t
 
   assert.deepEqual(result, { returned: true });
   const [row] = await store.select<Company>("companies", { name: "Acme" });
-  assert.equal(row?.state, "discovered");
-  assert.deepEqual(row?.boards, []);
+  assert.deepEqual(row, company("Acme"));
+  assert.deepEqual(await readable(store), []);
 });
 
-test("boardGone: a company with two boards loses only the dead one and stays watched", async () => {
+test("boardGone: a company with two boards loses only the dead one and is not returned", async () => {
   const dead = { platform: "greenhouse", id: "acme", gone: 1 } as const;
   const alive = { platform: "lever", id: "acme-inc" } as const;
   const store = memoryStore({
-    companies: [company("Acme", { state: "watched", boards: [dead, alive] })],
+    companies: [company("Acme", { boards: [dead, alive] })],
   });
 
   const [before] = await store.select<Company>("companies", { name: "Acme" });
@@ -267,7 +138,6 @@ test("boardGone: a company with two boards loses only the dead one and stays wat
 
   assert.deepEqual(result, { returned: false });
   const [row] = await store.select<Company>("companies", { name: "Acme" });
-  assert.equal(row?.state, "watched");
   assert.deepEqual(row?.boards, [alive]);
 });
 
@@ -275,7 +145,7 @@ test("boardGone: a mark written since the caller read the row survives a sibling
   const first = { platform: "greenhouse", id: "acme" } as const;
   const second = { platform: "lever", id: "acme-inc" } as const;
   const store = memoryStore({
-    companies: [company("Acme", { state: "watched", boards: [first, second] })],
+    companies: [company("Acme", { boards: [first, second] })],
   });
 
   const [before] = await store.select<Company>("companies", { name: "Acme" });
@@ -293,7 +163,7 @@ test("boardGone: a mark written since the caller read the row survives a sibling
 test("recordBoardsRead: a read board carries the run's start as last_read", async () => {
   const board = { platform: "greenhouse", id: "acme" } as const;
   const store = memoryStore({
-    companies: [company("Acme", { state: "watched", boards: [board] })],
+    companies: [company("Acme", { boards: [board] })],
   });
 
   const [before] = await store.select<Company>("companies", { name: "Acme" });
@@ -301,7 +171,6 @@ test("recordBoardsRead: a read board carries the run's start as last_read", asyn
   await recordBoardsRead(store, before, [board], "2026-09-18T06:00:00.000Z");
 
   const [row] = await store.select<Company>("companies", { name: "Acme" });
-  assert.equal(row?.state, "watched");
   assert.deepEqual(row?.boards, [
     { platform: "greenhouse", id: "acme", last_read: "2026-09-18T06:00:00.000Z" },
   ]);
@@ -310,7 +179,7 @@ test("recordBoardsRead: a read board carries the run's start as last_read", asyn
 test("recordBoardsRead: a marked board that is read loses its mark", async () => {
   const board = { platform: "greenhouse", id: "acme", gone: 1 } as const;
   const store = memoryStore({
-    companies: [company("Acme", { state: "watched", boards: [board] })],
+    companies: [company("Acme", { boards: [board] })],
   });
 
   const [before] = await store.select<Company>("companies", { name: "Acme" });
@@ -330,7 +199,7 @@ test("recordBoardsRead: a later read replaces the earlier last_read", async () =
     last_read: "2026-09-17T06:00:00.000Z",
   } as const;
   const store = memoryStore({
-    companies: [company("Acme", { state: "watched", boards: [board] })],
+    companies: [company("Acme", { boards: [board] })],
   });
 
   const [before] = await store.select<Company>("companies", { name: "Acme" });
@@ -347,7 +216,7 @@ test("recordBoardsRead: only the boards read are written; a sibling keeps its ma
   const read = { platform: "greenhouse", id: "acme" } as const;
   const unread = { platform: "lever", id: "acme-inc", gone: 1 } as const;
   const store = memoryStore({
-    companies: [company("Acme", { state: "watched", boards: [read, unread] })],
+    companies: [company("Acme", { boards: [read, unread] })],
   });
 
   const [before] = await store.select<Company>("companies", { name: "Acme" });
@@ -355,7 +224,6 @@ test("recordBoardsRead: only the boards read are written; a sibling keeps its ma
   await recordBoardsRead(store, before, [read], "2026-09-18T06:00:00.000Z");
 
   const [row] = await store.select<Company>("companies", { name: "Acme" });
-  assert.equal(row?.state, "watched");
   assert.deepEqual(row?.boards, [
     { platform: "greenhouse", id: "acme", last_read: "2026-09-18T06:00:00.000Z" },
     { platform: "lever", id: "acme-inc", gone: 1 },
@@ -366,7 +234,7 @@ test("recordBoardsRead: a mark written since the caller read the row survives th
   const read = { platform: "greenhouse", id: "acme" } as const;
   const dead = { platform: "lever", id: "acme-inc" } as const;
   const store = memoryStore({
-    companies: [company("Acme", { state: "watched", boards: [read, dead] })],
+    companies: [company("Acme", { boards: [read, dead] })],
   });
 
   const [before] = await store.select<Company>("companies", { name: "Acme" });
@@ -384,7 +252,7 @@ test("recordBoardsRead: a mark written since the caller read the row survives th
 test("recordBoardsRead: no boards read costs no write", async () => {
   const board = { platform: "greenhouse", id: "acme" } as const;
   const inner = memoryStore({
-    companies: [company("Acme", { state: "watched", boards: [board] })],
+    companies: [company("Acme", { boards: [board] })],
   });
   let writes = 0;
   const store: Store = {

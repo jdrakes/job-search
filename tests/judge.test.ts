@@ -56,13 +56,9 @@ function posting(overrides: Partial<Posting> = {}): Posting {
 function company(name: string, overrides: Partial<Company> = {}): Company {
   return {
     name,
-    state: "watched",
     boards: [],
-    source: "test",
     reason: null,
-    first_seen: "2026-09-15T00:00:00.000Z",
     dropped_at: null,
-    alias_of: null,
     ...overrides,
   };
 }
@@ -431,10 +427,10 @@ test("needsJudging: a kept posting with gone_at newly set and judged_with cleare
   assert.equal(needsJudging(justMarkedGone, criteria(), "2026-09-17T00:00:00Z"), true);
 });
 
-test("needsJudging: a kept posting whose company is now an alias needs judging again", () => {
-  const nowAlias = posting({ judged_with: "2026-09-14T00:00:00Z", kept: true });
-  const alias = boardIndex([company("Acme", { state: "alias" })]);
-  assert.equal(needsJudging(nowAlias, criteria(), "2026-09-17T00:00:00Z", alias), true);
+test("needsJudging: a kept posting whose company now has no board needs judging again", () => {
+  const nowBoardless = posting({ judged_with: "2026-09-14T00:00:00Z", kept: true });
+  const boardless = boardIndex([company("Acme")]);
+  assert.equal(needsJudging(nowBoardless, criteria(), "2026-09-17T00:00:00Z", boardless), true);
 });
 
 // Only its stored unwatched-out reason marks a dropped-company posting back
@@ -450,14 +446,14 @@ test("needsJudging: an unwatched-out posting whose board is watched again needs 
   assert.equal(needsJudging(relisted, criteria(), "2026-09-17T00:00:00Z", READ_ON_16TH), true);
 });
 
-test("needsJudging: a posting out on another criterion is not re-judged just because its company is later an alias", () => {
+test("needsJudging: a posting out on another criterion is not re-judged just because its company later has no board", () => {
   const levelOut = posting({
     judged_with: "2026-09-14T00:00:00Z",
     kept: false,
     reasons: ["level"],
   });
-  const alias = boardIndex([company("Acme", { state: "alias" })]);
-  assert.equal(needsJudging(levelOut, criteria(), "2026-09-17T00:00:00Z", alias), false);
+  const boardless = boardIndex([company("Acme")]);
+  assert.equal(needsJudging(levelOut, criteria(), "2026-09-17T00:00:00Z", boardless), false);
 });
 
 // The map is built by `representativeByKey` itself, as `ingest.ts` builds
