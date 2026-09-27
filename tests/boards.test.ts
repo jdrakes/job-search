@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { boardName, boardUrl, pageTitle, parseBoardUrl } from "../src/discovery/boards.ts";
-import type { Board } from "../src/schema.ts";
+import { PLATFORMS, type Board } from "../src/schema.ts";
 
 function fixture(name: string): string {
   return readFileSync(new URL(`./fixtures/commoncrawl/${name}`, import.meta.url), "utf8");
@@ -88,6 +88,110 @@ test("parseBoardUrl: an iCIMS board's jibeapply host and a posting under it both
   });
 });
 
+test("parseBoardUrl: Greenhouse's embed forms name the board in the `for` parameter, never `embed`", () => {
+  assert.deepEqual(
+    parseBoardUrl("https://boards.greenhouse.io/embed/job_app?for=Contoso&token=123456"),
+    {
+      platform: "greenhouse",
+      id: "contoso",
+    },
+  );
+  assert.deepEqual(parseBoardUrl("https://boards.greenhouse.io/embed/job_board?for=contoso"), {
+    platform: "greenhouse",
+    id: "contoso",
+  });
+});
+
+test("parseBoardUrl: a myworkdaysite URL gives the same wd/site/tenant as the tenant's myworkdayjobs host", () => {
+  assert.deepEqual(
+    parseBoardUrl("https://wd5.myworkdaysite.com/en-US/recruiting/fabrikam/Fabrikam_Careers"),
+    { platform: "workday", id: "wd5/Fabrikam_Careers/fabrikam" },
+  );
+  assert.deepEqual(
+    parseBoardUrl(
+      "https://wd5.myworkdaysite.com/recruiting/fabrikam/Fabrikam_Careers/job/Springfield-Illinois-US/Staff-Engineer_R1234",
+    ),
+    { platform: "workday", id: "wd5/Fabrikam_Careers/fabrikam" },
+  );
+});
+
+// Each row: a board page and a posting under it, copied the way a person
+// copies them, and the id that platform's reader in src/ats/ reads.
+const BOARD_AND_POSTING_URLS: ReadonlyArray<readonly [string, string, Board]> = [
+  [
+    "https://careers.smartrecruiters.com/Acme",
+    "https://jobs.smartrecruiters.com/Acme/744000012345678-staff-engineer",
+    { platform: "smartrecruiters", id: "Acme" },
+  ],
+  [
+    "https://jobs.jobvite.com/acme/jobs",
+    "https://jobs.jobvite.com/acme/job/oAbC123x",
+    { platform: "jobvite", id: "acme" },
+  ],
+  [
+    "https://ats.rippling.com/acme/jobs",
+    "https://ats.rippling.com/acme/jobs/0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b",
+    { platform: "rippling", id: "acme" },
+  ],
+  [
+    "https://apply.workable.com/acme/",
+    "https://apply.workable.com/acme/j/1A2B3C4D5E/",
+    { platform: "workable", id: "acme" },
+  ],
+  [
+    "https://acme.bamboohr.com/careers",
+    "https://acme.bamboohr.com/careers/42",
+    { platform: "bamboohr", id: "acme" },
+  ],
+  [
+    "https://acme.breezy.hr/",
+    "https://acme.breezy.hr/p/1a2b3c4d5e6f-staff-engineer",
+    { platform: "breezy", id: "acme" },
+  ],
+  [
+    "https://acme.applytojob.com/apply",
+    "https://acme.applytojob.com/apply/AbCdEf1234/Staff-Engineer",
+    { platform: "jazzhr", id: "acme" },
+  ],
+  [
+    "https://acme.recruitee.com/",
+    "https://acme.recruitee.com/o/staff-engineer",
+    { platform: "recruitee", id: "acme" },
+  ],
+  [
+    "https://acme.hrmdirect.com/employment/job-openings.php?search=true",
+    "https://acme.hrmdirect.com/employment/job-opening.php?req=123456&req_loc=7890",
+    { platform: "hrmdirect", id: "acme" },
+  ],
+  [
+    "https://acme.avature.net/careers",
+    "https://acme.avature.net/en_US/careers/JobDetail/Staff-Engineer/1234",
+    { platform: "avature", id: "acme" },
+  ],
+  [
+    "https://acme.jobs.personio.de/",
+    "https://acme.jobs.personio.de/job/123456?display=en",
+    { platform: "personio", id: "acme.jobs.personio.de" },
+  ],
+  [
+    "https://acme.jobs.personio.com/",
+    "https://acme.jobs.personio.com/job/123456",
+    { platform: "personio", id: "acme.jobs.personio.com" },
+  ],
+  [
+    "https://www.amazon.jobs/en/",
+    "https://www.amazon.jobs/en/jobs/81000101/sr-software-dev-engineer",
+    { platform: "amazon", id: "amazon" },
+  ],
+];
+
+for (const [board, posting, expected] of BOARD_AND_POSTING_URLS) {
+  test(`parseBoardUrl: ${expected.id} on ${expected.platform}, board page and posting both name the board`, () => {
+    assert.deepEqual(parseBoardUrl(board), expected);
+    assert.deepEqual(parseBoardUrl(posting), expected);
+  });
+}
+
 // --- boardUrl round-trips through parseBoardUrl ---------------------------
 
 const ROUND_TRIP_BOARDS: readonly Board[] = [
@@ -97,6 +201,18 @@ const ROUND_TRIP_BOARDS: readonly Board[] = [
   { platform: "workday", id: "wd5/Fabrikam_Careers/fabrikam" },
   { platform: "eightfold", id: "contoso.eightfold.ai" },
   { platform: "icims", id: "contoso" },
+  { platform: "smartrecruiters", id: "Acme" },
+  { platform: "jobvite", id: "acme" },
+  { platform: "rippling", id: "acme" },
+  { platform: "workable", id: "acme" },
+  { platform: "bamboohr", id: "acme" },
+  { platform: "breezy", id: "acme" },
+  { platform: "jazzhr", id: "acme" },
+  { platform: "recruitee", id: "acme" },
+  { platform: "hrmdirect", id: "acme" },
+  { platform: "avature", id: "acme" },
+  { platform: "personio", id: "acme.jobs.personio.de" },
+  { platform: "amazon", id: "amazon" },
 ];
 
 for (const board of ROUND_TRIP_BOARDS) {
@@ -105,8 +221,8 @@ for (const board of ROUND_TRIP_BOARDS) {
   });
 }
 
-test("boardUrl: an unsupported platform throws rather than guessing a URL", () => {
-  assert.throws(() => boardUrl({ platform: "amazon", id: "acme" }));
+test("boardUrl: the round-trip list covers every platform in PLATFORMS", () => {
+  assert.deepEqual(new Set(ROUND_TRIP_BOARDS.map((board) => board.platform)), new Set(PLATFORMS));
 });
 
 // --- null cases ------------------------------------------------------------
@@ -123,6 +239,30 @@ test("parseBoardUrl: a non-URL string gives null rather than throwing", () => {
 
 test("parseBoardUrl: an unknown host gives null", () => {
   assert.equal(parseBoardUrl("https://example.com/jobs"), null);
+});
+
+test("parseBoardUrl: Eightfold's shared app host names no board", () => {
+  assert.equal(parseBoardUrl("https://app.eightfold.ai/careers?domain=contoso.com"), null);
+});
+
+test("parseBoardUrl: a company's own careers host names no board, even when Eightfold serves it", () => {
+  assert.equal(parseBoardUrl("https://careers.contoso.com/careers/job/12345"), null);
+});
+
+test("parseBoardUrl: a Workable /j/ posting URL names no account", () => {
+  assert.equal(parseBoardUrl("https://apply.workable.com/j/1A2B3C4D5E"), null);
+});
+
+test("parseBoardUrl: a vendor's own www host names no board", () => {
+  assert.equal(parseBoardUrl("https://www.bamboohr.com/careers"), null);
+});
+
+test("parseBoardUrl: a Greenhouse embed URL with no `for` names no board", () => {
+  assert.equal(parseBoardUrl("https://boards.greenhouse.io/embed/job_board"), null);
+});
+
+test("parseBoardUrl: a myworkdaysite URL outside /recruiting/ names no board", () => {
+  assert.equal(parseBoardUrl("https://wd5.myworkdaysite.com/en-US/"), null);
 });
 
 test("parseBoardUrl: a Workday host with no site segment gives null", () => {

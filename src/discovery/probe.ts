@@ -3,13 +3,14 @@
 // Eightfold and Amazon are never probed: their board id needs a host, site
 // and tenant no rule derives from a name (`wd5/Cisco_Careers/cisco`). iCIMS
 // is never probed either: its real id is a `jibeapply.com` host that isn't
-// derivable from a name (Ruling 6, plan), reached only through the survey.
+// derivable from a name (Ruling 6, plan). Those four arrive as a pasted
+// board URL (`parseBoardUrl` in boards.ts).
 // Personio is never probed either: a guess at a nonexistent subdomain
 // answers HTTP 429 rather than 404 on the very first request from a cold
 // process (measured live 2026-09-22), so no answer tells us whether the
-// company has a board or the vendor is just refusing us. Its boards are
-// added by hand through the survey, which is also the only way a `.de`
-// board could ever arrive (Ruling 6); personio.ts, the reader, is unchanged.
+// company has a board or the vendor is just refusing us. Its boards,
+// `.de` ones included, arrive as a pasted board URL (Ruling 6);
+// personio.ts, the reader, is unchanged.
 // BambooHR is never probed either: no second signal exists to check a slug
 // against - its listing payload states no company name and
 // `{slug}.bamboohr.com/careers` is client-rendered with no <title> (checked
@@ -17,8 +18,8 @@
 // businesses, so a well-known name's slug is usually a different, smaller
 // company: `dupont.bamboohr.com` is a Lebanon, Tennessee car dealership and
 // `capgemini.bamboohr.com` lists four openings, both bound by a re-probe
-// that day. Its boards come through the survey; bamboohr.ts, the reader, is
-// unchanged.
+// that day. Its boards arrive as a pasted board URL; bamboohr.ts, the
+// reader, is unchanged.
 // Greenhouse, SmartRecruiters and Workable state the hiring company's name
 // on a posting, so a board counts only when that name matches, or a slug
 // collision would mix another company's postings under this one; Ashby and
