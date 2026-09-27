@@ -4,17 +4,10 @@ import { createSSRApp, defineComponent, h, nextTick, ref, Suspense } from "vue";
 import { renderToString } from "vue/server-renderer";
 
 import { STATUSES, type Company, type PostingSummary } from "../../src/schema.ts";
-import {
-  AppRoot,
-  LoadingShell,
-  redirectTargetFor,
-  runRefresh,
-  searchFor,
-  tabFrom,
-} from "../src/app.ts";
+import { AppRoot, LoadingShell, runRefresh, searchFor, tabFrom } from "../src/app.ts";
 import { SESSION_KEY, type Session, type SessionStore } from "../src/auth.ts";
 import { QUEUE_ORDER_KEY } from "../src/queue.ts";
-import { TABS, type TabId } from "../src/tabs.ts";
+import { TABS } from "../src/tabs.ts";
 import { clearReads, loadReads, READS_KEY, saveReads } from "../src/reads-cache.ts";
 import type { AppConfig } from "../src/config.ts";
 import { cardIn, outcomeButton } from "./card-queries.ts";
@@ -418,14 +411,6 @@ test("searchFor writes the bare path for the queue and ?tab= for the rest", () =
   assert.equal(tabFrom(searchFor("record")), "record");
 });
 
-test("redirectTargetFor always writes ?tab=, even for the queue", () => {
-  const origin = "https://jobs.jamesdrakes.com/";
-  assert.equal(redirectTargetFor(origin, "queue"), `${origin}?tab=queue`);
-  assert.equal(redirectTargetFor(origin, "companies"), `${origin}?tab=companies`);
-  // The emailed link is read back the same way any other visit is.
-  assert.equal(tabFrom(redirectTargetFor(origin, "record").slice(origin.length)), "record");
-});
-
 test("runRefresh raises the flag for the round and lowers it again even when the round rejects", async () => {
   const flag = ref(false);
   const duringRound: boolean[] = [];
@@ -630,64 +615,8 @@ interface RootProps {
   readonly store: SessionStore;
   readonly httpFetch: typeof fetch;
   readonly now: () => number;
-  readonly initialTab?: TabId;
-  readonly redirectOrigin?: string | null;
+  readonly watchSession?: (onChange: () => void) => void;
 }
-
-test("requesting a sign-in link asks Supabase to reopen on the tab he was viewing", async () => {
-  const { calls, fetchImpl } = recordingFetch([jsonReply({})]);
-  const app = mountRoot({
-    config: CONFIG,
-    store: memoryStore(),
-    httpFetch: fetchImpl,
-    now: () => NOW,
-    initialTab: "companies",
-    redirectOrigin: "https://jobs.jamesdrakes.com/",
-  });
-  try {
-    await settled();
-    const emailInput = allNodes(app.root).find((node) => node.props["type"] === "email");
-    if (emailInput === undefined) throw new Error("the sign-in form rendered no email field");
-    typeInto(emailInput, "someone@example.com");
-    const form = allNodes(app.root).find((node) => node.tag === "form");
-    if (form === undefined) throw new Error("the sign-in form rendered no form");
-    submitForm(form);
-    await settled();
-
-    assert.equal(calls.length, 1);
-    const requested = new URL(calls[0] ?? "");
-    assert.equal(
-      requested.searchParams.get("redirect_to"),
-      "https://jobs.jamesdrakes.com/?tab=companies",
-    );
-  } finally {
-    app.unmount();
-  }
-});
-
-test("requesting a sign-in link with no redirectOrigin (a test with none to give) sends none", async () => {
-  const { calls, fetchImpl } = recordingFetch([jsonReply({})]);
-  const app = mountRoot({
-    config: CONFIG,
-    store: memoryStore(),
-    httpFetch: fetchImpl,
-    now: () => NOW,
-  });
-  try {
-    await settled();
-    const emailInput = allNodes(app.root).find((node) => node.props["type"] === "email");
-    if (emailInput === undefined) throw new Error("the sign-in form rendered no email field");
-    typeInto(emailInput, "someone@example.com");
-    const form = allNodes(app.root).find((node) => node.tag === "form");
-    if (form === undefined) throw new Error("the sign-in form rendered no form");
-    submitForm(form);
-    await settled();
-
-    assert.deepEqual(calls, [`${CONFIG.url}/auth/v1/otp`]);
-  } finally {
-    app.unmount();
-  }
-});
 
 /** `AppRoot`'s async `setup()` needs the `<Suspense>` boundary `mountApp` gives it in the browser. */
 function mountRoot(props: RootProps): Mounted {
@@ -709,6 +638,107 @@ function storeWithRound(
   saveReads(store, { queue, postings, companies, criteria: CRITERIA_ROW });
   return store;
 }
+
+test("noticing another tab's sign-in shows its saved round immediately", async () => {
+  // The tab that consumed the emailed link is the one that ran `saveSession`
+  // and `saveReads`; this tab only ever hears "look again", never what to
+  // look for — so the test writes them into the store itself, standing in
+  // for that other tab, before firing the callback `mountApp` would have
+  // wired to a `storage` event.
+  const restoreDom = stubDom();
+  const store = memoryStore();
+  const watch = { onChange: () => {} };
+  const app = mountRoot({
+    config: CONFIG,
+    store,
+    httpFetch: unanswered,
+    now: () => NOW,
+    watchSession: (cb) => {
+      watch.onChange = cb;
+    },
+  });
+  try {
+    await settled();
+    assert.equal(
+      elementsWithClass(app.root, "sign-in").length > 0,
+      true,
+      "starts on the sign-in form",
+    );
+
+    store.setItem(SESSION_KEY, sessionJson());
+    saveReads(store, {
+      queue: [QUEUE_ROW],
+      postings: [QUEUE_ROW],
+      companies: [],
+      criteria: CRITERIA_ROW,
+    });
+    watch.onChange();
+    await settled();
+
+    assert.equal(elementsWithClass(app.root, "sign-in").length, 0, "left the sign-in form");
+    assert.match(textOf(app.root), /Acme/);
+  } finally {
+    app.unmount();
+    restoreDom();
+  }
+});
+
+test("noticing storage with no session there yet leaves the sign-in form alone", async () => {
+  const { calls, fetchImpl } = recordingFetch([]);
+  const watch = { onChange: () => {} };
+  const app = mountRoot({
+    config: CONFIG,
+    store: memoryStore(),
+    httpFetch: fetchImpl,
+    now: () => NOW,
+    watchSession: (cb) => {
+      watch.onChange = cb;
+    },
+  });
+  try {
+    await settled();
+    watch.onChange();
+    await settled();
+
+    assert.equal(calls.length, 0, "no session to adopt, so nothing was requested");
+    assert.equal(elementsWithClass(app.root, "sign-in").length > 0, true);
+  } finally {
+    app.unmount();
+  }
+});
+
+test("noticing a session while already signed in does nothing", async () => {
+  const restoreDom = stubDom();
+  const { calls, fetchImpl } = recordingFetch([
+    jsonReply([QUEUE_ROW]),
+    jsonReply([QUEUE_ROW]),
+    jsonReply([]),
+    jsonReply([CRITERIA_ROW]),
+  ]);
+  const watch = { onChange: () => {} };
+  const app = mountRoot({
+    config: CONFIG,
+    store: storeWithRound([QUEUE_ROW], [QUEUE_ROW]),
+    httpFetch: fetchImpl,
+    now: () => NOW,
+    watchSession: (cb) => {
+      watch.onChange = cb;
+    },
+  });
+  try {
+    await settled();
+    await settled();
+    assert.equal(calls.length, 4, "the usual background refresh from mounting already signed in");
+
+    watch.onChange();
+    await settled();
+
+    assert.equal(calls.length, 4, "already signed in, noticing a session again asks for nothing");
+  } finally {
+    app.unmount();
+    restoreDom();
+  }
+});
 
 /** A watched company with nothing in the queue, for the drop tests. */
 const WATCHED_COMPANY: Company = {

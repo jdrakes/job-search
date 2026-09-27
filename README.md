@@ -123,21 +123,13 @@ That is all. `pg` is the only runtime dependency.
 
     - Set the Site URL (URL Configuration) to the address the page is served
       from.
-    - Add that same address, with a trailing `/**`, to Redirect URLs (URL
-      Configuration) — for example `https://jobs.example.com/**`. The page
-      asks for the link to carry the tab James was on (`redirect_to` in
-      `ui/src/auth.ts`'s `requestLink`), and Supabase drops that back to the
-      Site URL, silently, for any address not on this list.
     - Make the Magic Link email template link to
-      `{{ .RedirectTo }}&token_hash={{ .TokenHash }}&type=email`.
+      `{{ .SiteURL }}/?token_hash={{ .TokenHash }}&type=email`.
 
     The page trades that `token_hash` for a session itself (`ui/src/auth.ts`).
     Supabase's stock template links through its own verify endpoint instead,
     which lands on the page with no `token_hash` and leaves it on the sign-in
-    form. `{{ .RedirectTo }}` (not `{{ .SiteURL }}`) is what carries the tab
-    James asked for back to the page; skipping the Redirect URLs entry above
-    doesn't break sign-in, it just always lands him back on the Queue tab.
-    Then open the page, ask for a link, and open it.
+    form. Then open the page, ask for a link, and open it.
 
 Steps 2, 3, 9 and 10 are the ones this repository cannot check for you. What a
 Supabase project is called, where its dashboard puts the pooler string, and

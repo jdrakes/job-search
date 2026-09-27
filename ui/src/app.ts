@@ -36,6 +36,7 @@ import {
   refreshSession,
   requestLink,
   saveSession,
+  SESSION_KEY,
   verifyLink,
   type AuthResult,
   type Session,
@@ -138,10 +139,16 @@ export const AppRoot = defineComponent({
     // of the address bar; both come from `mountApp` for the same reason.
     linkToken: { type: String as PropType<string | null>, default: null },
     forgetLinkToken: { type: Function as PropType<() => void>, default: () => () => {} },
-    // `window.location.origin + pathname`, read once at mount the same way
-    // `initialTab` is: a plain value, not a callback, because nothing about
-    // it needs to run again later. Null in a test that has no redirect to give.
-    redirectOrigin: { type: String as PropType<string | null>, default: null },
+    // The email link always opens a second, new tab — the email app decides
+    // that, not this page — so the tab left waiting on "Check your email"
+    // has to notice the other tab's sign-in itself. `mountApp` calls
+    // `onChange` on a `storage` event carrying the session, and again on
+    // focus/visibility, since a backgrounded phone tab may miss the event
+    // outright and only gets a chance to look again once it's back on screen.
+    watchSession: {
+      type: Function as PropType<(onChange: () => void) => void>,
+      default: () => () => {},
+    },
   },
   async setup(props) {
     const tab = ref<TabId>(props.initialTab);
@@ -245,27 +252,48 @@ export const AppRoot = defineComponent({
       }
     }
 
-    const cached = session.value === null ? null : loadReads(props.store);
-    if (cached !== null) {
-      queueResult.value = { ok: true, value: cached.queue };
-      postingsResult.value = { ok: true, value: cached.postings };
-      companiesResult.value = { ok: true, value: cached.companies };
-      criteriaResult.value =
-        cached.criteria === null
-          ? { ok: false, reason: "No criteria row in the last round." }
-          : { ok: true, value: cached.criteria };
-      void runRefresh(refreshing, refresh);
-    } else {
-      await refresh();
+    // Shows the last saved round immediately if the store has one, refreshing
+    // behind it; otherwise blocks on a fresh one. Shared by the startup path
+    // below and by `adoptSessionFromOtherTab`, which runs the same instant
+    // this tab first has a `session` to show anything for.
+    async function loadInitialRound(): Promise<void> {
+      const cached = session.value === null ? null : loadReads(props.store);
+      if (cached !== null) {
+        queueResult.value = { ok: true, value: cached.queue };
+        postingsResult.value = { ok: true, value: cached.postings };
+        companiesResult.value = { ok: true, value: cached.companies };
+        criteriaResult.value =
+          cached.criteria === null
+            ? { ok: false, reason: "No criteria row in the last round." }
+            : { ok: true, value: cached.criteria };
+        void runRefresh(refreshing, refresh);
+      } else {
+        await refresh();
+      }
     }
+
+    // The tab that consumed the emailed link saved this; this tab was only
+    // ever told to look again, not what to look for.
+    async function adoptSessionFromOtherTab(): Promise<void> {
+      if (session.value !== null) return;
+      const found = loadSession(props.store, props.now());
+      if (found === null) return;
+      session.value = found;
+      signInStage.value = "email";
+      signInError.value = null;
+      await loadInitialRound();
+    }
+    props.watchSession(() => {
+      void adoptSessionFromOtherTab();
+    });
+
+    await loadInitialRound();
 
     async function onRequest(): Promise<void> {
       signInBusy.value = true;
       signInError.value = null;
       try {
-        const redirectTo =
-          props.redirectOrigin === null ? null : redirectTargetFor(props.redirectOrigin, tab.value);
-        const result = await requestLink(props.config, email.value, props.httpFetch, redirectTo);
+        const result = await requestLink(props.config, email.value, props.httpFetch);
         if (result.ok) {
           signInStage.value = "sent";
         } else {
@@ -468,17 +496,6 @@ export function searchFor(id: TabId): string {
   return id === "queue" ? "" : `?tab=${id}`;
 }
 
-/**
- * The `redirect_to` sent with a sign-in link request, so the link Supabase
- * mails back reopens on the tab James was viewing. Unlike `searchFor`, this
- * always writes `tab=`, even for `"queue"`: it never reaches the address
- * bar, and always having a `?` already in `{{ .RedirectTo }}` lets the email
- * template join `&token_hash=...` onto it unconditionally.
- */
-export function redirectTargetFor(origin: string, tab: TabId): string {
-  return `${origin}?tab=${tab}`;
-}
-
 /** Mounts `AppRoot` under a `Suspense` boundary, required in the browser for its async `setup()`. */
 export function mountApp(selector: string, configText: string, store: SessionStore): void {
   const container = document.querySelector(selector);
@@ -510,7 +527,18 @@ export function mountApp(selector: string, configText: string, store: SessionSto
                 "",
                 window.location.pathname + searchFor(initialTab),
               ),
-            redirectOrigin: window.location.origin + window.location.pathname,
+            watchSession: (onChange: () => void) => {
+              window.addEventListener("storage", (event) => {
+                if (event.key === SESSION_KEY) onChange();
+              });
+              // A backgrounded tab (iOS Safari freezes one) may never see the
+              // `storage` event fire at all; these two catch it up the next
+              // time a person actually looks at it.
+              document.addEventListener("visibilitychange", () => {
+                if (document.visibilityState === "visible") onChange();
+              });
+              window.addEventListener("focus", onChange);
+            },
           }),
         fallback: () => h(LoadingShell, { tab: initialTab }),
       }),
