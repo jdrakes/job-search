@@ -2,7 +2,7 @@
 // file's interfaces (`satisfies`) and the migration's column list
 // (tests/schema.test.ts), so a column can only drift if both are edited.
 
-export const TABLES = ["postings", "companies", "criteria", "reprobe_runs"] as const;
+export const TABLES = ["postings", "companies", "criteria", "candidates"] as const;
 export type Table = (typeof TABLES)[number];
 
 export const PLATFORMS = [
@@ -29,11 +29,6 @@ export type Platform = (typeof PLATFORMS)[number];
 
 export const STATUSES = ["applied", "interviewing", "rejected", "offer", "closed"] as const;
 export type Status = (typeof STATUSES)[number];
-
-// The processor's column. A drop is the operator's and lives in `dropped_at` and
-// `reason` beside it; `alias` is a name whose board another company owns.
-export const COMPANY_STATES = ["discovered", "watched", "alias"] as const;
-export type CompanyState = (typeof COMPANY_STATES)[number];
 
 export const WORKPLACES = ["remote", "hybrid", "onsite"] as const;
 export type Workplace = (typeof WORKPLACES)[number];
@@ -126,31 +121,68 @@ export const POSTING_LIST_FIELDS = POSTING_FIELDS.filter(
 );
 export type PostingSummary = Omit<Posting, "body" | "body_hash" | "workplace" | "gone_at">;
 
-// `state`, `boards`, `source`, `alias_of` and the timestamps are the
-// processor's; `dropped_at` and `reason` are the operator's and no publish writes
-// them. A watched company with `dropped_at` set is not read.
+// `boards` is the processor's (discover writes it); `dropped_at` and
+// `reason` are the operator's and no publish writes them. Everything else
+// said of a company is derived: it is read when it is not dropped and has a
+// board (`readable`, companies.ts); where it came from and its aliases are
+// its candidates'.
 export interface Company {
   readonly name: string;
-  readonly state: CompanyState;
   readonly boards: readonly Board[];
-  readonly source: string | null;
   readonly reason: string | null;
-  readonly first_seen: string;
   readonly dropped_at: string | null;
-  // The owning company's name when `state` is `alias`; null otherwise.
-  readonly alias_of: string | null;
 }
 
 export const COMPANY_FIELDS = [
   "name",
-  "state",
   "boards",
-  "source",
   "reason",
-  "first_seen",
   "dropped_at",
-  "alias_of",
 ] as const satisfies readonly (keyof Company)[];
+
+// What discover made of a candidate. `wrong_company` is reserved for a
+// board that answers under another employer's name.
+export const OUTCOMES = [
+  "watched",
+  "added",
+  "known",
+  "alias",
+  "no_board",
+  "wrong_company",
+  "gone",
+  "dropped",
+  "bad_url",
+] as const;
+export type Outcome = (typeof OUTCOMES)[number];
+
+// A name on its way in. `name`, `url`, `origin` and `evidence` are what the
+// input said (at least one of `name` and `url`); `outcome`, `outcome_at` and
+// `company` are discover's. `outcome` null is unresolved; `company` is set
+// when the outcome names one (watched, added, known when a company matched,
+// alias, dropped).
+export interface Candidate {
+  readonly id: string;
+  readonly name: string | null;
+  readonly url: string | null;
+  readonly origin: string;
+  readonly evidence: string | null;
+  readonly added_at: string;
+  readonly outcome: Outcome | null;
+  readonly outcome_at: string | null;
+  readonly company: string | null;
+}
+
+export const CANDIDATE_FIELDS = [
+  "id",
+  "name",
+  "url",
+  "origin",
+  "evidence",
+  "added_at",
+  "outcome",
+  "outcome_at",
+  "company",
+] as const satisfies readonly (keyof Candidate)[];
 
 export interface Criteria {
   readonly id: number;
@@ -184,49 +216,11 @@ export const CRITERIA_FIELDS = [
   "assumed_bonus_pct",
 ] as const satisfies readonly (keyof Criteria)[];
 
-// One row per `scripts/reprobe.ts` pass. The backlog pass is by hand,
-// costs thousands of vendor requests and takes hours, and nothing recorded
-// that one had run: on 2026-09-23 a pass re-asked six platforms the
-// backlog had been cleared against the day before, ~14,000 requests for
-// nothing, and the redundancy only showed once it had returned zero across
-// 2,100 names.
-//
-// `platforms` is the pass's platform list sorted and comma-joined, so two
-// runs naming the same set in a different order match. `refused_at` is the
-// name a vendor's 429 stopped the pass on, and it is where the next pass
-// over the same platforms resumes. `finished` is null while a pass is
-// running and stays null if it is killed, which is what distinguishes
-// "never completed" from "completed and found nothing" - the distinction
-// whose absence cost the morning.
-export interface ReprobeRun {
-  readonly started: string;
-  readonly platforms: string;
-  readonly names: number;
-  readonly probed: number;
-  readonly watched: number;
-  readonly aliases: number;
-  readonly errors: number;
-  readonly refused_at: string | null;
-  readonly finished: string | null;
-}
-
-export const REPROBE_RUN_FIELDS = [
-  "started",
-  "platforms",
-  "names",
-  "probed",
-  "watched",
-  "aliases",
-  "errors",
-  "refused_at",
-  "finished",
-] as const satisfies readonly (keyof ReprobeRun)[];
-
 // Read by `src/store/memory.ts` to answer a select with the table's whole
 // column list, the way Postgres does.
 export const TABLE_FIELDS = {
   postings: POSTING_FIELDS,
   companies: COMPANY_FIELDS,
   criteria: CRITERIA_FIELDS,
-  reprobe_runs: REPROBE_RUN_FIELDS,
+  candidates: CANDIDATE_FIELDS,
 } as const satisfies Record<Table, readonly string[]>;

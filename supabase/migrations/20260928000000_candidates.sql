@@ -1,0 +1,116 @@
+-- Migration 20260928000000_candidates: the table every name enters through
+-- (job-search-archive#275).
+--
+-- A candidate carries two facts from two hands: what its input said (a
+-- `name`, a `url` or both, the `origin` that suggested it and that origin's
+-- `evidence`) and what discover made of it (`outcome`, `outcome_at`, and
+-- the `company` the outcome names). `outcome` null is unresolved. `company`
+-- is set when the outcome names a company: watched, added, known when a
+-- company matched, alias, dropped. `wrong_company` is reserved for #276.
+-- Until now a name the processor had not placed lived in `companies` as a
+-- `discovered` or `alias` row, so `companies` held the input queue and the
+-- watch list at once.
+--
+-- Backfill, once, while `candidates` is empty: one row per `companies` row.
+-- Measured on the local store, 2026-09-27: 2,768 watched, 3,194 discovered
+-- (0 with a board), 28 alias; 7 discovered and 2 alias companies own 139
+-- postings between them. Each row keeps its name, its source as `origin`,
+-- and its `first_seen` as both `added_at` and `outcome_at`:
+--
+--   state        outcome     company
+--   watched      watched     the name
+--   discovered   no_board    the name when the company owns a posting or
+--                            the operator dropped it, else null
+--   alias        alias       alias_of
+--
+-- The discovered names that own postings keep their name as `company`
+-- because their company row has to stay: losing it would put their
+-- postings back in. A dropped discovered name (1 on the local store) keeps
+-- its name for the same reason: the drop is the operator's alone, so the
+-- companies_derived migration keeps its row, and `company` names it.
+--
+-- Each backfilled row's id is `'backfill-' || md5(name)`, not a random
+-- one. This migration runs on both stores, and a company's name is its
+-- key on both, so the same company gets the same candidate id on each and
+-- a later sync between them (#280) finds one row, not two. `company` for a
+-- discovered name that owns a posting can still differ between the stores,
+-- since the hosted store holds only a slice of the postings; that is left
+-- as it is, because publish carries the local value up once #280 syncs.
+--
+-- `builtin` and `builtin.com` are two origins, not one site spelled two
+-- ways. `builtin` (4,919 rows) labels a bootstrap import on 2026-09-15,
+-- where the word meant "built in to the tool"; `builtin.com` (187) is the
+-- Built In website source. The backfill writes `builtin` as the origin
+-- `bootstrap`, so the label cannot be read as the website, and keeps every
+-- other source as it is. A null source becomes the origin `unknown`.
+--
+-- The CHECK on `outcome` names only the vocabulary: a CHECK passes on null,
+-- so an unresolved candidate needs no `IS NULL` arm.
+--
+-- Read-only to the browser, like `companies`: the processor writes with the
+-- service key. Written idempotently, like every migration here: the
+-- backfill runs only while `candidates` is empty and `companies` still has
+-- `state`, so a re-run after the companies_derived migration dropped the
+-- columns it reads does nothing, even on a store whose `candidates` is
+-- empty.
+
+CREATE TABLE IF NOT EXISTS "candidates" (
+  "id" text PRIMARY KEY,
+  "name" text,
+  "url" text,
+  "origin" text NOT NULL,
+  "evidence" text,
+  "added_at" timestamptz NOT NULL,
+  "outcome" text CHECK ("outcome" IN ('watched', 'added', 'known', 'alias', 'no_board', 'wrong_company', 'gone', 'dropped', 'bad_url')),
+  "outcome_at" timestamptz,
+  "company" text,
+  CHECK ("name" IS NOT NULL OR "url" IS NOT NULL)
+);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM "candidates")
+    AND EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'companies' AND column_name = 'state'
+    )
+  THEN
+    INSERT INTO "candidates"
+      ("id", "name", "url", "origin", "evidence", "added_at", "outcome", "outcome_at", "company")
+    SELECT
+      'backfill-' || md5(c."name"),
+      c."name",
+      NULL,
+      CASE c."source" WHEN 'builtin' THEN 'bootstrap' ELSE coalesce(c."source", 'unknown') END,
+      NULL,
+      c."first_seen",
+      CASE c."state"
+        WHEN 'watched' THEN 'watched'
+        WHEN 'discovered' THEN 'no_board'
+        WHEN 'alias' THEN 'alias'
+      END,
+      c."first_seen",
+      CASE c."state"
+        WHEN 'watched' THEN c."name"
+        WHEN 'discovered' THEN
+          CASE WHEN c."dropped_at" IS NOT NULL
+              OR EXISTS (SELECT 1 FROM "postings" p WHERE p."company" = c."name")
+            THEN c."name" END
+        WHEN 'alias' THEN c."alias_of"
+      END
+    FROM "companies" c;
+  END IF;
+END $$;
+
+ALTER TABLE "candidates" ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "authenticated_read" ON "candidates";
+CREATE POLICY "authenticated_read" ON "candidates" FOR SELECT TO authenticated USING (true);
+
+REVOKE ALL ON TABLE "candidates" FROM authenticated;
+GRANT SELECT ON TABLE "candidates" TO authenticated;
+
+-- The receipt the application reads. See the init migration's header: this is
+-- NOT the CLI's own supabase_migrations.schema_migrations.
+INSERT INTO "schema_migrations" ("id") VALUES ('20260928000000_candidates')
+  ON CONFLICT DO NOTHING;

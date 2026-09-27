@@ -3,13 +3,14 @@
 // Eightfold and Amazon are never probed: their board id needs a host, site
 // and tenant no rule derives from a name (`wd5/Cisco_Careers/cisco`). iCIMS
 // is never probed either: its real id is a `jibeapply.com` host that isn't
-// derivable from a name (Ruling 6, plan), reached only through the survey.
+// derivable from a name (Ruling 6, plan). Those four arrive as a pasted
+// board URL (`parseBoardUrl` in boards.ts).
 // Personio is never probed either: a guess at a nonexistent subdomain
 // answers HTTP 429 rather than 404 on the very first request from a cold
 // process (measured live 2026-09-22), so no answer tells us whether the
-// company has a board or the vendor is just refusing us. Its boards are
-// added by hand through the survey, which is also the only way a `.de`
-// board could ever arrive (Ruling 6); personio.ts, the reader, is unchanged.
+// company has a board or the vendor is just refusing us. Its boards,
+// `.de` ones included, arrive as a pasted board URL (Ruling 6);
+// personio.ts, the reader, is unchanged.
 // BambooHR is never probed either: no second signal exists to check a slug
 // against - its listing payload states no company name and
 // `{slug}.bamboohr.com/careers` is client-rendered with no <title> (checked
@@ -17,8 +18,8 @@
 // businesses, so a well-known name's slug is usually a different, smaller
 // company: `dupont.bamboohr.com` is a Lebanon, Tennessee car dealership and
 // `capgemini.bamboohr.com` lists four openings, both bound by a re-probe
-// that day. Its boards come through the survey; bamboohr.ts, the reader, is
-// unchanged.
+// that day. Its boards arrive as a pasted board URL; bamboohr.ts, the
+// reader, is unchanged.
 // Greenhouse, SmartRecruiters and Workable state the hiring company's name
 // on a posting, so a board counts only when that name matches, or a slug
 // collision would mix another company's postings under this one; Ashby and
@@ -350,7 +351,8 @@ async function probePlatform(
       // Throwing, rather than returning some "unknown" a caller may ignore:
       // discover.ts's per-name catch already skips the name without adding
       // it to `known`, so it is probed again tomorrow, which is the right
-      // handling and needs no change. scripts/reprobe.ts stops the pass.
+      // handling and needs no change. The backlog pass this guarded against
+      // stopped the same way.
       //
       // 429 only, deliberately. A 5xx is also not an answer, but no probe
       // has been measured failing that way, and a case is not handled here
@@ -384,11 +386,11 @@ async function probePlatform(
 // two names probed at once share all twelve hosts.
 //
 // `platforms` narrows which of them are asked, for a caller that already
-// knows the answer for the rest: scripts/reprobe.ts walks names the store
-// has held since before a platform existed, and asking a vendor a question
-// already answered, once per name, is what earned the tool a Workable block
-// on 2026-09-22. It defaults to all twelve, so discover.ts's call is
-// unchanged.
+// knows the answer for the rest: the deleted backlog pass walked names the
+// store has held since before a platform existed, and asking a vendor a
+// question already answered, once per name, is what earned the tool a
+// Workable block on 2026-09-22. It defaults to all twelve, so discover.ts's
+// call is unchanged.
 export async function probe(
   name: string,
   options?: HttpOptions,

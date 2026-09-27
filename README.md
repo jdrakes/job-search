@@ -24,9 +24,9 @@ This tool needs a Supabase project. Not a database that looks like one, a
 Supabase project. Read the next three paragraphs before you decide to set it
 up, because they are the two walls people hit.
 
-**A plain Postgres needs three roles created first.** Thirteen of the
+**A plain Postgres needs three roles created first.** Fourteen of the
 migrations name the `authenticated` role, granting privileges to it and, in
-eight of them, creating row-level security policies `TO authenticated`. Those
+nine of them, creating row-level security policies `TO authenticated`. Those
 roles are Supabase's rather than Postgres's. Create them by hand and every
 migration applies:
 

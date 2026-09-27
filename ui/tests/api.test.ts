@@ -141,13 +141,13 @@ test("loadPostings encodes status, company and title filters", async () => {
   assert.equal(url.searchParams.get("title"), "ilike.*engineer*");
 });
 
-test("loadCompanies orders by state then name", async () => {
+test("loadCompanies orders by name, the primary key, and adds no second term", async () => {
   const { calls, fetchImpl } = recordingFetch([jsonReply([])]);
 
   await loadCompanies(CONFIG, ACCESS_TOKEN, fetchImpl);
 
   const url = new URL(calls[0]?.url ?? "");
-  assert.equal(url.searchParams.get("order"), "state.asc,name.asc");
+  assert.equal(url.searchParams.get("order"), "name.asc");
 });
 
 test("loadCriteria returns the one row, unwrapped from the array PostgREST sends", async () => {
@@ -293,7 +293,7 @@ test("setStatus sends whatever note it is given, closed's reason included", asyn
   });
 });
 
-test("setCompanyDrop patches dropped_at and reason on the one company, never state", async () => {
+test("setCompanyDrop patches dropped_at and reason on the one company, never boards", async () => {
   const { calls, fetchImpl } = recordingFetch([jsonReply([{ name: "Acme" }])]);
 
   const result = await setCompanyDrop(

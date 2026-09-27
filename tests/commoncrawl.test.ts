@@ -2,12 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import {
-  commonCrawlSource,
-  latestIndex,
-  pageTitle,
-  parseIndexPage,
-} from "../src/discovery/commoncrawl.ts";
+import { commonCrawlSource, latestIndex, parseIndexPage } from "../src/discovery/commoncrawl.ts";
 
 function fixture(name: string): string {
   return readFileSync(new URL(`./fixtures/commoncrawl/${name}`, import.meta.url), "utf8");
@@ -57,18 +52,6 @@ test("parseIndexPage: a url whose board segment is malformed percent-encoding is
     JSON.stringify({ url: "https://jobs.lever.co/trey-research/abc" }),
   ].join("\n");
   assert.deepEqual(parseIndexPage(body, "jobs.lever.co"), ["trey-research"]);
-});
-
-test("pageTitle: an Ashby page's title loses its ' Jobs' suffix", () => {
-  assert.equal(pageTitle(fixture("ashby-thyme-care-head.html"), "ashby"), "Thyme Care");
-});
-
-test("pageTitle: a Lever page's title is the company name as written, no suffix stripped", () => {
-  assert.equal(pageTitle(fixture("lever-trey-research-head.html"), "lever"), "Trey Research");
-});
-
-test("pageTitle: no <title> tag reads as no name, not a throw", () => {
-  assert.equal(pageTitle("<head><meta charset='utf-8'></head>", "ashby"), null);
 });
 
 // A small, hand-built index page per host: one host answers a lowercase
@@ -297,80 +280,6 @@ test("boards(): collinfo.json failing to fetch throws", async () => {
   await assert.rejects(
     () => commonCrawlSource.boards({ fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep }),
     /HTTP 404/,
-  );
-});
-
-test("companyName(): a Greenhouse board reads the boards-api's name", async () => {
-  const fetchImpl: typeof fetch = async (input) => {
-    assert.equal(String(input), "https://boards-api.greenhouse.io/v1/boards/contoso");
-    return new Response(fixture("greenhouse-board-contoso.json"), { status: 200 });
-  };
-
-  const name = await commonCrawlSource.companyName(
-    { platform: "greenhouse", id: "contoso" },
-    { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep },
-  );
-  assert.equal(name, "Contoso");
-});
-
-test("companyName(): a 404 is an expected failure, read as no name rather than thrown", async () => {
-  const fetchImpl: typeof fetch = async () => new Response("Not Found", { status: 404 });
-
-  const name = await commonCrawlSource.companyName(
-    { platform: "greenhouse", id: "does-not-exist" },
-    { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep, retries: 0 },
-  );
-  assert.equal(name, null);
-});
-
-test("companyName(): an Ashby board reads the page title, ' Jobs' stripped", async () => {
-  const fetchImpl: typeof fetch = async (input) => {
-    assert.equal(String(input), "https://jobs.ashbyhq.com/thyme-care");
-    return new Response(fixture("ashby-thyme-care-head.html"), { status: 200 });
-  };
-
-  const name = await commonCrawlSource.companyName(
-    { platform: "ashby", id: "thyme-care" },
-    { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep },
-  );
-  assert.equal(name, "Thyme Care");
-});
-
-test("companyName(): a Lever board reads the page title as written", async () => {
-  const fetchImpl: typeof fetch = async (input) => {
-    assert.equal(String(input), "https://jobs.lever.co/trey-research");
-    return new Response(fixture("lever-trey-research-head.html"), { status: 200 });
-  };
-
-  const name = await commonCrawlSource.companyName(
-    { platform: "lever", id: "trey-research" },
-    { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep },
-  );
-  assert.equal(name, "Trey Research");
-});
-
-test("companyName(): an unrecognized platform reads as no name", async () => {
-  const fetchImpl: typeof fetch = async () => {
-    throw new Error("should not be called");
-  };
-
-  const name = await commonCrawlSource.companyName(
-    { platform: "workday", id: "acme" },
-    { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep },
-  );
-  assert.equal(name, null);
-});
-
-test("companyName(): a non-HttpError failure is not swallowed", async () => {
-  const fetchImpl: typeof fetch = async () => {
-    throw new TypeError("fetch failed");
-  };
-
-  await assert.rejects(() =>
-    commonCrawlSource.companyName(
-      { platform: "greenhouse", id: "acme" },
-      { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep, retries: 0 },
-    ),
   );
 });
 

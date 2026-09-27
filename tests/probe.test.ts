@@ -798,8 +798,8 @@ test("probe: one platform's own candidates stay serial, never overlapping", asyn
   assert.equal(peak, 1);
 });
 
-// A caller that already knows the answer for the other ten (scripts/
-// reprobe.ts, walking names the store has held since before a platform
+// A caller that already knows the answer for the other ten (the deleted
+// backlog pass, walking names the store has held since before a platform
 // existed) asks for a subset, and the platforms it did not name must not be
 // asked at all: ~6,400 needless Workable requests on 2026-09-22 got the
 // tool blocked.

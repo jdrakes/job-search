@@ -809,18 +809,14 @@ test("age: a posting one day old reads 1 day ago, not 1 days ago", () => {
 function company(name: string, overrides: Partial<Company> = {}): Company {
   return {
     name,
-    state: "watched",
     boards: [],
-    source: "test",
     reason: null,
-    first_seen: "2026-09-15T00:00:00.000Z",
     dropped_at: null,
-    alias_of: null,
     ...overrides,
   };
 }
 
-test("boardIndex: a watched company's boards are indexed", () => {
+test("boardIndex: an undropped company's boards are readable, and its name is on record", () => {
   const index = boardIndex([
     company("Acme", {
       boards: [
@@ -829,44 +825,30 @@ test("boardIndex: a watched company's boards are indexed", () => {
       ],
     }),
   ]);
-  assert.deepEqual([...index.watched], ["greenhouse::acme-gh", "lever::acme-lv"]);
-  assert.deepEqual([...index.stateOf], [["Acme", { state: "watched", alias_of: null }]]);
+  assert.deepEqual([...index.readable], ["greenhouse::acme-gh", "lever::acme-lv"]);
+  assert.deepEqual([...index.named], ["Acme"]);
+  assert.equal(index.boardless.size, 0);
   assert.equal(index.dropped.size, 0);
 });
 
-test("boardIndex: an alias or discovered company's boards are not watched, but its state is on record", () => {
-  const index = boardIndex([
-    company("Alias", {
-      state: "alias",
-      boards: [{ platform: "greenhouse", id: "alias-gh", last_read: "2026-09-16T06:00:00.000Z" }],
-    }),
-    company("Found", {
-      state: "discovered",
-      boards: [{ platform: "lever", id: "found-lv", last_read: "2026-09-16T06:00:00.000Z" }],
-    }),
-  ]);
-  assert.equal(index.watched.size, 0);
-  assert.deepEqual(
-    [...index.stateOf],
-    [
-      ["Alias", { state: "alias", alias_of: null }],
-      ["Found", { state: "discovered", alias_of: null }],
-    ],
-  );
+test("boardIndex: a company with no board is on record and boardless", () => {
+  const index = boardIndex([company("Found")]);
+  assert.equal(index.readable.size, 0);
+  assert.deepEqual([...index.named], ["Found"]);
+  assert.deepEqual([...index.boardless], ["Found"]);
 });
 
-test("boardIndex: a dropped company is in dropped, and its boards are not watched", () => {
+test("boardIndex: a dropped company is in dropped, and its boards are not readable", () => {
   const index = boardIndex([
     company("Gone", {
-      state: "watched",
       dropped_at: "2026-09-18T17:17:00.000Z",
       boards: [{ platform: "greenhouse", id: "gone-gh", last_read: "2026-09-16T06:00:00.000Z" }],
     }),
     company("Acme", { boards: [{ platform: "lever", id: "acme-lv" }] }),
   ]);
   assert.deepEqual([...index.dropped], ["Gone"]);
-  assert.deepEqual([...index.watched], ["lever::acme-lv"]);
-  assert.deepEqual([...index.stateOf.keys()], ["Gone", "Acme"]);
+  assert.deepEqual([...index.readable], ["lever::acme-lv"]);
+  assert.deepEqual([...index.named], ["Gone", "Acme"]);
 });
 
 test("goneBy: a null gone_at is not gone", () => {
@@ -915,9 +897,8 @@ test("unwatchedBy: a posting whose company is not on record is not unwatched", (
   assert.equal(unwatchedBy(posting(), NO_BOARDS), false);
 });
 
-test("unwatchedBy: an alias's posting is unwatched", () => {
-  const alias = boardIndex([company("Acme", { state: "alias" })]);
-  assert.equal(unwatchedBy(posting(), alias), true);
+test("unwatchedBy: a posting whose company has no board is unwatched", () => {
+  assert.equal(unwatchedBy(posting(), boardIndex([company("Acme")])), true);
 });
 
 test("unwatchedBy: a dropped company's posting is unwatched, even on its own board", () => {
@@ -930,23 +911,23 @@ test("unwatchedBy: a dropped company's posting is unwatched, even on its own boa
   assert.equal(unwatchedBy(posting(), dropped), true);
 });
 
-test("unwatchedBy: a watched company's board not on record is unwatched", () => {
+test("unwatchedBy: a company's board not on record is unwatched", () => {
   const otherBoard = boardIndex([
     company("Acme", { boards: [{ platform: "greenhouse", id: "other-board" }] }),
   ]);
   assert.equal(unwatchedBy(posting(), otherBoard), true);
 });
 
-test("unwatchedBy: a watched company's own board is not unwatched", () => {
+test("unwatchedBy: a company's own board is not unwatched", () => {
   const ownBoard = boardIndex([
     company("Acme", { boards: [{ platform: "greenhouse", id: "board" }] }),
   ]);
   assert.equal(unwatchedBy(posting(), ownBoard), false);
 });
 
-test("unwatchedBy: a posting with no board is never unwatched, whatever the company's state", () => {
-  const alias = boardIndex([company("Acme", { state: "alias" })]);
-  assert.equal(unwatchedBy(posting({ board: null }), alias), false);
+test("unwatchedBy: a posting with no board is never unwatched, however its company stands", () => {
+  const boardless = boardIndex([company("Acme")]);
+  assert.equal(unwatchedBy(posting({ board: null }), boardless), false);
 });
 
 test("unwatched: a company not on record is in", () => {
@@ -956,31 +937,25 @@ test("unwatched: a company not on record is in", () => {
   assert.equal(unwatched.detail, "company not on record");
 });
 
-test("unwatched: an alias is out, naming it", () => {
+test("unwatched: a company with no board is out, saying so", () => {
   const { reasons } = judgeListing(
     posting({ title: "Staff Backend Engineer" }),
     criteria(),
     undefined,
-    boardIndex([company("Acme", { state: "alias", alias_of: "Acme Inc" })]),
+    boardIndex([company("Acme")]),
   );
   const unwatched = reasonFor(reasons, "unwatched");
   assert.equal(unwatched.verdict, "out");
-  assert.equal(unwatched.detail, "company Acme is an alias of Acme Inc");
+  assert.equal(unwatched.detail, "company Acme has no board");
 });
 
-test("unwatched: a dropped company is out, naming it, whatever its state", () => {
-  for (const state of ["watched", "discovered"] as const) {
+test("unwatched: a dropped company is out, naming it, whether or not it has a board", () => {
+  for (const boards of [[{ platform: "greenhouse", id: "board" } as const], []]) {
     const { reasons } = judgeListing(
       posting({ title: "Staff Backend Engineer" }),
       criteria(),
       undefined,
-      boardIndex([
-        company("Acme", {
-          state,
-          dropped_at: "2026-09-18T17:17:00.000Z",
-          boards: [{ platform: "greenhouse", id: "board" }],
-        }),
-      ]),
+      boardIndex([company("Acme", { dropped_at: "2026-09-18T17:17:00.000Z", boards })]),
     );
     const unwatched = reasonFor(reasons, "unwatched");
     assert.equal(unwatched.verdict, "out");
@@ -988,31 +963,7 @@ test("unwatched: a dropped company is out, naming it, whatever its state", () =>
   }
 });
 
-test("unwatched: an alias with no owner on record is out, saying so", () => {
-  const { reasons } = judgeListing(
-    posting({ title: "Staff Backend Engineer" }),
-    criteria(),
-    undefined,
-    boardIndex([company("Acme", { state: "alias" })]),
-  );
-  const unwatched = reasonFor(reasons, "unwatched");
-  assert.equal(unwatched.verdict, "out");
-  assert.equal(unwatched.detail, "company Acme is an alias of another company");
-});
-
-test("unwatched: a company returned to discovered is out, naming it", () => {
-  const { reasons } = judgeListing(
-    posting({ title: "Staff Backend Engineer" }),
-    criteria(),
-    undefined,
-    boardIndex([company("Acme", { state: "discovered" })]),
-  );
-  const unwatched = reasonFor(reasons, "unwatched");
-  assert.equal(unwatched.verdict, "out");
-  assert.equal(unwatched.detail, "company Acme returned to discovered");
-});
-
-test("unwatched: a watched company whose boards do not include this one is out, naming the board", () => {
+test("unwatched: a company whose boards do not include this one is out, naming the board", () => {
   const { reasons } = judgeListing(
     posting({ title: "Staff Backend Engineer" }),
     criteria(),
@@ -1024,7 +975,7 @@ test("unwatched: a watched company whose boards do not include this one is out, 
   assert.equal(unwatched.detail, "board greenhouse/board is no longer on Acme");
 });
 
-test("unwatched: a watched company whose boards include this one is in", () => {
+test("unwatched: a company whose boards include this one is in", () => {
   const { reasons } = judgeListing(
     posting({ title: "Staff Backend Engineer" }),
     criteria(),
@@ -1041,7 +992,7 @@ test("unwatched: a posting with no board is in, however its company stands", () 
     posting({ title: "Staff Backend Engineer", board: null }),
     criteria(),
     undefined,
-    boardIndex([company("Acme", { state: "alias" })]),
+    boardIndex([company("Acme")]),
   );
   const unwatched = reasonFor(reasons, "unwatched");
   assert.equal(unwatched.verdict, "in");

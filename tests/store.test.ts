@@ -20,13 +20,9 @@ import type { Store } from "../src/store/store.ts";
 function company(name: string, overrides: Partial<Company> = {}): Company {
   return {
     name,
-    state: "discovered",
     boards: [],
-    source: "test",
     reason: null,
-    first_seen: "2026-09-15T00:00:00Z",
     dropped_at: null,
-    alias_of: null,
     ...overrides,
   };
 }
@@ -70,11 +66,11 @@ const CASES: readonly ContractCase[] = [
     name: "select returns the row upsert wrote, filtered by eq",
     run: async (store, prefix) => {
       const name = `${prefix}-acme`;
-      await store.upsert("companies", [company(name, { state: "watched" })]);
+      await store.upsert("companies", [company(name, { reason: "no remote roles" })]);
 
       const read = await store.select<Company>("companies", { name });
       assert.equal(read.length, 1);
-      assert.equal(read[0]?.state, "watched");
+      assert.equal(read[0]?.reason, "no remote roles");
 
       const missed = await store.select<Company>("companies", { name: `${prefix}-nobody` });
       assert.equal(missed.length, 0);
@@ -84,12 +80,12 @@ const CASES: readonly ContractCase[] = [
     name: "upsert replaces the row holding that primary key instead of adding a second one",
     run: async (store, prefix) => {
       const name = `${prefix}-acme`;
-      await store.upsert("companies", [company(name, { state: "discovered", source: "seed" })]);
-      await store.upsert("companies", [company(name, { state: "watched", source: "seed" })]);
+      await store.upsert("companies", [company(name, { reason: "first" })]);
+      await store.upsert("companies", [company(name, { reason: "second" })]);
 
       const read = await store.select<Company>("companies", { name });
       assert.equal(read.length, 1, "a second upsert of the same key must not add a row");
-      assert.equal(read[0]?.state, "watched");
+      assert.equal(read[0]?.reason, "second");
     },
   },
   {
@@ -163,17 +159,17 @@ const CASES: readonly ContractCase[] = [
   },
   {
     // Written out of order so an adapter returning insertion order would
-    // fail. `source` carries the prefix because a filter on the key itself
+    // fail. `reason` carries the prefix because a filter on the key itself
     // would return one row.
     name: "select returns rows in ascending primary-key order",
     run: async (store, prefix) => {
       await store.upsert("companies", [
-        company(`${prefix}-c`, { source: prefix }),
-        company(`${prefix}-a`, { source: prefix }),
-        company(`${prefix}-b`, { source: prefix }),
+        company(`${prefix}-c`, { reason: prefix }),
+        company(`${prefix}-a`, { reason: prefix }),
+        company(`${prefix}-b`, { reason: prefix }),
       ]);
 
-      const read = await store.select<Company>("companies", { source: prefix });
+      const read = await store.select<Company>("companies", { reason: prefix });
 
       assert.deepEqual(
         read.map((row) => row.name),
@@ -273,13 +269,13 @@ const CASES: readonly ContractCase[] = [
       const kept = `${prefix}-keep`;
       const gone = `${prefix}-gone`;
       await store.upsert("companies", [
-        company(kept, { source: prefix }),
-        company(gone, { source: prefix }),
+        company(kept, { reason: prefix }),
+        company(gone, { reason: prefix }),
       ]);
 
       await store.delete("companies", [gone]);
 
-      const read = await store.select<Company>("companies", { source: prefix });
+      const read = await store.select<Company>("companies", { reason: prefix });
       assert.deepEqual(
         read.map((row) => row.name),
         [kept],
@@ -291,11 +287,11 @@ const CASES: readonly ContractCase[] = [
     name: "delete of a key no row holds removes nothing and does not refuse",
     run: async (store, prefix) => {
       const name = `${prefix}-acme`;
-      await store.upsert("companies", [company(name, { source: prefix })]);
+      await store.upsert("companies", [company(name, { reason: prefix })]);
 
       await store.delete("companies", [`${prefix}-never`]);
 
-      const read = await store.select<Company>("companies", { source: prefix });
+      const read = await store.select<Company>("companies", { reason: prefix });
       assert.deepEqual(
         read.map((row) => row.name),
         [name],

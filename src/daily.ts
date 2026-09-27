@@ -4,9 +4,9 @@ import { dirname, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-import { boardsOf, watched } from "./companies.ts";
+import { boardsOf, readable } from "./companies.ts";
 import { loadCriteria } from "./criteria.ts";
-import { discover } from "./discover.ts";
+import { discover, type DiscoverResult } from "./discover.ts";
 import { builtInSource } from "./discovery/builtin.ts";
 import { commonCrawlSource } from "./discovery/commoncrawl.ts";
 import { hnSource } from "./discovery/hn.ts";
@@ -24,7 +24,7 @@ import { publishSlice, pullDecisions } from "./sync.ts";
 
 import type { DetailRead, Reader } from "./ats/ats.ts";
 import { READERS, withDetailReads } from "./ats/readers.ts";
-import type { Platform } from "./schema.ts";
+import { OUTCOMES, type Platform } from "./schema.ts";
 
 const SOURCES: readonly DiscoverySource[] = [
   hnSource,
@@ -162,6 +162,16 @@ export async function resolveReaders(
   return withDetailReads(readers, reads);
 }
 
+// Every outcome is named, zeros included, in the schema's order, so two
+// mornings' lines line up.
+export function discoverLine(result: DiscoverResult): string {
+  const outcomes = OUTCOMES.map((outcome) => `${result.resolved[outcome]} ${outcome}`);
+  return (
+    `discover: ${result.suggested} suggested, ${outcomes.join(", ")}, ` +
+    `${result.pending} pending, ${result.errors.length} errors`
+  );
+}
+
 async function main(): Promise<number> {
   const store = openStore();
   const settings = loadSettings();
@@ -197,10 +207,7 @@ async function main(): Promise<number> {
       () => discover(store, sources, undefined, readers, console.log),
       console.log,
     );
-    console.log(
-      `discover: ${discovered.seen} seen, ${discovered.probed} probed, ` +
-        `${discovered.watched} watched, ${discovered.aliases} aliases, ${discovered.errors.length} errors`,
-    );
+    console.log(discoverLine(discovered));
     for (const error of discovered.errors) {
       console.log(`  ${error}`);
     }
@@ -208,9 +215,9 @@ async function main(): Promise<number> {
     console.error(`discover failed, ingesting anyway: ${describeError(error)}`);
   }
 
-  // Read separately from `ingest`'s own call to `watched`: the only way to
+  // Read separately from `ingest`'s own call to `readable`: the only way to
   // tell "every board failed" from "some boards listed zero postings".
-  const companies = await watched(store);
+  const companies = await readable(store);
   const totalBoards = companies.reduce((sum, company) => sum + boardsOf(company).length, 0);
 
   const result = await phase("list", () => ingest(store, readers), console.log);

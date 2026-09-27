@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
+  CANDIDATE_FIELDS,
   COMPANY_FIELDS,
-  COMPANY_STATES,
   CRITERIA_FIELDS,
+  OUTCOMES,
   PLATFORMS,
   POSTING_FIELDS,
   postingKey,
-  REPROBE_RUN_FIELDS,
   STATUSES,
   TABLES,
 } from "../src/schema.ts";
@@ -20,7 +20,7 @@ const MIGRATION_PATH = `${MIGRATIONS_DIR}/20260915000000_three_stores.sql`;
 // Each column lives on its own line as `"name" ...` inside the CREATE
 // TABLE block, the convention every migration here follows. The block is
 // looked up across every migration rather than in one fixed file, because
-// a table is declared wherever it is declared: `reprobe_runs` has a
+// a table is declared wherever it is declared: `candidates` has a
 // migration of its own. The last migration to CREATE a name wins, since
 // `criteria` is created by the init, again by its own migration, and again
 // by three_stores, which drops the earlier one first.
@@ -124,8 +124,8 @@ test("the migration's criteria columns match CRITERIA_FIELDS, in order", () => {
   assert.deepEqual(columnsOf("criteria"), [...CRITERIA_FIELDS]);
 });
 
-test("the migration's reprobe_runs columns match REPROBE_RUN_FIELDS, in order", () => {
-  assert.deepEqual(columnsOf("reprobe_runs"), [...REPROBE_RUN_FIELDS]);
+test("the migration's candidates columns match CANDIDATE_FIELDS, in order", () => {
+  assert.deepEqual(columnsOf("candidates"), [...CANDIDATE_FIELDS]);
 });
 
 test("the migrations' ADD COLUMN statements append to POSTING_FIELDS in order", () => {
@@ -153,19 +153,15 @@ test("the migrations' postings.status CHECK matches STATUSES, in order", () => {
   assert.deepEqual(vocabularyOf("postings", "status"), [...STATUSES]);
 });
 
-test("the migrations' companies.state CHECK matches COMPANY_STATES, in order", () => {
-  assert.deepEqual(vocabularyOf("companies", "state"), [...COMPANY_STATES]);
+test("the migrations' candidates.outcome CHECK matches OUTCOMES, in order", () => {
+  assert.deepEqual(vocabularyOf("candidates", "outcome"), [...OUTCOMES]);
 });
 
-test("the last companies.state CHECK names discovered, watched, alias: a drop is no longer a state", () => {
-  // Pinned by hand, not through COMPANY_STATES: the company_drop migration
-  // moved the drop to `dropped_at`, so a later migration that re-admits
-  // 'dropped' (or drops 'alias') fails here even if schema.ts follows it.
-  assert.deepEqual(vocabularyOf("companies", "state"), ["discovered", "watched", "alias"]);
-});
-
-test("the migrations' ADD COLUMN statements append to COMPANY_FIELDS in order", () => {
-  assert.deepEqual(columnsOf("companies").slice(-2), ["dropped_at", "alias_of"]);
+test("the companies_derived migration leaves companies with name, boards and the drop", () => {
+  // Pinned by hand, not through COMPANY_FIELDS: state, source, first_seen
+  // and alias_of were three_stores and company_drop columns, so a
+  // columnsOf that ignored their DROP COLUMN would still list them.
+  assert.deepEqual(columnsOf("companies"), ["name", "boards", "reason", "dropped_at"]);
 });
 
 test("the migration drops the old criteria table before recreating it", () => {
