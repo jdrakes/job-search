@@ -3,6 +3,7 @@
 // boards, not companies — `discover` asks each one it has not seen before,
 // once, for the company name.
 import { boardKey } from "../companies.ts";
+import { describeError } from "../errors.ts";
 import { getJson, getText, htmlToText, HttpError, type HttpOptions } from "../net/http.ts";
 import type { Board } from "../schema.ts";
 import type { BoardSource } from "./source.ts";
@@ -66,7 +67,13 @@ export function pageTitle(html: string, platform: "ashby" | "lever"): string | n
   return title === "" ? null : title;
 }
 
-async function boards(options?: HttpOptions): Promise<Board[]> {
+// Without a crawl index there is nothing to walk, so collinfo.json failing
+// throws. After that, a host or page the index fails to answer is one log
+// line and the walk goes on: the index fails transiently on a real share of
+// requests, and one failure must not discard every board already read. A
+// failed page ends its host's walk, since the pages after it are likely to
+// fail too. Nothing read at all still throws.
+async function boards(options?: HttpOptions, log?: (line: string) => void): Promise<Board[]> {
   const collections = await getJson<unknown>(COLLECTIONS_URL, options);
   const index = latestIndex(collections);
   if (index === null) throw new Error("collinfo.json names no crawl index");
@@ -75,14 +82,26 @@ async function boards(options?: HttpOptions): Promise<Board[]> {
   const found: Board[] = [];
 
   for (const { host, platform } of HOSTS) {
-    const numPages = await getJson<{ pages?: unknown }>(
-      `${index}?url=${host}/*&output=json&showNumPages=true`,
-      options,
-    );
+    let numPages: { pages?: unknown };
+    try {
+      numPages = await getJson<{ pages?: unknown }>(
+        `${index}?url=${host}/*&output=json&showNumPages=true`,
+        options,
+      );
+    } catch (err) {
+      log?.(`commoncrawl: host unreachable ${host}: ${describeError(err)}`);
+      continue;
+    }
     const pages = typeof numPages.pages === "number" ? numPages.pages : 0;
 
     for (let page = 0; page < pages; page++) {
-      const body = await getText(`${index}?url=${host}/*&output=json&fl=url&page=${page}`, options);
+      let body: string;
+      try {
+        body = await getText(`${index}?url=${host}/*&output=json&fl=url&page=${page}`, options);
+      } catch (err) {
+        log?.(`commoncrawl: page unreachable ${host} page ${page}: ${describeError(err)}`);
+        break;
+      }
       for (const rawId of parseIndexPage(body, host)) {
         // Every Greenhouse id on file is lowercase; Lever is case-sensitive
         // (18 Lever ids on file carry capitals), so its spelling is kept.
