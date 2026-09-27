@@ -1483,20 +1483,89 @@ test("ingest: a one-phase listing acted on keeps its body whatever the verdict",
   assert.equal(row?.body_hash, hashOf(KEPT_BODY));
 });
 
-// Breaks if a missing criteria row refuses the run or drops bodies.
-test("ingest: with no criteria row every listed body is stored and the fallback is an error line", async () => {
+// Breaks if a missing criteria row refuses the run, drops bodies, or adds
+// an error line (which `daily.ts` would count as a failed board).
+test("ingest: with no criteria row every listed body is stored with no error line", async () => {
   const store = memoryStore({ companies: [ACME] });
 
   const result = await ingest(store, oneBoard([listing("b1", { body: "any text" })]));
 
   assert.equal(result.recorded, 1);
-  assert.equal(result.errors.length, 1);
-  assert.match(
-    result.errors[0] ?? "",
-    /^ingest: criteria: .*every body clearing its own listing check will still be stored/,
-  );
+  assert.deepEqual(result.errors, []);
   const [row] = await store.select<Posting>("postings", { key: KEY });
   assert.equal(row?.body, "any text");
+});
+
+// The listing criteria all pass; only the text says no (a missing
+// language). The location affirms remote, so an empty body would pass the
+// remote criterion too; no structured workplace, so the score-remote
+// exemption does not keep this body either.
+const TEXT_OUT_BODY = "5+ years of production Delphi required.";
+
+// Breaks if `toRow` decides with the full `judge()`: it drops the body on
+// the text criterion, `judgeAll`'s listing-only `wantsBody` still asks for
+// it, a one-phase board has nothing to refetch, and the empty text judges
+// the posting back in.
+test("ingest then judgeAll: a one-phase listing out only on a text criterion stays out", async () => {
+  const store = memoryStore({ companies: [ACME], criteria: [criteria()] });
+  const readers = oneBoard([
+    listing("b1", {
+      title: "Senior Backend Engineer",
+      location: "Remote - US",
+      compLow: 250_000,
+      compHigh: 300_000,
+      body: TEXT_OUT_BODY,
+    }),
+  ]);
+
+  await ingest(store, readers);
+  const judging = await judgeAll(store, readers);
+
+  assert.deepEqual(judging.errors, []);
+  assert.equal(judging.judged, 1);
+  const [row] = await store.select<Posting>("postings", { key: KEY });
+  assert.equal(row?.kept, false);
+  assert.equal(row?.body, null, "judgeAll clears the body once its verdict is out");
+  assert.equal(row?.body_hash, null);
+});
+
+// Breaks if the `remote`/`onsite` exemption is missing from `toRow`:
+// `scripts/score-remote.ts` reads these bodies whatever the verdict.
+test("ingest: a one-phase listing dropped on its title whose board states remote keeps its body", async () => {
+  const store = memoryStore({ companies: [ACME], criteria: [EXCLUDES_SENIOR] });
+
+  await ingest(store, oneBoard([{ ...keptListing("b1"), workplace: "remote" }]));
+
+  const [row] = await store.select<Posting>("postings", { key: KEY });
+  assert.equal(row?.body, KEPT_BODY);
+  assert.equal(row?.body_hash, hashOf(KEPT_BODY));
+});
+
+// Breaks if either `toRow` or `judgeAll` drops an `onsite` body on a
+// verdict.
+test("ingest then judgeAll: an onsite listing out on every criterion keeps its body", async () => {
+  const store = memoryStore({
+    companies: [ACME],
+    criteria: [criteria({ excluded_title_words: ["sales"] })],
+  });
+  const body = "In our Wyoming office five days a week. Delphi and COBOL daily.";
+  const readers = oneBoard([
+    listing("b1", {
+      title: "Junior Sales Representative",
+      compLow: 40_000,
+      compHigh: 50_000,
+      body,
+      workplace: "onsite",
+    }),
+  ]);
+
+  await ingest(store, readers);
+  await judgeAll(store, readers);
+
+  const [row] = await store.select<Posting>("postings", { key: KEY });
+  assert.equal(row?.kept, false);
+  assert.equal(row?.body, body);
+  assert.equal(row?.body_hash, hashOf(body));
 });
 
 // Breaks if a body landing where none was stored keeps the old verdict's
@@ -2108,7 +2177,7 @@ test("judgeAll: a two-phase detail that fails a criterion is judged but its body
       platform: "workday",
       list: async () => [listing("swe1", { title: "Staff Backend Engineer" })],
       body: async (_board, id) =>
-        listing(id, { body: "5+ years of production Delphi.", workplace: "remote" }),
+        listing(id, { body: "5+ years of production Delphi.", workplace: "hybrid" }),
     },
   };
 
@@ -2119,7 +2188,47 @@ test("judgeAll: a two-phase detail that fails a criterion is judged but its body
   const [row] = await store.select<Posting>("postings", { key: "workday/acme-wd::swe1" });
   assert.equal(row?.kept, false);
   assert.equal(row?.body, null);
-  assert.equal(row?.workplace, "remote");
+  assert.equal(row?.workplace, "hybrid");
+});
+
+// Breaks if `judgeAll` clears a body only when it fetched one this pass.
+test("judgeAll: a body stored on an earlier run that a criteria edit now drops on its text is cleared", async () => {
+  const body = "Staff Backend Engineer. Remote in the US. 5+ years of production Delphi.";
+  const store = memoryStore({
+    companies: [company("Acme", { boards: [{ platform: "workday", id: "acme-wd" }] })],
+    postings: [
+      posting({
+        key: "workday/acme-wd::swe1",
+        company: "Acme",
+        platform: "workday",
+        board: "acme-wd",
+        title: "Staff Backend Engineer",
+        comp_high: 251_900,
+        body,
+        body_hash: hashOf(body),
+        kept: true,
+        judged_with: "2026-09-01T00:00:00Z",
+      }),
+    ],
+    criteria: [criteria({ updated_at: "2026-09-14T00:00:00Z" })],
+  });
+  const readers: Partial<Record<Platform, Reader>> = {
+    workday: {
+      platform: "workday",
+      list: async () => [],
+      body: async () => {
+        assert.fail("a posting with a stored body is not fetched again");
+      },
+    },
+  };
+
+  const judging = await judgeAll(store, readers);
+
+  assert.equal(judging.judged, 1);
+  const [row] = await store.select<Posting>("postings", { key: "workday/acme-wd::swe1" });
+  assert.equal(row?.kept, false);
+  assert.equal(row?.body, null);
+  assert.equal(row?.body_hash, null);
 });
 
 test("judgeAll: a two-phase detail that fails a criterion still stores its body when the posting was acted on", async () => {

@@ -66,7 +66,7 @@ test("clearUnreadBodies: an unread, judged-out posting has its body cleared", as
 
   const result = await clearUnreadBodies(store);
 
-  assert.deepEqual(result, { ok: true, cleared: 1, keptAlone: 0 });
+  assert.deepEqual(result, { ok: true, cleared: 1, keptAlone: 0, workplaceScored: 0 });
   const [row] = await store.select<Posting>("postings", { key: "acme::1" });
   assert.equal(row?.body, null);
   assert.equal(row?.body_hash, null);
@@ -80,7 +80,7 @@ test("clearUnreadBodies: a posting acted on keeps its body even when judged out"
 
   const result = await clearUnreadBodies(store);
 
-  assert.deepEqual(result, { ok: true, cleared: 0, keptAlone: 0 });
+  assert.deepEqual(result, { ok: true, cleared: 0, keptAlone: 0, workplaceScored: 0 });
   const [row] = await store.select<Posting>("postings", { key: "acme::1" });
   assert.equal(row?.body, "This is a fully remote position open to candidates anywhere in the US.");
   assert.equal(row?.body_hash, "deadbeef");
@@ -94,10 +94,53 @@ test("clearUnreadBodies: a posting the criteria still keep is left alone", async
 
   const result = await clearUnreadBodies(store);
 
-  assert.deepEqual(result, { ok: true, cleared: 0, keptAlone: 1 });
+  assert.deepEqual(result, { ok: true, cleared: 0, keptAlone: 1, workplaceScored: 0 });
   const [row] = await store.select<Posting>("postings", { key: "acme::1" });
   assert.equal(row?.body, "This is a fully remote position open to candidates anywhere in the US.");
   assert.equal(row?.body_hash, "deadbeef");
+});
+
+// Breaks if the backfill clears a body `scripts/score-remote.ts` reads.
+test("clearUnreadBodies: a judged-out posting whose board states remote keeps its body, counted apart", async () => {
+  const store = memoryStore({
+    criteria: [EXCLUDES_SENIOR],
+    postings: [
+      posting({ key: "acme::1", company: "Acme", workplace: "remote" }),
+      posting({ key: "acme::2", company: "Acme" }),
+    ],
+  });
+
+  const result = await clearUnreadBodies(store);
+
+  assert.deepEqual(result, { ok: true, cleared: 1, keptAlone: 0, workplaceScored: 1 });
+  const [scored] = await store.select<Posting>("postings", { key: "acme::1" });
+  assert.equal(
+    scored?.body,
+    "This is a fully remote position open to candidates anywhere in the US.",
+  );
+  assert.equal(scored?.body_hash, "deadbeef");
+  const [cleared] = await store.select<Posting>("postings", { key: "acme::2" });
+  assert.equal(cleared?.body, null);
+});
+
+// Breaks if the backfill judges age against `judged_with` instead of now:
+// a row judged long ago, before it aged past the max, would stay kept.
+test("clearUnreadBodies: age is judged against the current time, not judged_with", async () => {
+  const store = memoryStore({
+    criteria: [criteria({ max_age_days: 30 })],
+    postings: [
+      posting({
+        key: "acme::1",
+        company: "Acme",
+        posted_at: "2020-01-01T00:00:00.000Z",
+        judged_with: "2020-01-02T00:00:00.000Z",
+      }),
+    ],
+  });
+
+  const result = await clearUnreadBodies(store);
+
+  assert.deepEqual(result, { ok: true, cleared: 1, keptAlone: 0, workplaceScored: 0 });
 });
 
 test("clearUnreadBodies: no criteria row refuses, naming the reason", async () => {

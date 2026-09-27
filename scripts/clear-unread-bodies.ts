@@ -15,12 +15,16 @@
 // `judge()` call per candidate row, no more than `judgeAll` already pays
 // per posting on every daily run.
 //
-// `posting.judged_with` (when present) stands in for "now": judging on the
-// criteria version the row actually carries keeps this a backfill against
-// what was last decided, not a fresh re-judge under today's criteria and
-// today's age — the next real daily run does that re-judging, on its own
-// schedule, against `NO_BOARDS` and no duplicate map either way, so nothing
-// here does that job twice.
+// It is a one-time backfill against the current criteria and the current
+// time, as any other re-judge is. `judged_with` is a criteria-version
+// marker, not a clock, so it plays no part here. Board and duplicate
+// context are left out (`NO_BOARDS`, no representative map), which can
+// only keep more rows, never clear one the daily run would keep.
+//
+// A row whose board states `remote` or `onsite` keeps its body whatever
+// the verdict: `scripts/score-remote.ts` scores the text detector against
+// that stated word and reads those bodies unconditionally. Such rows are
+// counted apart, as `workplaceScored`.
 import process from "node:process";
 
 import { loadCriteria } from "../src/criteria.ts";
@@ -33,7 +37,7 @@ import type { Store } from "../src/store/store.ts";
 
 // Everything `judge()`'s `Pick` needs, plus `body_hash` (not part of that
 // `Pick`, but read here so a future change to the clearing payload has it
-// on hand) and `judged_with` (stands in for "now", see above).
+// on hand).
 const CANDIDATE_COLUMNS = [
   "key",
   "company",
@@ -48,7 +52,6 @@ const CANDIDATE_COLUMNS = [
   "workplace",
   "status",
   "body_hash",
-  "judged_with",
 ] as const satisfies readonly (keyof Posting)[];
 
 type CandidateRow = Pick<Posting, (typeof CANDIDATE_COLUMNS)[number]>;
@@ -62,6 +65,7 @@ const CLEAR_FLUSH = 200;
 export interface ClearSummary {
   readonly cleared: number;
   readonly keptAlone: number;
+  readonly workplaceScored: number;
 }
 
 export type ClearResult =
@@ -87,16 +91,16 @@ export async function clearUnreadBodies(store: Store): Promise<ClearResult> {
 
   let cleared = 0;
   let keptAlone = 0;
+  let workplaceScored = 0;
   let batch: ClearedRow[] = [];
+  const now = new Date().toISOString();
 
   for (const row of candidates) {
-    const result = judge(
-      row,
-      criteria,
-      row.judged_with ?? new Date().toISOString(),
-      NO_BOARDS,
-      new Map(),
-    );
+    if (row.workplace === "remote" || row.workplace === "onsite") {
+      workplaceScored += 1;
+      continue;
+    }
+    const result = judge(row, criteria, now, NO_BOARDS, new Map());
     if (result.kept) {
       keptAlone += 1;
       continue;
@@ -116,7 +120,7 @@ export async function clearUnreadBodies(store: Store): Promise<ClearResult> {
   }
   await flush(store, batch);
 
-  return { ok: true, cleared, keptAlone };
+  return { ok: true, cleared, keptAlone, workplaceScored };
 }
 
 async function main(): Promise<void> {
@@ -128,7 +132,7 @@ async function main(): Promise<void> {
     return;
   }
   console.log(
-    `clear-unread-bodies: cleared ${result.cleared}, left alone (kept) ${result.keptAlone}`,
+    `clear-unread-bodies: cleared ${result.cleared}, left alone (kept) ${result.keptAlone}, left alone (workplace scored) ${result.workplaceScored}`,
   );
 }
 

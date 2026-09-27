@@ -120,26 +120,29 @@ function toRow(
   const verdictInputChanged =
     workplaceChanged || (stored !== undefined && stored.comp_high !== row.comp_high);
   if (listing.body === null) return verdictInputChanged ? { ...row, judged_with: null } : row;
-  // A body is stored only where something reads it: a posting acted on, or
-  // one every criterion judged on the posting alone keeps. `NO_BOARDS` and
-  // an empty representative map leave gone, unwatched and duplicate "in",
-  // since this listing has no board or sibling state to judge them by.
-  // Decided before the unchanged-hash check, so a criteria edit that newly
-  // drops a posting clears the body it already has. No criteria row (a
-  // fresh install) stores every body, as before.
-  const status = stored?.status ?? null;
+  // A body is stored unless nothing can ever read it. Readers: a posting
+  // acted on; one whose board states `remote` or `onsite`, which
+  // `scripts/score-remote.ts` scores the text detector against whatever the
+  // verdict; and one the listing criteria keep, since `judgeAll` reads the
+  // body back to run the text criteria on exactly those. The decision is
+  // `judgeListing`, never the full `judge()`: `judgeAll`'s `wantsBody` asks
+  // for a body on the listing criteria alone, and a one-phase board has no
+  // detail to refetch it from, so a body dropped here on a text criterion
+  // would be judged back in as empty text. A text rejection keeps its body
+  // here and `judgeAll` clears it once its own verdict says out.
+  // `NO_BOARDS` and an empty representative map leave gone, unwatched and
+  // duplicate "in"; real context can only drop more, so an "out" here is one
+  // `wantsBody` also reaches. Decided before the unchanged-hash check, so a
+  // criteria edit that newly drops a posting clears the body it already has.
+  // No criteria row (a fresh install) stores every body, as before.
+  const acted = (stored?.status ?? null) !== null;
+  const workplaceScored = bare.workplace === "remote" || bare.workplace === "onsite";
   const keep =
-    status !== null ||
+    acted ||
+    workplaceScored ||
     criteria === undefined ||
-    judge(
-      {
-        ...fields,
-        comp_high: row.comp_high ?? null,
-        body: listing.body,
-        workplace: bare.workplace ?? null,
-        // Always null here: an acted-on posting short-circuits above.
-        status: null,
-      },
+    judgeListing(
+      { ...fields, comp_high: row.comp_high ?? null },
       criteria,
       timestamp,
       NO_BOARDS,
@@ -207,8 +210,9 @@ async function storedBody(store: Store, key: string): Promise<string | null> {
 // the payload even though the row exists; they are carried back as read.
 // `comp_low`/`comp_high` travel the same way: listing and judging are
 // sequential in `daily.ts`, so nothing changes a comp between the read and
-// the write. `body` and `workplace` stay out unless the judging pass
-// fetched a detail, so the stored values, if any, survive.
+// the write. `workplace` stays out unless the judging pass fetched a
+// detail, and `body` unless it fetched one or is clearing a stored one, so
+// the stored values, if any, survive.
 interface VerdictRow extends Pick<
   Posting,
   | "key"
@@ -222,6 +226,8 @@ interface VerdictRow extends Pick<
   | "judged_with"
 > {
   readonly body?: string | null;
+  // Written only as null, alongside a cleared body.
+  readonly body_hash?: null;
   readonly workplace?: Workplace | null;
 }
 
@@ -397,11 +403,21 @@ export async function judgeAll(
     };
     // A fetched detail's workplace is cheap structured data and multiple
     // criteria read it directly, so it is kept whenever fetched regardless
-    // of verdict; the body is the 5 KB text this plan stops storing once
-    // the posting is neither kept nor acted on (`row.status`, read before
-    // this pass's write, so a posting acted on this same run still counts).
-    const keepBody = judgment.kept || row.status !== null;
-    pending.push(fetched ? { ...verdict, body: keepBody ? body : null, workplace } : verdict);
+    // of verdict. The body is kept only where something reads it: a
+    // posting kept, acted on (`row.status`, read before this pass's write,
+    // so a posting acted on this same run still counts), or stating
+    // `remote` or `onsite` (`scripts/score-remote.ts`). A body read back
+    // from the store is cleared the same way, so a text rejection `toRow`
+    // stored, or a criteria edit that newly drops a stored body, frees it.
+    const workplaceScored = workplace === "remote" || workplace === "onsite";
+    const keepBody = judgment.kept || row.status !== null || workplaceScored;
+    let toPush: VerdictRow = verdict;
+    if (fetched) {
+      toPush = { ...verdict, body: keepBody ? body : null, workplace };
+    } else if (body !== null && !keepBody) {
+      toPush = { ...verdict, body: null, body_hash: null };
+    }
+    pending.push(toPush);
     if (pending.length >= VERDICT_FLUSH) {
       const flushed = await writeVerdicts(store, pending);
       judged += flushed.written;
@@ -565,12 +581,9 @@ export async function ingest(
   }
 
   // Judges each listed body before it is stored; see `toRow`.
+  // No criteria row stores every body, silently: an error line here would
+  // count toward `daily.ts`'s every-board-failed check.
   const criteriaResult = await loadCriteria(store);
-  if (!criteriaResult.ok) {
-    errors.push(
-      `ingest: ${criteriaResult.reason}; every body clearing its own listing check will still be stored, since nothing is known to judge it against`,
-    );
-  }
   const criteria = criteriaResult.ok ? criteriaResult.value : undefined;
 
   // One worker per platform, the platforms concurrently: no host is shared
