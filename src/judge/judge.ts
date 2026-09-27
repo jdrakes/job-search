@@ -8,6 +8,7 @@ import {
   type BoardIndex,
   duplicateKey,
   goneBy,
+  judgeAge,
   judgeListing,
   listedBy,
   NO_BOARDS,
@@ -51,12 +52,27 @@ export function judge(
     | "body"
     | "last_seen"
     | "workplace"
+    | "status"
   >,
   criteria: Criteria,
   now: string = new Date().toISOString(),
   boards: BoardIndex = NO_BOARDS,
   representativeByKey: ReadonlyMap<string, string> = new Map(),
 ): Judgment {
+  if (
+    posting.status === null &&
+    criteria.max_age_days !== null &&
+    posting.posted_at !== null &&
+    ageInDays(posting.posted_at, now) > criteria.max_age_days
+  ) {
+    const reason = judgeAge(posting.posted_at, criteria, now);
+    return {
+      kept: false,
+      reasons: [reason],
+      evidence: evidenceOf([reason]),
+      judged_with: criteria.updated_at,
+    };
+  }
   const listing = judgeListing(posting, criteria, now, boards, representativeByKey);
   // The listing criteria are final once they say no: no text criterion
   // runs, and a body already on the row plays no part.

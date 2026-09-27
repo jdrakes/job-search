@@ -8,7 +8,7 @@ import { boardGone, boardsOf, isGone, recordBoardsRead, watched } from "./compan
 import { loadCriteria } from "./criteria.ts";
 import { describeError } from "./errors.ts";
 import { judge, needsJudging, representativeByKey } from "./judge/judge.ts";
-import { type BoardIndex, boardIndex, judgeListing } from "./judge/listing.ts";
+import { ageInDays, type BoardIndex, boardIndex, judgeListing } from "./judge/listing.ts";
 import {
   COMPANY_FIELDS,
   postingKey,
@@ -155,6 +155,9 @@ const JUDGING_COLUMNS = [
   // its stored reason.
   "kept",
   "reasons",
+  // Read by the same past-the-max-age skip `judge()` makes on its own: a
+  // posting not acted on is the only one this loop can short-circuit.
+  "status",
 ] as const satisfies readonly (keyof Posting)[];
 
 type JudgingRow = Pick<Posting, (typeof JUDGING_COLUMNS)[number]>;
@@ -207,6 +210,24 @@ async function writeVerdicts(store: Store, rows: readonly VerdictRow[]): Promise
   } catch (err) {
     return { written: 0, error: `judging: writing ${rows.length} verdicts: ${describeError(err)}` };
   }
+}
+
+// The same three-part test `judge()` makes on its own (judge.ts) to decide
+// age alone for a posting not acted on: kept here in step with it so a
+// dead, two-phase-board posting never reaches `wantsBody`, which would
+// otherwise judge its listing up to twice and, if that said keep, place a
+// live detail fetch nobody will read.
+function pastMaxAge(
+  posting: Pick<Posting, "status" | "posted_at">,
+  criteria: Criteria,
+  now: string,
+): boolean {
+  return (
+    posting.status === null &&
+    criteria.max_age_days !== null &&
+    posting.posted_at !== null &&
+    ageInDays(posting.posted_at, now) > criteria.max_age_days
+  );
 }
 
 // Whether the judging pass should read this posting's body. The listing
@@ -280,6 +301,28 @@ export async function judgeAll(
     // for aging out and then judge it as still within the max.
     const judgedAt = now();
     if (!needsJudging(row, criteria, judgedAt, boards, representative)) continue;
+
+    if (pastMaxAge(row, criteria, judgedAt)) {
+      const judgment = judge({ ...row, body: null }, criteria, judgedAt, boards, representative);
+      pending.push({
+        key: row.key,
+        company: row.company,
+        last_seen: row.last_seen,
+        comp_low: row.comp_low,
+        comp_high: row.comp_high,
+        kept: judgment.kept,
+        reasons: judgment.reasons,
+        evidence: judgment.evidence,
+        judged_with: judgment.judged_with,
+      });
+      if (pending.length >= VERDICT_FLUSH) {
+        const flushed = await writeVerdicts(store, pending);
+        judged += flushed.written;
+        if (flushed.error !== null) errors.push(flushed.error);
+        pending = [];
+      }
+      continue;
+    }
 
     const reader = readers[row.platform];
 

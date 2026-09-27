@@ -212,6 +212,71 @@ test("judge: passes now through to the listing criteria", () => {
   assert.equal(ageReason.verdict, "out");
 });
 
+test("judge: a posting not acted on past the max age is decided on age alone", () => {
+  const result = judge(
+    posting({
+      status: null,
+      posted_at: "2026-08-08T00:00:00Z", // 40 days before now
+    }),
+    criteria({ max_age_days: 35 }),
+    "2026-09-17T00:00:00Z",
+  );
+  assert.equal(result.kept, false);
+  assert.deepEqual(
+    result.reasons.map((reason) => reason.criterion),
+    ["age"],
+  );
+  assert.deepEqual(Object.keys(result.evidence), ["age"]);
+});
+
+test("judge: a posting acted on past the max age still runs the full judgment", () => {
+  const result = judge(
+    posting({
+      status: "applied",
+      posted_at: "2026-08-08T00:00:00Z", // 40 days before now
+    }),
+    criteria({ max_age_days: 35 }),
+    "2026-09-17T00:00:00Z",
+  );
+  assert.ok(result.reasons.length > 1);
+});
+
+test("judge: a posting past the max age with no posted_at still runs the full judgment", () => {
+  const result = judge(
+    posting({
+      status: null,
+      posted_at: null,
+    }),
+    criteria({ max_age_days: 35 }),
+    "2026-09-17T00:00:00Z",
+  );
+  assert.ok(result.reasons.length > 1);
+});
+
+test("judge: a posting past what would be the max age runs the full judgment when no max age is set", () => {
+  const result = judge(
+    posting({
+      status: null,
+      posted_at: "2026-08-08T00:00:00Z", // 40 days before now
+    }),
+    criteria({ max_age_days: null }),
+    "2026-09-17T00:00:00Z",
+  );
+  assert.ok(result.reasons.length > 1);
+});
+
+test("judge: a posting not acted on but within the max age runs the full judgment", () => {
+  const result = judge(
+    posting({
+      status: null,
+      posted_at: "2026-09-07T00:00:00Z", // 10 days before now
+    }),
+    criteria({ max_age_days: 35 }),
+    "2026-09-17T00:00:00Z",
+  );
+  assert.ok(result.reasons.length > 1);
+});
+
 test("needsJudging: true when the posting has never been judged", () => {
   assert.equal(needsJudging(posting({ judged_with: null }), criteria()), true);
 });
