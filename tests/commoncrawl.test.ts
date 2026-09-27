@@ -49,6 +49,16 @@ test("parseIndexPage: a line that fails to parse, or carries no url, is skipped 
   assert.ok(ids.includes("proseware"));
 });
 
+// Breaks if decodeURIComponent in parseIndexPage leaves its try/catch: the
+// URIError from %E0%A4 would escape and fail the whole source.
+test("parseIndexPage: a url whose board segment is malformed percent-encoding is skipped, not thrown on", () => {
+  const body = [
+    JSON.stringify({ url: "https://jobs.lever.co/%E0%A4/x" }),
+    JSON.stringify({ url: "https://jobs.lever.co/trey-research/abc" }),
+  ].join("\n");
+  assert.deepEqual(parseIndexPage(body, "jobs.lever.co"), ["trey-research"]);
+});
+
 test("pageTitle: an Ashby page's title loses its ' Jobs' suffix", () => {
   assert.equal(pageTitle(fixture("ashby-thyme-care-head.html"), "ashby"), "Thyme Care");
 });

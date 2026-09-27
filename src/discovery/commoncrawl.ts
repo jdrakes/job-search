@@ -44,7 +44,12 @@ export function parseIndexPage(body: string, host: string): string[] {
       continue;
     }
     if (url.host !== host) continue;
-    const segment = decodeURIComponent(url.pathname.split("/")[1] ?? "");
+    let segment: string;
+    try {
+      segment = decodeURIComponent(url.pathname.split("/")[1] ?? "");
+    } catch {
+      continue;
+    }
     if (segment === "" || NOT_BOARDS.has(segment.toLowerCase())) continue;
     ids.push(segment);
   }
