@@ -34,7 +34,7 @@ function posting(overrides: Partial<Posting> & Pick<Posting, "key">): Posting {
 }
 
 function company(overrides: Partial<Company> & Pick<Company, "name">): Company {
-  return { boards: [], reason: null, dropped_at: null, ...overrides };
+  return { boards: [], reason: null, dropped_at: null, peers_searched_at: null, ...overrides };
 }
 
 function candidate(overrides: Partial<Candidate> & Pick<Candidate, "id">): Candidate {

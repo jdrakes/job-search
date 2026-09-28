@@ -119,15 +119,18 @@ export const POSTING_LIST_FIELDS = POSTING_FIELDS.filter(
 export type PostingSummary = Omit<Posting, "body" | "body_hash" | "workplace" | "gone_at">;
 
 // `boards` is the processor's (discover writes it); `dropped_at` and
-// `reason` are the operator's and no publish writes them. Everything else
-// said of a company is derived: it is read when it is not dropped and has a
-// board (`readable`, companies.ts); where it came from and its aliases are
-// its candidates'.
+// `reason` are the operator's and no publish writes them; `peers_searched_at`
+// is peer expansion's (`scripts/peers.ts`), set once a company has been
+// searched as a seed, and the run never writes it. Everything else said of
+// a company is derived: it is read when it is not dropped and has a board
+// (`readable`, companies.ts); where it came from and its aliases are its
+// candidates'.
 export interface Company {
   readonly name: string;
   readonly boards: readonly Board[];
   readonly reason: string | null;
   readonly dropped_at: string | null;
+  readonly peers_searched_at: string | null;
 }
 
 export const COMPANY_FIELDS = [
@@ -135,6 +138,7 @@ export const COMPANY_FIELDS = [
   "boards",
   "reason",
   "dropped_at",
+  "peers_searched_at",
 ] as const satisfies readonly (keyof Company)[];
 
 // What discover made of a candidate. `wrong_company` is reserved for a

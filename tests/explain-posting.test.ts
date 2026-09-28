@@ -59,6 +59,7 @@ function company(name: string, overrides: Partial<Company> = {}): Company {
     boards: [{ platform: "greenhouse", id: "board" }],
     reason: null,
     dropped_at: null,
+    peers_searched_at: null,
     ...overrides,
   };
 }

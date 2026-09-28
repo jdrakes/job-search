@@ -22,6 +22,7 @@ function company(name: string, overrides: Partial<Company> = {}): Company {
     boards: [],
     reason: null,
     dropped_at: null,
+    peers_searched_at: null,
     ...overrides,
   };
 }
@@ -164,6 +165,7 @@ test("discover: a new name that probes to a board is watched, and its company wr
     boards: [{ platform: "lever", id: "acme" }],
     reason: null,
     dropped_at: null,
+    peers_searched_at: null,
   });
 });
 
@@ -328,7 +330,32 @@ test("discover: a gone candidate for a known company with no board is probed, an
     boards: [{ platform: "lever", id: "pocketly" }],
     reason: null,
     dropped_at: null,
+    peers_searched_at: null,
   });
+});
+
+// `addBoards` (the write behind both this case and the URL-match case
+// above) reads the current row and spreads it before setting `boards`, so a
+// company's peer-search fact rides along untouched; nothing about a board
+// being added should ever reset it. This is the one place discover.ts
+// writes an existing company's whole row, so it is the one place that
+// overwrite is possible if the spread were ever dropped.
+test("discover: adding a board to a company already searched for peers leaves peers_searched_at untouched", async () => {
+  const store = memoryStore({
+    companies: [company("Pocketly", { peers_searched_at: "2026-09-20T00:00:00.000Z" })],
+    candidates: [
+      candidate({
+        name: "Pocketly",
+        origin: "gone",
+        evidence: "board lever/pocketly answered gone",
+      }),
+    ],
+  });
+
+  await run(store, [], { responses: leverBoard("pocketly", "Pocketly") });
+
+  const row = await companyRow(store, "Pocketly");
+  assert.equal(row?.peers_searched_at, "2026-09-20T00:00:00.000Z");
 });
 
 test("discover: a gone candidate for a known company whose probe finds no board is no_board, and the company stays boardless", async () => {
@@ -548,6 +575,29 @@ test("unbind: each gone board leaves its company, siblings and rows kept, and ea
     "Wellspring Health",
   ]);
   assert.deepEqual(writes, ["candidates", "companies", "companies"]);
+});
+
+// `unbind` reads the current row and spreads it before setting `boards`
+// (`{ ...current, boards: kept }`, discover.ts), the same pattern
+// `addBoards` uses, so removing a gone board must not reset a company's
+// peer-search fact.
+test("unbind: removing a gone board leaves peers_searched_at untouched", async () => {
+  const store = memoryStore({
+    companies: [
+      company("Acme", {
+        boards: [
+          { platform: "greenhouse", id: "acme-gh" },
+          { platform: "lever", id: "acme-lv" },
+        ],
+        peers_searched_at: "2026-09-20T00:00:00.000Z",
+      }),
+    ],
+  });
+
+  await unbind(store, [{ company: "Acme", board: { platform: "greenhouse", id: "acme-gh" } }]);
+
+  const [row] = await store.select<Company>("companies", { name: "Acme" });
+  assert.equal(row?.peers_searched_at, "2026-09-20T00:00:00.000Z");
 });
 
 // Breaks if two gone boards of one company cost two read-modify-writes,

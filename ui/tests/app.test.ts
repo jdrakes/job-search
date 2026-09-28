@@ -926,6 +926,7 @@ const READ_COMPANY: Company = {
   boards: [{ platform: "greenhouse", id: "acme" }],
   reason: null,
   dropped_at: null,
+  peers_searched_at: null,
 };
 
 /** Opens the drop dialog on `name` and commits it with a reason. */
@@ -1208,6 +1209,7 @@ test("the Companies tab counts what is waiting, so a decision takes its posting 
         boards: [{ platform: "greenhouse", id: "acme" }],
         reason: null,
         dropped_at: null,
+        peers_searched_at: null,
       },
     ],
     criteria: CRITERIA_ROW,
@@ -1314,6 +1316,7 @@ test("no view skips a heading level under the page's one h1", async () => {
         boards: [{ platform: "greenhouse", id: "acme" }],
         reason: null,
         dropped_at: null,
+        peers_searched_at: null,
       },
     ],
     criteria: CRITERIA_ROW,

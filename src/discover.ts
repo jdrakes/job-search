@@ -525,7 +525,7 @@ async function writeCompany(
   boards: readonly Board[],
   registry: Registry,
 ): Promise<void> {
-  const row: Company = { name, boards, reason: null, dropped_at: null };
+  const row: Company = { name, boards, reason: null, dropped_at: null, peers_searched_at: null };
   await store.upsert("companies", [row]);
   registry.companies.set(nameKey(name), { name, dropped: false });
   for (const board of boards) registry.carriers.set(carrierKey(board), name);

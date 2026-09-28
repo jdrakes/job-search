@@ -163,7 +163,13 @@ test("the companies_derived migration leaves companies with name, boards and the
   // Pinned by hand, not through COMPANY_FIELDS: state, source, first_seen
   // and alias_of were three_stores and company_drop columns, so a
   // columnsOf that ignored their DROP COLUMN would still list them.
-  assert.deepEqual(columnsOf("companies"), ["name", "boards", "reason", "dropped_at"]);
+  assert.deepEqual(columnsOf("companies"), [
+    "name",
+    "boards",
+    "reason",
+    "dropped_at",
+    "peers_searched_at",
+  ]);
 });
 
 test("the migration drops the old criteria table before recreating it", () => {
