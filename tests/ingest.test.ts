@@ -138,6 +138,7 @@ function criteria(overrides: Partial<Criteria> = {}): Criteria {
     product_words: [],
     assumed_bonus_pct: null,
     updated_at: "2026-09-14T00:00:00Z",
+    full_read_at: "2026-09-14T00:00:00Z",
     ...overrides,
   };
 }
@@ -4526,4 +4527,157 @@ test("ingest and listExitCode: a failing board two companies share, beside a wor
     1,
     "every one of two boards failing is",
   );
+});
+
+// `full_read_at` against `updated_at` (`criteriaEdited`): a criteria edit
+// reaches every board at the next run, not the next Monday. Each case is a
+// Tuesday with one never-bound board whose only posting fails, so nothing
+// but the edit could read it.
+const WAITING_COMPANIES = [
+  company("Acme", { boards: [{ platform: "greenhouse", id: "acme-failing" }] }),
+];
+const WAITING_STORED = storedOn({ "greenhouse/acme-failing": [{ title: "Marketing Manager" }] });
+
+// Breaks if a criteria row never read in full (the column's null, as it is
+// the first run after the migration) is not treated as an edit.
+test("boardsToRead: full_read_at null reads every board on a Tuesday", () => {
+  const result = boardsToRead(
+    WAITING_COMPANIES,
+    WAITING_STORED,
+    criteria({ full_read_at: null }),
+    TUESDAY,
+    new Map(),
+  );
+
+  assert.deepEqual([...result], ["greenhouse::acme-failing"]);
+});
+
+// Breaks if the edit arm stays on once the edit has been read in full, which
+// would make every day a Monday.
+test("boardsToRead: full_read_at after updated_at leaves a non-producing board waiting", () => {
+  const result = boardsToRead(
+    WAITING_COMPANIES,
+    WAITING_STORED,
+    criteria({ updated_at: "2026-09-14T00:00:00Z", full_read_at: "2026-09-15T00:00:00Z" }),
+    TUESDAY,
+    new Map(),
+  );
+
+  assert.deepEqual([...result], []);
+});
+
+// Breaks if an edit after the last full read is missed, or if the two
+// timestamps are compared as text: full_read_at is 07:00Z spelled with a
+// +02:00 offset, an hour before updated_at, yet sorts after it as a string.
+test("boardsToRead: full_read_at before updated_at reads every board again", () => {
+  const result = boardsToRead(
+    WAITING_COMPANIES,
+    WAITING_STORED,
+    criteria({ updated_at: "2026-09-20T08:00:00.000Z", full_read_at: "2026-09-20T09:00:00+02:00" }),
+    TUESDAY,
+    new Map(),
+  );
+
+  assert.deepEqual([...result], ["greenhouse::acme-failing"]);
+});
+
+// Breaks if a missing criteria row counts as an edit: with nothing to judge
+// against, a Tuesday reads only newly bound boards, as before.
+test("boardsToRead: no criteria row adds no board", () => {
+  const result = boardsToRead(WAITING_COMPANIES, WAITING_STORED, undefined, TUESDAY, new Map());
+
+  assert.deepEqual([...result], []);
+});
+
+function waitingStore(full_read_at: string | null): Store {
+  return memoryStore({
+    companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "acme-failing" }] })],
+    postings: [
+      posting({
+        key: "greenhouse/acme-failing::1",
+        company: "Acme",
+        platform: "greenhouse",
+        board: "acme-failing",
+        title: "Marketing Manager",
+      }),
+    ],
+    criteria: [criteria({ updated_at: "2026-09-20T00:00:00Z", full_read_at })],
+  });
+}
+
+const EMPTY_READERS: Partial<Record<Platform, Reader>> = {
+  greenhouse: { platform: "greenhouse", list: async () => [] },
+};
+
+// Breaks if a run that read every board for an edit does not record it,
+// which would make every later run read every board too.
+test("ingest: a run that reads every board for a criteria edit writes full_read_at", async () => {
+  const { store, updates } = recording(waitingStore("2026-09-14T00:00:00Z"));
+
+  const result = await ingest(store, EMPTY_READERS, { today: TUESDAY, log: () => {} });
+
+  assert.equal(result.boardsToday, 1);
+  assert.equal(result.criteriaEdited, true);
+  assert.deepEqual(updates, [
+    { table: "criteria", key: "1", patch: { full_read_at: "2026-09-20T00:00:00Z" } },
+  ]);
+});
+
+// Breaks if the write is made on every run rather than only after an edit.
+test("ingest: a run with no pending criteria edit leaves full_read_at alone", async () => {
+  const { store, updates } = recording(waitingStore("2026-09-20T00:00:00Z"));
+
+  const result = await ingest(store, EMPTY_READERS, { today: TUESDAY, log: () => {} });
+
+  assert.equal(result.boardsToday, 0);
+  assert.equal(result.criteriaEdited, false);
+  assert.deepEqual(updates, []);
+});
+
+// Breaks if a run that read every board because a read failed marks the
+// edit as read in full: it read every board for its own reason, and the
+// edit must still be acted on by a run that chose to.
+test("ingest: a failed stored-postings read does not write full_read_at, even with an edit pending", async () => {
+  const inner = waitingStore(null);
+  const failing: Store = {
+    ...inner,
+    async select<T>(
+      table: Table,
+      eq?: Partial<Record<string, unknown>>,
+      columns?: readonly string[],
+    ) {
+      if (table === "postings") throw new Error("connection reset");
+      return inner.select<T>(table, eq, columns);
+    },
+  };
+  const { store, updates } = recording(failing);
+
+  const result = await ingest(store, EMPTY_READERS, { today: TUESDAY, log: () => {} });
+
+  assert.equal(result.boardsToday, 1);
+  assert.equal(result.criteriaEdited, false);
+  assert.deepEqual(updates, []);
+});
+
+// Breaks if a refused marker write is counted as an error: `listExitCode`
+// would count it against a day's boards, and with one board due a clean run
+// would exit as if every board failed.
+test("ingest: a refused full_read_at write is a log line, not an error", async () => {
+  const inner = waitingStore(null);
+  const refusing: Store = {
+    ...inner,
+    update: async () => ({ ok: false, reason: "permission denied" }),
+  };
+  const lines: string[] = [];
+
+  const result = await ingest(refusing, EMPTY_READERS, {
+    today: TUESDAY,
+    log: (line) => lines.push(line),
+  });
+
+  assert.deepEqual(result.errors, []);
+  assert.equal(listExitCode(result), 0);
+  assert.deepEqual(lines, [
+    "ingest: every board read for the criteria edit, but full_read_at not written: permission denied",
+  ]);
 });

@@ -208,9 +208,10 @@ async function main(): Promise<number> {
     console.error(`discover failed, ingesting anyway: ${describeError(error)}`);
   }
 
-  // `today` picks today's boards (`boardsToRead`, ingest.ts): Monday reads
-  // every board, another weekday only those that have ever produced or
-  // whose company was bound in the last week.
+  // `today` picks today's boards (`boardsToRead`, ingest.ts): Monday, or the
+  // first run after a criteria edit, reads every board; another run only
+  // those that have ever produced or whose company was bound in the last
+  // week.
   const result = await phase(
     "list",
     () => ingest(store, readers, { today: new Date() }),
@@ -224,6 +225,9 @@ async function main(): Promise<number> {
   console.log(
     `list: ${result.boardsToday} boards today, ${result.boardsWaiting} waiting for Monday`,
   );
+  if (result.criteriaEdited) {
+    console.log("list: every board read: criteria edited since the last full read");
+  }
   for (const error of result.errors) {
     console.log(`  ${error}`);
   }

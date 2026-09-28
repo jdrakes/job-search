@@ -1,7 +1,8 @@
 // Writes the one criteria row (id 1) from a JSON file: the documented way
 // to configure judging without the browser UI, and how an operator restores
 // their own criteria after moving instances. `id` and `updated_at` are not
-// accepted from the file; this script owns both.
+// accepted from the file; this script owns both. Nor is `full_read_at`: the
+// daily run owns it (20260928070000_criteria_full_read_at).
 import { readFile } from "node:fs/promises";
 import process from "node:process";
 
@@ -10,11 +11,13 @@ import { CRITERIA_FIELDS, type Criteria } from "../src/schema.ts";
 import { openStore } from "../src/store/open.ts";
 import type { Store } from "../src/store/store.ts";
 
-export type CriteriaInput = Omit<Criteria, "id" | "updated_at">;
+export type CriteriaInput = Omit<Criteria, "id" | "updated_at" | "full_read_at">;
 
 // Every Criteria column an operator supplies, in one place, so this list
 // and the schema cannot drift apart.
-const REQUIRED_KEYS = CRITERIA_FIELDS.filter((field) => field !== "id" && field !== "updated_at");
+const REQUIRED_KEYS = CRITERIA_FIELDS.filter(
+  (field) => field !== "id" && field !== "updated_at" && field !== "full_read_at",
+);
 
 const STRING_ARRAY_FIELDS = [
   "level_words",
@@ -106,7 +109,13 @@ export async function loadCriteriaFile(
   const result = parseCriteriaInput(parsed);
   if (!result.ok) return result;
 
-  const row: Criteria = { id: 1, updated_at: new Date().toISOString(), ...result.value };
+  // `full_read_at` is left out, so the upsert keeps the stored one and the
+  // new `updated_at` reads as an edit the next run acts on.
+  const row: Omit<Criteria, "full_read_at"> = {
+    id: 1,
+    updated_at: new Date().toISOString(),
+    ...result.value,
+  };
   await store.upsert("criteria", [row]);
   return { ok: true };
 }

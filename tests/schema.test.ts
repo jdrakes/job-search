@@ -144,7 +144,7 @@ test("the gone_at migration's DROP COLUMN statements remove postings.last_seen a
 });
 
 test("the migrations' ADD COLUMN statements append to CRITERIA_FIELDS in order", () => {
-  assert.equal(columnsOf("criteria").at(-1), "assumed_bonus_pct");
+  assert.equal(columnsOf("criteria").at(-1), "full_read_at");
 });
 
 test("the migrations' postings.platform CHECK matches PLATFORMS, in order", () => {
@@ -345,6 +345,27 @@ test(
     assert.deepEqual(
       attempts.map((attempt) => (attempt.ok ? "allowed" : attempt.code)),
       ["allowed", "42501"],
+    );
+  },
+);
+
+test(
+  "the list may read criteria.full_read_at and update comp_floor, but not update full_read_at",
+  testDbSkip === null ? {} : { skip: testDbSkip },
+  async () => {
+    // Breaks if the criteria_full_read_at migration is missing (the SELECT
+    // names a column that does not exist) or if a later grant adds
+    // full_read_at to authenticated's criteria UPDATE list: only the run
+    // writes it. comp_floor is the control, an operator column the list
+    // does write. Checked on privilege, before any row is read.
+    const attempts = await asTheList([
+      `SELECT "full_read_at" FROM "criteria"`,
+      `UPDATE "criteria" SET "comp_floor" = 1 WHERE true`,
+      `UPDATE "criteria" SET "full_read_at" = now() WHERE true`,
+    ]);
+    assert.deepEqual(
+      attempts.map((attempt) => (attempt.ok ? "allowed" : attempt.code)),
+      ["allowed", "allowed", "42501"],
     );
   },
 );

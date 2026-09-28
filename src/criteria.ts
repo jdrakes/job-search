@@ -1,5 +1,8 @@
 // The only reader of the `criteria` table: one row, id 1, read once per
-// run. Not written here: the row is authored in the Criteria view.
+// run. Not written here: the row is authored in the Criteria view, except
+// `full_read_at`, which the run that acts on an edit writes (`ingest`,
+// src/ingest.ts) and the Criteria view may read but not write
+// (20260928070000_criteria_full_read_at).
 import type { Criteria } from "./schema.ts";
 import type { Store } from "./store/store.ts";
 

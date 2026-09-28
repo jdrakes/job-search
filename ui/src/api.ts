@@ -331,7 +331,9 @@ export async function addCandidate(
   }
 }
 
-export type CriteriaPatch = Omit<Criteria, "id" | "updated_at">;
+// `full_read_at` is the run's; `authenticated` has no UPDATE grant on it
+// (20260928070000_criteria_full_read_at).
+export type CriteriaPatch = Omit<Criteria, "id" | "updated_at" | "full_read_at">;
 
 /** Stamps `updated_at` to now: saving re-judges every posting at the next run. */
 export async function saveCriteria(

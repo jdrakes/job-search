@@ -200,6 +200,10 @@ export interface Criteria {
   readonly product_words: readonly string[];
   readonly assumed_bonus_pct: number | null;
   readonly updated_at: string;
+  // Run-owned, unlike every other column here: the `updated_at` the last
+  // read of every board was made for (`criteriaEdited`, src/ingest.ts).
+  // Null until the first such read.
+  readonly full_read_at: string | null;
 }
 
 export const CRITERIA_FIELDS = [
@@ -216,6 +220,7 @@ export const CRITERIA_FIELDS = [
   "excluded_locations",
   "product_words",
   "assumed_bonus_pct",
+  "full_read_at",
 ] as const satisfies readonly (keyof Criteria)[];
 
 // Read by `src/store/memory.ts` to answer a select with the table's whole
