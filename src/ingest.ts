@@ -38,9 +38,8 @@ export interface IngestResult {
   readonly companies: number;
   readonly listed: number;
   readonly recorded: number;
-  // Stored postings deleted this run because their board's read listed them
-  // and their title and place no longer pass (see `listCompany`). A key two
-  // companies' shared board both pruned counts once.
+  // Stored postings deleted this run: not kept, not acted on, and their
+  // title and place fail (`prunable`), whether or not a read listed them.
   readonly pruned: number;
   readonly errors: readonly string[];
   // Every board that answered gone this run, with its company's name. The
@@ -539,16 +538,35 @@ function passesTitleAndPlace(posting: TitleAndPlace, criteria: Criteria): boolea
   );
 }
 
-// Whether a listing is stored at all (#287): its title and place pass. The
-// pay judged is the one `toRow` leaves on the row: the listing's own when it
-// states a body or a band, else the stored band. A two-phase board states pay
-// only on the detail `judgeAll` fetches, and only for a stored posting, so a
-// listing with no pay there is judged at the floor, as `wantsBody` does;
-// without this a numbered or Senior title on such a board would never be
-// stored, never fetched, and never found. A reader wrapped for another
-// board's detail read (`withDetailReads`) gets the floor pass too: that
-// stores more, never less.
-function admits(
+// Whether a posting is stored at all (#287): its title and place pass. A
+// posting whose pay is not yet knowable is judged at the floor instead, as
+// `wantsBody` does: a two-phase board states pay only on the detail
+// `judgeAll` fetches, and only for a stored posting, so without this a
+// numbered or Senior title on such a board would never be stored, never
+// fetched, and never found. Once the detail was read and still states no
+// pay, the posting is judged like any other.
+function admits(posting: TitleAndPlace, awaitingDetail: boolean, criteria: Criteria): boolean {
+  if (passesTitleAndPlace(posting, criteria)) return true;
+  return (
+    awaitingDetail &&
+    posting.comp_high === null &&
+    passesTitleAndPlace({ ...posting, comp_high: criteria.comp_floor }, criteria)
+  );
+}
+
+// Whether a posting's detail may still state its pay: its reader can fetch
+// a detail, and `judgeAll` has not judged it since it was listed (a judged
+// posting on such a board has had its detail read). A reader having `body`
+// is not enough alone: `withDetailReads` wraps a whole platform for one
+// board's detail read, so every Greenhouse posting's reader has one; a
+// listing that carries its body is one-phase whatever its reader.
+function awaitsDetail(reader: Reader | undefined, judgedWith: string | null): boolean {
+  return reader?.body !== undefined && judgedWith === null;
+}
+
+// A listing is judged on the pay `toRow` leaves on its row: the listing's own
+// when it states a body or a band, else the stored band.
+function listingAdmits(
   listing: Listing,
   stored: StoredListing | undefined,
   criteria: Criteria,
@@ -557,12 +575,32 @@ function admits(
   const statesPay = listing.body !== null || listing.compLow !== null || listing.compHigh !== null;
   const compHigh = statesPay ? wholeDollars(listing.compHigh) : (stored?.comp_high ?? null);
   const posting = { title: listing.title, location: listing.location, comp_high: compHigh };
-  if (passesTitleAndPlace(posting, criteria)) return true;
-  return (
-    compHigh === null &&
-    reader.body !== undefined &&
-    passesTitleAndPlace({ ...posting, comp_high: criteria.comp_floor }, criteria)
-  );
+  const awaitingDetail = listing.body === null && awaitsDetail(reader, stored?.judged_with ?? null);
+  return admits(posting, awaitingDetail, criteria);
+}
+
+// A stored posting nothing reads is deleted (#287; Design, Data: the store
+// holds "every posting the title and place checks admit, and every one James
+// acted on"): not kept, no status, and its title and place fail on what is
+// stored. A key a read listed this run goes by that listing's verdict
+// instead (`admitted`, `rejected`), since the stored title may be the one
+// the listing replaces. A board need not be read for its postings to be
+// pruned: a gone posting, one on a board waiting for Monday, and one of a
+// dropped company are decided on their stored row alone.
+function prunable(
+  stored: ReadonlyMap<string, StoredListing>,
+  admitted: ReadonlySet<string>,
+  rejected: ReadonlySet<string>,
+  criteria: Criteria,
+  readers: Partial<Record<Platform, Reader>>,
+): string[] {
+  const keys: string[] = [];
+  for (const [key, row] of stored) {
+    if (row.kept === true || row.status !== null || admitted.has(key)) continue;
+    const awaitingDetail = awaitsDetail(readers[row.platform], row.judged_with);
+    if (rejected.has(key) || !admits(row, awaitingDetail, criteria)) keys.push(key);
+  }
+  return keys;
 }
 
 // Milliseconds in a day, for `boundRecently`'s week window.
@@ -613,7 +651,8 @@ export function boardsToRead(
     for (const board of boardsOf(company)) {
       const postings = [...(storedByBoard.get(storedPrefix(board))?.values() ?? [])];
       const producing =
-        criteria !== undefined && postings.some((posting) => passesTitleAndPlace(posting, criteria));
+        criteria !== undefined &&
+        postings.some((posting) => passesTitleAndPlace(posting, criteria));
       if (isMonday || recent || producing) read.add(boardKey(board));
     }
   }
@@ -623,8 +662,10 @@ export function boardsToRead(
 interface ListedCompany {
   readonly listed: number;
   readonly recorded: number;
-  // Keys deleted, for `ingest` to count once across companies.
-  readonly pruned: readonly string[];
+  // Every key this company's reads listed, by whether its title and place
+  // pass; see `prunable`.
+  readonly admitted: ReadonlySet<string>;
+  readonly rejected: ReadonlySet<string>;
   readonly errors: readonly string[];
   readonly gone: readonly GoneBoard[];
 }
@@ -650,8 +691,9 @@ async function listCompany(
   // Postgres refuses an upsert batch naming one key twice, so the batch is
   // keyed like the store: the last listing for a key wins.
   const batch = new Map<string, ListedRow | GoneRow>();
-  // Stored postings a read listed that are no longer admitted; see below.
-  const prune = new Set<string>();
+  // Every key a read listed, by its title-and-place verdict (`prunable`).
+  const admitted = new Set<string>();
+  const rejected = new Set<string>();
 
   for (const board of boardsOf(company)) {
     // Waiting for Monday: not read, not marked gone, no error.
@@ -695,20 +737,20 @@ async function listCompany(
       seenKeys.add(key);
       const before = stored.get(key);
       // Only a posting whose title and place pass is stored (#287). One that
-      // fails is not written when new, and deleted when stored unless it is
-      // acted on or kept: those go on as before, and `judgeAll` re-judges
-      // them. Collected only here, after a read that answered, so
-      // a failed read deletes nothing. A key the same read lists twice goes
-      // by its last listing, as the batch does.
-      if (criteria !== undefined && !admits(listing, before, criteria, reader)) {
+      // fails is not written when new; stored, it is not written unless it
+      // is acted on or kept (those go on as before, and `judgeAll` re-judges
+      // them), and `ingest`'s prune deletes it. A key the same read lists
+      // twice goes by its last listing, as the batch does.
+      if (criteria !== undefined && !listingAdmits(listing, before, criteria, reader)) {
+        rejected.add(key);
+        admitted.delete(key);
         batch.delete(key);
         if (before === undefined) continue;
-        if (before.kept !== true && before.status === null) {
-          prune.add(key);
-          continue;
-        }
+        if (before.kept !== true && before.status === null) continue;
+      } else {
+        admitted.add(key);
+        rejected.delete(key);
       }
-      prune.delete(key);
       const row = toRow(company.name, board, listing, now(), before, criteria);
       if (row !== null) batch.set(key, row);
     }
@@ -716,8 +758,9 @@ async function listCompany(
     // Only here, after a read that answered: a failed read says nothing
     // about which postings are still up. Goes in the same upsert as the
     // listed rows. A posting already marked keeps its first mark and gets
-    // no write. A pruned key was listed, so it is in `seenKeys` and never
-    // marked here.
+    // no write. A key `ingest` prunes this run may be marked here first: the
+    // prune runs once every company's upsert has landed, so no mark can
+    // follow a delete and recreate the key as a stub.
     for (const [key, before] of storedByBoard.get(storedPrefix(board)) ?? []) {
       if (seenKeys.has(key) || before.gone_at !== null) continue;
       batch.set(key, {
@@ -733,7 +776,6 @@ async function listCompany(
   // A refused upsert is one error line, not a thrown run: a throw would
   // reject the platforms' `Promise.all` while the other workers kept
   // listing unobserved.
-  // The delete runs whether or not the upsert landed: no key is in both.
   const rows = [...batch.values()];
   let recorded = rows.length;
   try {
@@ -742,20 +784,14 @@ async function listCompany(
     errors.push(`${company.name}: recording ${rows.length} postings: ${describeError(err)}`);
     recorded = 0;
   }
-  const keys = [...prune];
-  let pruned: readonly string[] = keys;
-  try {
-    if (keys.length > 0) await store.delete("postings", keys);
-  } catch (err) {
-    errors.push(`${company.name}: pruning ${keys.length} postings: ${describeError(err)}`);
-    pruned = [];
-  }
-  return { listed, recorded, pruned, errors, gone };
+  return { listed, recorded, admitted, rejected, errors, gone };
 }
 
 // Every column a re-list can write, bar `body`: `body_hash` stands for it.
 interface StoredListing {
   readonly company: string;
+  // Which reader `prunable` asks whether a detail may still state pay.
+  readonly platform: Platform;
   readonly title: string | null;
   readonly url: string | null;
   readonly location: string | null;
@@ -764,14 +800,17 @@ interface StoredListing {
   readonly comp_low: number | null;
   readonly comp_high: number | null;
   readonly workplace: Workplace | null;
-  // `kept` and `status` spare a posting from pruning; see `listCompany`.
+  // `kept` and `status` spare a posting from pruning; see `prunable`.
   readonly kept: boolean | null;
   readonly status: Status | null;
   readonly gone_at: string | null;
+  // Null until `judgeAll` judges it: a two-phase posting's detail is unread.
+  readonly judged_with: string | null;
 }
 
 const STORED_LISTING_COLUMNS = [
   "company",
+  "platform",
   "title",
   "url",
   "location",
@@ -783,6 +822,7 @@ const STORED_LISTING_COLUMNS = [
   "kept",
   "status",
   "gone_at",
+  "judged_with",
 ] as const satisfies readonly (keyof StoredListing)[];
 type StoredListingColumn = (typeof STORED_LISTING_COLUMNS)[number];
 
@@ -798,6 +838,7 @@ async function storedListings(store: Store): Promise<Map<string, StoredListing>>
       row.key,
       {
         company: row.company,
+        platform: row.platform,
         title: row.title,
         url: row.url,
         location: row.location,
@@ -809,6 +850,7 @@ async function storedListings(store: Store): Promise<Map<string, StoredListing>>
         kept: row.kept,
         status: row.status,
         gone_at: row.gone_at,
+        judged_with: row.judged_with,
       },
     ]),
   );
@@ -862,7 +904,7 @@ export async function ingest(
     stored = await storedListings(store);
   } catch (err) {
     errors.push(
-      `reading stored body hashes: ${describeError(err)}; every body will be rewritten this run, band and workplace changes go undetected, no posting is marked gone, and every board is read`,
+      `reading stored body hashes: ${describeError(err)}; every body will be rewritten this run, band and workplace changes go undetected, no posting is marked gone or pruned, and every board is read`,
     );
     stored = new Map();
     readFailed = true;
@@ -948,12 +990,32 @@ export async function ingest(
 
   // Same input, same error lines in the same order every run.
   const results = walked.flat();
+
+  // One prune per run, once every company's upsert has landed (`prunable`).
+  // A key one read admitted and another rejected (two companies carrying one
+  // board, its listing changed between their reads) was written by the one
+  // that admitted it, so it stays. With no criteria row nothing is judged,
+  // and with a failed stored read `stored` is empty: either way nothing is
+  // deleted.
+  const admitted = new Set(results.flatMap((result) => [...result.admitted]));
+  const rejected = new Set(results.flatMap((result) => [...result.rejected]));
+  const keys =
+    criteria === undefined ? [] : prunable(stored, admitted, rejected, criteria, readers);
+  let pruned = keys.length;
+  const pruneErrors: string[] = [];
+  try {
+    if (keys.length > 0) await store.delete("postings", keys);
+  } catch (err) {
+    pruneErrors.push(`pruning ${keys.length} postings: ${describeError(err)}`);
+    pruned = 0;
+  }
+
   return {
     companies: companies.length,
     listed: results.reduce((sum, result) => sum + result.listed, 0),
     recorded: results.reduce((sum, result) => sum + result.recorded, 0),
-    pruned: new Set(results.flatMap((result) => result.pruned)).size,
-    errors: [...errors, ...results.flatMap((result) => result.errors)],
+    pruned,
+    errors: [...errors, ...results.flatMap((result) => result.errors), ...pruneErrors],
     gone: results.flatMap((result) => result.gone),
     boardsToday,
     boardsWaiting,

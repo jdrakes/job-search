@@ -1242,7 +1242,7 @@ test("ingest: a failed hash read logs an error and lists with every body written
       if (
         table === "postings" &&
         columns?.join(",") ===
-          "key,company,title,url,location,posted_at,body_hash,comp_low,comp_high,workplace,kept,status,gone_at"
+          "key,company,platform,title,url,location,posted_at,body_hash,comp_low,comp_high,workplace,kept,status,gone_at,judged_with"
       ) {
         throw new Error("column postings.body_hash does not exist");
       }
@@ -2601,7 +2601,7 @@ test("ingest: the judging pass reads every posting without its body", async () =
   // Two sweeps: ingest's own `key, body_hash` read and the judging pass's;
   // neither reads by key.
   assert.equal(sweeps.length, 2, "ingest and judging each sweep the table once");
-  const judgingSweep = sweeps.find((call) => call.columns?.includes("judged_with"));
+  const judgingSweep = sweeps.find((call) => call.columns?.includes("first_seen"));
   // `body` is not on the list, which is the point of the sweep.
   assert.deepEqual(judgingSweep?.columns, [
     "key",
@@ -2639,7 +2639,15 @@ test("ingest: reads a stored body only for the postings the listing criteria kep
           title: "Staff Backend Engineer",
           body: "This is a fully remote position open to candidates anywhere in the US.",
         }),
-        posting({ key: "Acme::eng1", company: "Acme", title: "Staff Engineer" }),
+        // Dropped by the listing criteria on its pay, not its title and
+        // place, so the prune (#287) leaves it for the judging pass.
+        posting({
+          key: "Acme::eng1",
+          company: "Acme",
+          title: "Staff Platform Engineer",
+          comp_low: 50_000,
+          comp_high: 60_000,
+        }),
       ],
       criteria: [criteria()],
     }),
@@ -3506,8 +3514,9 @@ test("ingest: a stored posting its title now rejects, never acted on, is deleted
   assert.deepEqual(await store.select<Posting>("postings"), []);
 });
 
-// Breaks if pruning is decided before, or regardless of, a read answering.
-test("ingest: a board whose read fails deletes none of its stored postings its title rejects", async () => {
+// Breaks if the prune is tied to a board's read answering: a posting's title
+// and place are on its stored row, so a failed read cannot hide a rejection.
+test("ingest: a stored posting its title rejects is pruned even when its board's read fails", async () => {
   const store = memoryStore({
     companies: [ACME],
     postings: [storedSenior("b1")],
@@ -3525,11 +3534,198 @@ test("ingest: a board whose read fails deletes none of its stored postings its t
   const result = await ingest(store, readers, { now: tickingClock(), today: MONDAY });
 
   assert.equal(result.errors.length, 1);
-  assert.equal(result.pruned, 0);
+  assert.equal(result.pruned, 1);
+  assert.deepEqual(await store.select<Posting>("postings"), []);
+});
+
+// Breaks if the prune covers only keys a read listed: a gone posting, a
+// legacy key and a dropped company's posting are listed by no read, and
+// Design, Data holds only what the title and place checks admit or James
+// acted on. Breaks too if `kept` or `status` stops sparing an unlisted one.
+test("ingest: every stored posting its title rejects is pruned whether or not a read lists it; kept and acted-on ones stay", async () => {
+  const store = memoryStore({
+    companies: [ACME],
+    postings: [
+      storedSenior("gone"),
+      storedSenior("gone-kept", { kept: true }),
+      storedSenior("gone-applied", { status: "applied" }),
+      storedSenior("legacy", { key: "Acme::legacy" }),
+      storedSenior("x", {
+        key: "greenhouse/dropped-gh::x",
+        company: "Dropped",
+        board: "dropped-gh",
+      }),
+    ],
+    criteria: [EXCLUDES_SENIOR],
+  });
+
+  const result = await ingest(store, oneBoard([admitted("a")]), {
+    now: tickingClock(),
+    today: MONDAY,
+  });
+
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.pruned, 3);
   const rows = await store.select<Posting>("postings");
+  assert.deepEqual(
+    rows.map((row) => [row.key, row.gone_at]),
+    [
+      ["greenhouse/acme-gh::a", null],
+      ["greenhouse/acme-gh::gone-applied", "2026-09-18T06:00:00.000Z"],
+      ["greenhouse/acme-gh::gone-kept", "2026-09-18T06:00:00.000Z"],
+    ],
+  );
+});
+
+// Breaks if the prune decides a listed key on its stored title rather than
+// the title the read just listed: the first would delete a posting the
+// listing now admits, the second keep one it now rejects for another run.
+test("ingest: a listed posting is pruned or kept by its listed title, not its stored one", async () => {
+  const store = memoryStore({
+    companies: [ACME],
+    postings: [storedSenior("b1"), storedSenior("b2", { title: "Staff Backend Engineer b2" })],
+    criteria: [EXCLUDES_SENIOR],
+  });
+
+  const result = await ingest(store, oneBoard([admitted("b1"), keptListing("b2")]), {
+    now: tickingClock(),
+    today: MONDAY,
+  });
+
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.pruned, 1);
+  const rows = await store.select<Posting>("postings");
+  assert.deepEqual(
+    rows.map((row) => [row.key, row.title]),
+    [["greenhouse/acme-gh::b1", "Staff Backend Engineer b1"]],
+  );
+});
+
+// Breaks if a failed stored read prunes: with no stored rows to judge,
+// nothing can be told apart from a posting that should stay.
+test("ingest: a failed stored-postings read deletes nothing", async () => {
+  const inner = memoryStore({
+    companies: [ACME],
+    postings: [storedSenior("b1")],
+    criteria: [EXCLUDES_SENIOR],
+  });
+  let deletes = 0;
+  const store: Store = {
+    ...inner,
+    async select<T>(
+      table: Table,
+      eq?: Partial<Record<string, unknown>>,
+      columns?: readonly string[],
+    ) {
+      if (table === "postings" && columns?.includes("body_hash") === true) {
+        throw new Error("connection reset");
+      }
+      return inner.select<T>(table, eq, columns);
+    },
+    async delete(table, keys) {
+      deletes += 1;
+      return inner.delete(table, keys);
+    },
+  };
+
+  const result = await ingest(store, oneBoard([]), { today: MONDAY });
+
+  assert.match(result.errors[0] ?? "", /reading stored body hashes: connection reset/);
+  assert.equal(result.pruned, 0);
+  assert.equal(deletes, 0);
+  const rows = await inner.select<Posting>("postings");
   assert.deepEqual(
     rows.map((row) => row.key),
     ["greenhouse/acme-gh::b1"],
+  );
+});
+
+// The operator's setup (`withDetailReads`): one board's detail read wraps
+// the whole Greenhouse reader, so every Greenhouse board's reader has a
+// `body`. Breaks if the floor pass is gated on the reader alone: a listing
+// that carries its body has stated all the pay it will, so a Senior title
+// with none is rejected like any one-phase listing's.
+test("ingest: a Greenhouse Senior posting with no pay and a body is not stored on a platform wrapped for a detail read", async () => {
+  const store = memoryStore({ companies: [ACME], criteria: [criteria()] });
+  const readers: Partial<Record<Platform, Reader>> = {
+    greenhouse: {
+      platform: "greenhouse",
+      list: async () => [listing("b1", { title: "Senior Backend Engineer", body: KEPT_BODY })],
+      body: async () => null,
+    },
+  };
+
+  const result = await ingest(store, readers, { today: MONDAY });
+
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.recorded, 0);
+  assert.deepEqual(await store.select<Posting>("postings"), []);
+});
+
+// A two-phase board stating pay only on its detail: `nopay` states none,
+// `paid` states a band above `criteria()`'s floor.
+function seniorTwoPhaseReader(): { readonly reader: Reader; readonly fetched: string[] } {
+  const fetched: string[] = [];
+  return {
+    reader: {
+      platform: "workday",
+      list: async () => [
+        listing("nopay", { title: "Senior Backend Engineer" }),
+        listing("paid", { title: "Senior Platform Engineer" }),
+      ],
+      body: async (_board, id) => {
+        fetched.push(id);
+        const pay = id === "paid" ? " The salary range is $250,000 - $300,000." : "";
+        return listing(id, { body: `Remote in the US.${pay}` });
+      },
+    },
+    fetched,
+  };
+}
+
+const TWO_PHASE_ACME = company("Acme", { boards: [{ platform: "workday", id: "acme-wd" }] });
+
+// Breaks if the floor pass needs a judged posting, or reads `judged_with`
+// as the detail having been read while it is still null: a posting relisted
+// before its first judging would be pruned before its pay was ever seen.
+test("ingest: a two-phase Senior posting awaiting its first detail is stored and survives a relist", async () => {
+  const store = memoryStore({ companies: [TWO_PHASE_ACME], criteria: [criteria()] });
+  const { reader } = seniorTwoPhaseReader();
+  const readers: Partial<Record<Platform, Reader>> = { workday: reader };
+
+  const first = await ingest(store, readers, { today: MONDAY });
+  const second = await ingest(store, readers, { today: MONDAY });
+
+  assert.equal(first.recorded, 2);
+  assert.equal(second.pruned, 0);
+  const rows = await store.select<Posting>("postings");
+  assert.deepEqual(
+    rows.map((row) => [row.key, row.judged_with]),
+    [
+      ["workday/acme-wd::nopay", null],
+      ["workday/acme-wd::paid", null],
+    ],
+  );
+});
+
+// Breaks if the floor pass outlives the detail read: a posting whose detail
+// stated no pay would be stored and never pruned.
+test("ingest: a two-phase Senior posting whose detail was read and states no pay is pruned; one stating pay stays", async () => {
+  const store = memoryStore({ companies: [TWO_PHASE_ACME], criteria: [criteria()] });
+  const { reader, fetched } = seniorTwoPhaseReader();
+  const readers: Partial<Record<Platform, Reader>> = { workday: reader };
+
+  await ingest(store, readers, { today: MONDAY });
+  const judging = await judgeAll(store, readers);
+  const result = await ingest(store, readers, { today: MONDAY });
+
+  assert.deepEqual(judging.errors, []);
+  assert.deepEqual(fetched, ["nopay", "paid"]);
+  assert.equal(result.pruned, 1);
+  const rows = await store.select<Posting>("postings");
+  assert.deepEqual(
+    rows.map((row) => [row.key, row.comp_high, row.kept]),
+    [["workday/acme-wd::paid", 300_000, true]],
   );
 });
 
@@ -3564,7 +3760,7 @@ test("ingest: a stored posting its title rejects is never deleted while kept or 
 test("ingest: with no criteria row every listing is stored, nothing is deleted, and one line says so", async () => {
   const store = memoryStore({
     companies: [ACME, company("Globex", { boards: [{ platform: "greenhouse", id: "globex-gh" }] })],
-    postings: [storedSenior("b1")],
+    postings: [storedSenior("b1"), storedSenior("unlisted")],
   });
   const lines: string[] = [];
 
@@ -3586,6 +3782,7 @@ test("ingest: with no criteria row every listing is stored, nothing is deleted, 
     [
       "greenhouse/acme-gh::b1",
       "greenhouse/acme-gh::b2",
+      "greenhouse/acme-gh::unlisted",
       "greenhouse/globex-gh::b1",
       "greenhouse/globex-gh::b2",
     ],
@@ -3610,6 +3807,38 @@ test("ingest: a rejected posting on a board two companies carry counts as pruned
   assert.deepEqual(await store.select<Posting>("postings"), []);
 });
 
+// Breaks if a gone mark can follow a delete: the first company's read lists
+// the rejected key and the second's, of the same board, no longer does, so
+// its gone sweep names the key. Deleted before that sweep, the mark's upsert
+// would insert it back as a stub.
+test("ingest: a pruned key is never marked gone back into the store by a second company carrying its board", async () => {
+  const store = memoryStore({
+    companies: [
+      company("Acme", { boards: [{ platform: "greenhouse", id: "acme-gh" }] }),
+      company("Acme Labs", { boards: [{ platform: "greenhouse", id: "acme-gh" }] }),
+    ],
+    postings: [storedSenior("b1")],
+    criteria: [EXCLUDES_SENIOR],
+  });
+  let reads = 0;
+  const readers: Partial<Record<Platform, Reader>> = {
+    greenhouse: {
+      platform: "greenhouse",
+      list: async () => {
+        reads += 1;
+        return reads === 1 ? [keptListing("b1")] : [];
+      },
+    },
+  };
+
+  const result = await ingest(store, readers, { now: tickingClock(), today: MONDAY });
+
+  assert.equal(reads, 2);
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.pruned, 1);
+  assert.deepEqual(await store.select<Posting>("postings"), []);
+});
+
 // Breaks if a refused delete throws the run, or skips the company's upsert.
 test("ingest: a refused delete is one error line, prunes nothing, and the listed rows still land", async () => {
   const inner = memoryStore({
@@ -3627,7 +3856,7 @@ test("ingest: a refused delete is one error line, prunes nothing, and the listed
   });
 
   assert.equal(result.errors.length, 1);
-  assert.match(result.errors[0] ?? "", /Acme: pruning 1 postings: refused/);
+  assert.match(result.errors[0] ?? "", /^pruning 1 postings: refused/);
   assert.equal(result.pruned, 0);
   assert.equal(result.recorded, 1);
   const rows = await inner.select<Posting>("postings");
@@ -4118,6 +4347,9 @@ test("ingest: a board with no producing posting waits for Monday, is never read,
         platform: "greenhouse",
         board: "acme-failing",
         title: "Marketing Manager",
+        // Acted on, so the prune (#287) keeps it and the board still
+        // produces nothing its title and place pass.
+        status: "applied",
       }),
     ],
     criteria: [criteria()],
