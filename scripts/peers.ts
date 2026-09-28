@@ -33,6 +33,7 @@ export interface SeedsOutput {
     readonly level_words: readonly string[];
     readonly role_words: readonly string[];
     readonly comp_floor: number;
+    readonly assumed_bonus_pct: number | null;
   };
   readonly seeds: readonly Seed[];
   readonly known: readonly string[];
@@ -106,11 +107,11 @@ export async function readSeeds(
     ...companies.map((company) => company.name),
     ...candidates.map((candidate) => candidate.name).filter((name) => name !== null),
   ];
-  const { level_words, role_words, comp_floor } = criteria.value;
+  const { level_words, role_words, comp_floor, assumed_bonus_pct } = criteria.value;
   return {
     ok: true,
     value: {
-      criteria: { level_words, role_words, comp_floor },
+      criteria: { level_words, role_words, comp_floor, assumed_bonus_pct },
       seeds: seedsOf(postings, companies),
       known: [...new Set(names)].sort(),
     },

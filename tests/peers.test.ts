@@ -42,7 +42,7 @@ test("seedsOf: a searched company and a company with no row are not seeds", () =
   assert.deepEqual(seedsOf(postings, companies), [{ name: "Globex", roles: ["Staff Engineer"] }]);
 });
 
-test("readSeeds: prints three criteria fields and every company and candidate name as known", async () => {
+test("readSeeds: prints four criteria fields and every company and candidate name as known", async () => {
   const store = memoryStore({
     criteria: [
       {
@@ -51,6 +51,7 @@ test("readSeeds: prints three criteria fields and every company and candidate na
         role_words: ["engineer"],
         excluded_title_words: ["intern"],
         comp_floor: 200000,
+        assumed_bonus_pct: 15,
       },
     ],
     companies: [company("Globex"), company("Acme")],
@@ -67,7 +68,12 @@ test("readSeeds: prints three criteria fields and every company and candidate na
   assert.deepEqual(result, {
     ok: true,
     value: {
-      criteria: { level_words: ["staff"], role_words: ["engineer"], comp_floor: 200000 },
+      criteria: {
+        level_words: ["staff"],
+        role_words: ["engineer"],
+        comp_floor: 200000,
+        assumed_bonus_pct: 15,
+      },
       seeds: [{ name: "Acme", roles: ["Staff Engineer"] }],
       known: ["Acme", "Globex", "Hooli"],
     },

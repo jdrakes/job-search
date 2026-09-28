@@ -19,7 +19,12 @@ One JSON object, exactly this shape:
 
 ```json
 {
-  "criteria": { "level_words": ["..."], "role_words": ["..."], "comp_floor": 0 },
+  "criteria": {
+    "level_words": ["..."],
+    "role_words": ["..."],
+    "comp_floor": 0,
+    "assumed_bonus_pct": null
+  },
   "seeds": [{ "name": "...", "roles": ["..."] }],
   "boards_file": "/absolute/path/to/src/discovery/boards.ts"
 }
@@ -28,7 +33,10 @@ One JSON object, exactly this shape:
 - `criteria.level_words` and `criteria.role_words`: a posting is at the
   searcher's level and role when its title carries one word from each.
 - `criteria.comp_floor`: yearly pay in US dollars. A stated range passes
-  when its top is at or above the floor.
+  when its top is at or above the floor, or reaches the floor with a
+  bonus (below).
+- `criteria.assumed_bonus_pct`: a fallback bonus rate, or `null` when
+  none applies. See the pay rule below.
 - `seeds[].roles`: the titles applied to at that seed. They say which kind
   of work the searcher wants from the seed's peers.
 
@@ -49,9 +57,31 @@ beyond them, and you do not guess.
    - remote work open to someone in the United States (the posting says
      remote and names the US, or a US-wide remote location).
 
-   When that posting, or another one there, states pay, record it; a
-   stated range whose top is below `comp_floor` rules that posting out.
-   Pay not stated is not a reason to drop a peer.
+   When that posting, or another one there, states pay, record it. A
+   stated range whose top is at or above `comp_floor` passes outright.
+   A stated range whose top is below `comp_floor` still passes when a
+   bonus brings it to the floor:
+   - The posting states its own bonus rate (e.g. "target bonus of 20%",
+     "15% annual bonus", "bonus target 10%") — use the highest rate
+     stated, capped at 50 (a higher figure is a weighting or a sales
+     plan, not an engineer's bonus). A rate the posting states this way
+     is used even when `assumed_bonus_pct` would give a different
+     number.
+   - Failing that, when `assumed_bonus_pct` is not `null` and the
+     posting mentions a bonus tied to pay — an annual, target,
+     performance, discretionary, variable, cash, company or quarterly
+     bonus, or a bonus plan/program/structure, named near "salary",
+     "compensation", "base", "pay" or "equity" — use
+     `assumed_bonus_pct`. A signing, referral, retention, relocation,
+     spot or holiday bonus is not pay for the work and does not count,
+     and neither does a sentence that says the range excludes bonuses.
+   - Either way, the range's top times one plus the rate over 100 must
+     reach `comp_floor` for the peer to pass.
+   - No stated or assumed bonus applies, or applying it still falls
+     short: the posting rules the peer out.
+
+   Pay not stated anywhere on the peer's board is not a reason to drop
+   it.
 
 4. The board URL is the address of that posting or of the board itself on
    an applicant tracking system, as you opened it. Read `boards_file`,
