@@ -30,7 +30,12 @@ A nonzero exit stops here: show James its stderr. The file holds:
 
 ```json
 {
-  "criteria": { "level_words": ["..."], "role_words": ["..."], "comp_floor": 0 },
+  "criteria": {
+    "level_words": ["..."],
+    "role_words": ["..."],
+    "comp_floor": 0,
+    "assumed_bonus_pct": null
+  },
   "seeds": [{ "name": "...", "roles": ["..."] }],
   "known": ["..."]
 }
