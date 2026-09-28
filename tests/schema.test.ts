@@ -163,7 +163,13 @@ test("the companies_derived migration leaves companies with name, boards and the
   // Pinned by hand, not through COMPANY_FIELDS: state, source, first_seen
   // and alias_of were three_stores and company_drop columns, so a
   // columnsOf that ignored their DROP COLUMN would still list them.
-  assert.deepEqual(columnsOf("companies"), ["name", "boards", "reason", "dropped_at"]);
+  assert.deepEqual(columnsOf("companies"), [
+    "name",
+    "boards",
+    "reason",
+    "dropped_at",
+    "peers_searched_at",
+  ]);
 });
 
 test("the migration drops the old criteria table before recreating it", () => {
@@ -320,6 +326,25 @@ test(
     assert.deepEqual(
       attempts.map((attempt) => (attempt.ok ? "allowed" : attempt.code)),
       ["42501", "42501", "42501"],
+    );
+  },
+);
+
+test(
+  "the list may update a company's peers_searched_at but not its boards",
+  testDbSkip === null ? {} : { skip: testDbSkip },
+  async () => {
+    // Breaks if the peers_searched_at migration's GRANT is dropped, or if a
+    // later grant widens authenticated's UPDATE to `boards`, which only the
+    // run writes. Checked on privilege, before any row is read, so an empty
+    // table proves both.
+    const attempts = await asTheList([
+      `UPDATE "companies" SET "peers_searched_at" = now() WHERE true`,
+      `UPDATE "companies" SET "boards" = '[]'::jsonb WHERE true`,
+    ]);
+    assert.deepEqual(
+      attempts.map((attempt) => (attempt.ok ? "allowed" : attempt.code)),
+      ["allowed", "42501"],
     );
   },
 );
