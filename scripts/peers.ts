@@ -17,6 +17,7 @@ import { readFile } from "node:fs/promises";
 import process from "node:process";
 
 import { loadCriteria } from "../src/criteria.ts";
+import { parseBoardUrl } from "../src/discovery/boards.ts";
 import { describeError } from "../src/errors.ts";
 import type { Candidate, Company, Posting } from "../src/schema.ts";
 import { openStore } from "../src/store/open.ts";
@@ -146,10 +147,14 @@ function candidateProblem(entry: unknown): string | null {
 }
 
 // Parsed once, here: an invalid file is refused whole, naming its first bad
-// entry, so a record either writes everything or nothing.
+// entry, so a record either writes everything or nothing. A readable URL
+// that names no board the readers can read (a company's own careers
+// domain, say) is dropped, not refused: the candidate is still worth its
+// name, which the run probes, and a URL it cannot use would only resolve
+// `bad_url`. Each drop is named in `dropped`.
 export function parseRecord(
   text: string,
-): { ok: true; value: PeerRecord } | { ok: false; reason: string } {
+): { ok: true; value: PeerRecord; dropped: readonly string[] } | { ok: false; reason: string } {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -173,17 +178,17 @@ export function parseRecord(
     }
   }
 
-  return {
-    ok: true,
-    value: {
-      searched: searched as string[],
-      candidates: (candidates as Record<string, unknown>[]).map((entry) => ({
-        name: entry.name as string,
-        url: (entry.url as string | null | undefined) ?? null,
-        evidence: entry.evidence as string,
-      })),
-    },
-  };
+  const dropped: string[] = [];
+  const kept = (candidates as Record<string, unknown>[]).map((entry, index) => {
+    const url = (entry.url as string | null | undefined) ?? null;
+    if (url !== null && parseBoardUrl(url) === null) {
+      dropped.push(`candidates[${index}] (${entry.name as string}) url names no board: ${url}`);
+      return { name: entry.name as string, url: null, evidence: entry.evidence as string };
+    }
+    return { name: entry.name as string, url, evidence: entry.evidence as string };
+  });
+
+  return { ok: true, value: { searched: searched as string[], candidates: kept }, dropped };
 }
 
 export interface RecordResult {
@@ -252,6 +257,8 @@ async function main(): Promise<void> {
       process.exitCode = 1;
       return;
     }
+    for (const line of parsed.dropped)
+      console.error(`peers: url dropped, resolved by name: ${line}`);
     const applied = await applyRecord(openStore(), parsed.value, new Date().toISOString());
     if (!applied.ok) {
       console.error(`peers: ${path}: ${applied.reason}; nothing written`);
