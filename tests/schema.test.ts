@@ -329,3 +329,22 @@ test(
     );
   },
 );
+
+test(
+  "the list may update a company's peers_searched_at but not its boards",
+  testDbSkip === null ? {} : { skip: testDbSkip },
+  async () => {
+    // Breaks if the peers_searched_at migration's GRANT is dropped, or if a
+    // later grant widens authenticated's UPDATE to `boards`, which only the
+    // run writes. Checked on privilege, before any row is read, so an empty
+    // table proves both.
+    const attempts = await asTheList([
+      `UPDATE "companies" SET "peers_searched_at" = now() WHERE true`,
+      `UPDATE "companies" SET "boards" = '[]'::jsonb WHERE true`,
+    ]);
+    assert.deepEqual(
+      attempts.map((attempt) => (attempt.ok ? "allowed" : attempt.code)),
+      ["allowed", "42501"],
+    );
+  },
+);

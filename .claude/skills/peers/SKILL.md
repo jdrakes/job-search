@@ -75,7 +75,8 @@ Each agent replies with one JSON object:
   unresearched, reason "agent did not report it".
 - A seed name that was not in the batch is ignored.
 - **Researched** is every seed in some reply's `seeds` array, whether or
-  not it has peers.
+  not it has peers, and in no reply's `unresearched` array. A seed listed
+  in both is unresearched: it is not marked, and its peers are still shown.
 
 ## 4. Filter
 
@@ -146,8 +147,14 @@ Relay its output verbatim. What it can say:
   resolve on the next daily run.
 - `peers: <file>: <reason>; nothing written`: the file failed validation.
   Fix the entry the reason names, show James the change, and run `record`
-  again.
-- `peers: not marked: <line>`: a searched name has no company row. The
-  candidates were still written. Tell James which seed, and do not retry.
+  again. What fixing means for two reasons:
+  - `cannot read url`: set that candidate's `url` to null (the run looks
+    the name up). Never write a URL yourself.
+  - `searched names that are not current seeds`: take each named name out
+    of `searched`. A seed already marked by an earlier `record` is one of
+    them.
+- `peers: not marked: <line>`: a seed's company row was deleted after the
+  seeds were checked. The candidates were still written. Tell James which
+  seed, and do not retry.
 
 Tell James the record file's path; it is the log of what this run added.

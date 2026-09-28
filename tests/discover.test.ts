@@ -8,7 +8,7 @@ import type { BoardSource, DiscoverySource, Source } from "../src/discovery/sour
 import { HttpError } from "../src/net/http.ts";
 import type { Board, Candidate, Company, Platform } from "../src/schema.ts";
 import { memoryStore } from "../src/store/memory.ts";
-import type { Store } from "../src/store/store.ts";
+import { PRIMARY_KEYS, type Store } from "../src/store/store.ts";
 
 // `discover` calls the real `probe` and the real `boardName`; these tests
 // fake the network underneath both (`HttpOptions.fetchImpl`) and the board
@@ -167,6 +167,25 @@ test("discover: a new name that probes to a board is watched, and its company wr
     dropped_at: null,
     peers_searched_at: null,
   });
+});
+
+// Breaks if a new company's row states a column the run does not own
+// (`reason`, `dropped_at`, `peers_searched_at`), which would set it back to
+// null on a row that already had it.
+test("discover: a new company's row is written with only its name and boards", async () => {
+  const inner = memoryStore();
+  const written: object[] = [];
+  const store: Store = {
+    ...inner,
+    async upsert(table, rows) {
+      if (table === "companies") written.push(...rows);
+      return inner.upsert(table, rows);
+    },
+  };
+
+  await run(store, [nameSource("hn", ["Acme"])], { responses: leverBoard("acme", "Acme") });
+
+  assert.deepEqual(written, [{ name: "Acme", boards: [{ platform: "lever", id: "acme" }] }]);
 });
 
 test("discover: a name with no board is no_board and writes no company", async () => {
@@ -334,28 +353,82 @@ test("discover: a gone candidate for a known company with no board is probed, an
   });
 });
 
-// `addBoards` (the write behind both this case and the URL-match case
-// above) reads the current row and spreads it before setting `boards`, so a
-// company's peer-search fact rides along untouched; nothing about a board
-// being added should ever reset it. This is the one place discover.ts
-// writes an existing company's whole row, so it is the one place that
-// overwrite is possible if the spread were ever dropped.
-test("discover: adding a board to a company already searched for peers leaves peers_searched_at untouched", async () => {
-  const store = memoryStore({
-    companies: [company("Pocketly", { peers_searched_at: "2026-09-20T00:00:00.000Z" })],
-    candidates: [
-      candidate({
-        name: "Pocketly",
-        origin: "gone",
-        evidence: "board lever/pocketly answered gone",
-      }),
-    ],
+// After each read of one company's row (a select by name), `between` runs
+// on the inner store before the row is handed back: another writer acting
+// between discover's read and its write.
+function writesAfterRead(inner: Store, between: (name: string) => Promise<void>): Store {
+  return {
+    ...inner,
+    async select<T>(
+      table: Parameters<Store["select"]>[0],
+      eq?: Partial<Record<string, unknown>>,
+      columns?: readonly string[],
+    ): Promise<T[]> {
+      const rows = await inner.select<T>(table, eq, columns);
+      if (table === "companies" && typeof eq?.["name"] === "string") await between(eq["name"]);
+      return rows;
+    },
+  };
+}
+
+const DROPPED_AND_SEARCHED = {
+  reason: "not hiring here",
+  dropped_at: "2026-09-27T09:00:00.000Z",
+  peers_searched_at: "2026-09-27T09:00:00.000Z",
+};
+
+function goneCandidate(name: string): Candidate {
+  return candidate({
+    name,
+    origin: "gone",
+    evidence: `board lever/${name.toLowerCase()} answered gone`,
+  });
+}
+
+// Breaks if `addBoards` writes back the row it read rather than `boards`
+// alone: the drop and the peer search set after its read would be reset.
+test("discover: a drop and a peer search written between addBoards' read and write both stand", async () => {
+  const inner = memoryStore({
+    companies: [company("Pocketly")],
+    candidates: [goneCandidate("Pocketly")],
+  });
+  const store = writesAfterRead(inner, async (name) => {
+    await inner.update("companies", name, DROPPED_AND_SEARCHED);
   });
 
   await run(store, [], { responses: leverBoard("pocketly", "Pocketly") });
 
-  const row = await companyRow(store, "Pocketly");
-  assert.equal(row?.peers_searched_at, "2026-09-20T00:00:00.000Z");
+  assert.deepEqual(
+    await companyRow(inner, "Pocketly"),
+    company("Pocketly", {
+      boards: [{ platform: "lever", id: "pocketly" }],
+      ...DROPPED_AND_SEARCHED,
+    }),
+  );
+});
+
+// Breaks if `addBoards` writes a row deleted since its read back into the
+// store, or if the URL arm reports `added` when nothing was written.
+test("discover: a company deleted between addBoards' read and write is not written back, and is no_board", async () => {
+  const inner = memoryStore({
+    companies: [company("Acme"), company("Pocketly")],
+    candidates: [
+      goneCandidate("Pocketly"),
+      candidate({ id: "seeded-2", name: "Acme", url: "https://jobs.lever.co/acme" }),
+    ],
+  });
+  const store = writesAfterRead(inner, (name) => inner.delete("companies", [name]));
+
+  const { result } = await run(store, [], {
+    responses: { ...leverBoard("pocketly", "Pocketly"), ...leverBoard("acme", "Acme") },
+  });
+
+  assert.deepEqual(await candidates(store), [
+    "gone Pocketly -> no_board null",
+    "ui Acme -> no_board null",
+  ]);
+  assert.equal(result.resolved.added, 0);
+  assert.deepEqual(await companyNames(inner), []);
 });
 
 test("discover: a gone candidate for a known company whose probe finds no board is no_board, and the company stays boardless", async () => {
@@ -526,7 +599,7 @@ test("suggestAgain: two gone boards of one company give one candidate naming bot
   ]);
 });
 
-// Counts every write by table, passing each through.
+// Counts every upsert and update by table, passing each through.
 function countingWrites(inner: Store): { store: Store; writes: string[] } {
   const writes: string[] = [];
   const store: Store = {
@@ -534,6 +607,10 @@ function countingWrites(inner: Store): { store: Store; writes: string[] } {
     async upsert(table, rows) {
       writes.push(table);
       return inner.upsert(table, rows);
+    },
+    async update(table, key, patch) {
+      writes.push(table);
+      return inner.update(table, key, patch);
     },
   };
   return { store, writes };
@@ -577,27 +654,52 @@ test("unbind: each gone board leaves its company, siblings and rows kept, and ea
   assert.deepEqual(writes, ["candidates", "companies", "companies"]);
 });
 
-// `unbind` reads the current row and spreads it before setting `boards`
-// (`{ ...current, boards: kept }`, discover.ts), the same pattern
-// `addBoards` uses, so removing a gone board must not reset a company's
-// peer-search fact.
-test("unbind: removing a gone board leaves peers_searched_at untouched", async () => {
-  const store = memoryStore({
+// Breaks if `unbind` writes back the row it read rather than `boards`
+// alone: the drop and the peer search set after its read would be reset.
+test("unbind: a drop and a peer search written between the read and the removal both stand", async () => {
+  const inner = memoryStore({
     companies: [
       company("Acme", {
         boards: [
           { platform: "greenhouse", id: "acme-gh" },
           { platform: "lever", id: "acme-lv" },
         ],
-        peers_searched_at: "2026-09-20T00:00:00.000Z",
       }),
     ],
+  });
+  const store = writesAfterRead(inner, async (name) => {
+    await inner.update("companies", name, DROPPED_AND_SEARCHED);
   });
 
   await unbind(store, [{ company: "Acme", board: { platform: "greenhouse", id: "acme-gh" } }]);
 
-  const [row] = await store.select<Company>("companies", { name: "Acme" });
-  assert.equal(row?.peers_searched_at, "2026-09-20T00:00:00.000Z");
+  assert.deepEqual(await store.select<Company>("companies"), [
+    company("Acme", { boards: [{ platform: "lever", id: "acme-lv" }], ...DROPPED_AND_SEARCHED }),
+  ]);
+});
+
+// Breaks if a company deleted between the read and the removal is written
+// back into the store.
+test("unbind: a company deleted between the read and the removal is an error line, not written back", async () => {
+  const inner = memoryStore({
+    companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "acme-gh" }] })],
+  });
+  const store = writesAfterRead(inner, (name) => inner.delete("companies", [name]));
+
+  const result = await unbind(store, [
+    { company: "Acme", board: { platform: "greenhouse", id: "acme-gh" } },
+  ]);
+
+  assert.deepEqual(result, {
+    ok: true,
+    value: {
+      removed: 0,
+      suggested: 1,
+      boardless: [],
+      errors: ['Acme: removing greenhouse/acme-gh: companies: no row with name "Acme"'],
+    },
+  });
+  assert.deepEqual(await store.select<Company>("companies"), []);
 });
 
 // Breaks if two gone boards of one company cost two read-modify-writes,
@@ -670,18 +772,24 @@ test("unbind: a company whose row is gone is neither written nor suggested", asy
   assert.deepEqual(writes, []);
 });
 
-// Refuses every write to `table` that `refuses` matches, passing the rest
-// through.
+// Throws on every upsert or update to `table` whose primary keys `refuses`
+// matches, passing the rest through.
 function refusing(
   inner: Store,
   table: string,
-  refuses: (rows: readonly unknown[]) => boolean,
+  refuses: (keys: readonly string[]) => boolean,
 ): Store {
   return {
     ...inner,
     async upsert(written, rows) {
-      if (written === table && refuses(rows)) throw new Error(`${table}: refused`);
+      const column = PRIMARY_KEYS[written];
+      const keys = rows.map((row) => String((row as Record<string, unknown>)[column]));
+      if (written === table && refuses(keys)) throw new Error(`${table}: refused`);
       return inner.upsert(written, rows);
+    },
+    async update(written, key, patch) {
+      if (written === table && refuses([key])) throw new Error(`${table}: refused`);
+      return inner.update(written, key, patch);
     },
   };
 }
@@ -704,9 +812,7 @@ const BOTH_GONE = [
 // after it bound, or if removals come before the candidates, which left
 // every company before it boardless with no candidate: lost for good.
 test("unbind: a refused removal is one error line, that board stays bound, and every company still has its candidate", async () => {
-  const store = refusing(twoOneBoardCompanies(), "companies", (rows) =>
-    rows.some((row) => (row as Company).name === "Globex"),
-  );
+  const store = refusing(twoOneBoardCompanies(), "companies", (keys) => keys.includes("Globex"));
 
   const result = await unbind(store, BOTH_GONE);
 

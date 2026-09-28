@@ -1,9 +1,9 @@
 // Discovery in two steps. Sources suggest: every name or board a source
 // offers becomes a candidate row, and no source writes `companies`. Then
 // the run resolves: each candidate with no outcome yet is resolved once to
-// one outcome. This module is the daily run's only writer of `companies`:
-// resolving a candidate adds boards, and `unbind` takes off a board the
-// list phase found gone. A candidate's input columns (name, url, origin,
+// one outcome. This module is the daily run's only writer of `companies`,
+// and of a company it writes only `name` and `boards`: resolving a candidate
+// adds boards, and `unbind` takes off a board the list phase found gone. A candidate's input columns (name, url, origin,
 // evidence, added_at) are written once, when it is suggested; resolving
 // writes only outcome, outcome_at and company.
 //
@@ -327,7 +327,8 @@ async function resolveUrl(
   const match = registry.companies.get(nameKey(name));
   if (match?.dropped === true) return { outcome: "dropped", company: match.name };
   if (match !== undefined) {
-    await addBoards(store, match.name, [board]);
+    if (!(await addBoards(store, match.name, [board])))
+      return { outcome: "no_board", company: null };
     registry.carriers.set(carrierKey(board), match.name);
     log(`${candidate.origin}: added ${match.name} ${boardKey(board)}`);
     return { outcome: "added", company: match.name };
@@ -467,11 +468,14 @@ export async function unbind(
     const dead = new Set(boards.map(boardKey));
     const kept = current.boards.filter((board) => !dead.has(boardKey(board)));
     if (kept.length === current.boards.length) continue;
-    try {
-      await store.upsert("companies", [{ ...current, boards: kept }]);
-    } catch (error) {
-      const labels = boards.map((board) => `${board.platform}/${board.id}`).join(" ");
-      errors.push(`${name}: removing ${labels}: ${describeError(error)}`);
+    const labels = boards.map((board) => `${board.platform}/${board.id}`).join(" ");
+    // Only `boards`: a drop or a `peers_searched_at` set since the read
+    // stands. A row deleted since the read is refused, not written back.
+    const written = await store
+      .update("companies", name, { boards: kept })
+      .catch((error: unknown) => ({ ok: false as const, reason: describeError(error) }));
+    if (!written.ok) {
+      errors.push(`${name}: removing ${labels}: ${written.reason}`);
       continue;
     }
     removed += current.boards.length - kept.length;
@@ -480,14 +484,21 @@ export async function unbind(
   return { ok: true, value: { removed, suggested, boardless, errors } };
 }
 
-type Affected = { name: string; current: Company; boards: readonly Board[] };
+type Affected = {
+  name: string;
+  current: Pick<Company, "name" | "boards">;
+  boards: readonly Board[];
+};
 
 // One read per company, however many of its boards went, so two gone
 // boards of one company cost one write, not two read-modify-writes.
 async function affectedRows(store: Store, gone: readonly GoneBoard[]): Promise<Affected[]> {
   const affected: Affected[] = [];
   for (const [name, boards] of byCompany(gone)) {
-    const [current] = await store.select<Company>("companies", { name });
+    const [current] = await store.select<Pick<Company, "name" | "boards">>("companies", { name }, [
+      "name",
+      "boards",
+    ]);
     if (current !== undefined) affected.push({ name, current, boards });
   }
   return affected;
@@ -519,14 +530,15 @@ export async function suggestAgain(store: Store, gone: readonly GoneBoard[]): Pr
   return rows.length;
 }
 
+// A new company's row carries only its name and boards; the column
+// defaults fill the rest, so the run never states a drop or a peer search.
 async function writeCompany(
   store: Store,
   name: string,
   boards: readonly Board[],
   registry: Registry,
 ): Promise<void> {
-  const row: Company = { name, boards, reason: null, dropped_at: null, peers_searched_at: null };
-  await store.upsert("companies", [row]);
+  await store.upsert("companies", [{ name, boards }]);
   registry.companies.set(nameKey(name), { name, dropped: false });
   for (const board of boards) registry.carriers.set(carrierKey(board), name);
 }
@@ -534,13 +546,18 @@ async function writeCompany(
 // The row is read back rather than taken from the index, which holds names
 // and board carriers, not a company's board list.
 // Existing boards are kept and a board already there is not added twice.
-// False when no row has the name, so nothing was written.
+// Only `boards` is written back, so a drop or a `peers_searched_at` set
+// between the read and the write stands. False when no row has the name,
+// at the read or at the write, so nothing was written.
 async function addBoards(store: Store, name: string, boards: readonly Board[]): Promise<boolean> {
-  const [current] = await store.select<Company>("companies", { name });
+  const [current] = await store.select<Pick<Company, "name" | "boards">>("companies", { name }, [
+    "name",
+    "boards",
+  ]);
   if (current === undefined) return false;
   const held = new Set(current.boards.map(boardKey));
   const fresh = boards.filter((board) => !held.has(boardKey(board)));
   if (fresh.length === 0) return true;
-  await store.upsert("companies", [{ ...current, boards: [...current.boards, ...fresh] }]);
-  return true;
+  const written = await store.update("companies", name, { boards: [...current.boards, ...fresh] });
+  return written.ok;
 }

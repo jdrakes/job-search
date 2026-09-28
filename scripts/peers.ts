@@ -5,10 +5,12 @@
 // as a new row with `origin: "peers"`, and `peers_searched_at` on each seed
 // it searched.
 //
-// The same hand as James's Add box, not a way around the run: it writes a
-// candidate's input columns and a company's `peers_searched_at`, nothing
-// else. It never creates a company (the run is the only writer of
-// companies), so a searched name with no company row is reported, not
+// It connects as the run does, not as the list's role, and writes only a
+// candidate's input columns (with `id` and `added_at`, set here to what the
+// column defaults would give) plus a company's `peers_searched_at`: never an
+// outcome, a company, or boards. A searched name must be a current seed, so
+// it names a company row that exists and has not been searched; the run is
+// the only writer of companies, and a row deleted since is reported, not
 // written.
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -77,11 +79,9 @@ export function seedsOf(
   return [...roles.keys()].sort().map((name) => ({ name, roles: roles.get(name) ?? [] }));
 }
 
-export async function readSeeds(
+async function readSeedRows(
   store: Store,
-): Promise<{ ok: true; value: SeedsOutput } | { ok: false; reason: string }> {
-  const criteria = await loadCriteria(store);
-  if (!criteria.ok) return criteria;
+): Promise<{ postings: PostingSeedFields[]; companies: CompanySeedFields[] }> {
   const postings = await store.select<PostingSeedFields>("postings", undefined, [
     "company",
     "title",
@@ -91,6 +91,15 @@ export async function readSeeds(
     "name",
     "peers_searched_at",
   ]);
+  return { postings, companies };
+}
+
+export async function readSeeds(
+  store: Store,
+): Promise<{ ok: true; value: SeedsOutput } | { ok: false; reason: string }> {
+  const criteria = await loadCriteria(store);
+  if (!criteria.ok) return criteria;
+  const { postings, companies } = await readSeedRows(store);
   const candidates = await store.select<Pick<Candidate, "name">>("candidates", undefined, ["name"]);
   const names = [
     ...companies.map((company) => company.name),
@@ -115,10 +124,11 @@ function isFilled(value: unknown): value is string {
   return typeof value === "string" && value.trim() !== "";
 }
 
-function parses(text: string): boolean {
+// A web address: `mailto:`, `javascript:` and the like parse as URLs too.
+function isWebUrl(text: string): boolean {
   try {
-    new URL(text);
-    return true;
+    const { protocol } = new URL(text);
+    return protocol === "http:" || protocol === "https:";
   } catch {
     return false;
   }
@@ -131,7 +141,7 @@ function candidateProblem(entry: unknown): string | null {
   if (!isFilled(entry.evidence)) return "needs evidence";
   const url = entry.url;
   if (url === undefined || url === null) return null;
-  if (typeof url !== "string" || !parses(url)) return `cannot read url ${JSON.stringify(url)}`;
+  if (typeof url !== "string" || !isWebUrl(url)) return `cannot read url ${JSON.stringify(url)}`;
   return null;
 }
 
@@ -179,17 +189,28 @@ export function parseRecord(
 export interface RecordResult {
   readonly added: number;
   readonly marked: number;
-  // One line per searched name the store holds no company row for.
+  // One line per seed whose company row was deleted after the seed check.
   readonly unknownSeeds: readonly string[];
 }
 
-// Only a candidate's input columns: `outcome`, `outcome_at` and `company`
-// are discover's.
+// Only a candidate's input columns, plus `id` and `added_at`: `outcome`,
+// `outcome_at` and `company` are discover's. A searched name that is not a
+// current seed (one `seeds` would print now) refuses the whole record before
+// anything is written, naming every such name: marking it would hide a
+// company the skill never searched from, or record one run twice.
 export async function applyRecord(
   store: Store,
   record: PeerRecord,
   now: string,
-): Promise<RecordResult> {
+): Promise<{ ok: true; value: RecordResult } | { ok: false; reason: string }> {
+  const { postings, companies } = await readSeedRows(store);
+  const seeds = new Set(seedsOf(postings, companies).map((seed) => seed.name));
+  const strangers = record.searched.filter((name) => !seeds.has(name));
+  if (strangers.length > 0) {
+    const named = strangers.map((name) => JSON.stringify(name)).join(", ");
+    return { ok: false, reason: `searched names that are not current seeds: ${named}` };
+  }
+
   const rows = record.candidates.map((candidate) => ({
     id: randomUUID(),
     name: candidate.name,
@@ -207,7 +228,7 @@ export async function applyRecord(
     if (result.ok) marked += 1;
     else unknownSeeds.push(result.reason);
   }
-  return { added: rows.length, marked, unknownSeeds };
+  return { ok: true, value: { added: rows.length, marked, unknownSeeds } };
 }
 
 const USAGE = "peers: usage: peers.ts seeds | peers.ts record <file.json>";
@@ -231,7 +252,13 @@ async function main(): Promise<void> {
       process.exitCode = 1;
       return;
     }
-    const result = await applyRecord(openStore(), parsed.value, new Date().toISOString());
+    const applied = await applyRecord(openStore(), parsed.value, new Date().toISOString());
+    if (!applied.ok) {
+      console.error(`peers: ${path}: ${applied.reason}; nothing written`);
+      process.exitCode = 1;
+      return;
+    }
+    const result = applied.value;
     for (const line of result.unknownSeeds) console.error(`peers: not marked: ${line}`);
     console.log(`peers: added ${result.added} candidate(s), marked ${result.marked} seed(s)`);
     if (result.unknownSeeds.length > 0) process.exitCode = 1;
