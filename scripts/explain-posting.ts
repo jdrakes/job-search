@@ -9,6 +9,9 @@
 // more permissively than the stored verdict. The stored verdict is printed
 // too, and a disagreement is flagged.
 //
+// Since #287 a posting its title and place rejected is not stored, so a
+// key it cannot find may be one the checks rejected.
+//
 //   node --env-file=.env scripts/explain-posting.ts <key>
 import process from "node:process";
 
