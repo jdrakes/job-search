@@ -14,7 +14,7 @@ import type { DiscoverySource, Source } from "./discovery/source.ts";
 import { theMuseSource } from "./discovery/themuse.ts";
 import { weWorkRemotelySource } from "./discovery/weworkremotely.ts";
 import { describeError } from "./errors.ts";
-import { ingest, type IngestResult, judgeAll } from "./ingest.ts";
+import { everyBoardFailed, ingest, type IngestResult, judgeAll } from "./ingest.ts";
 import { phase } from "./phase.ts";
 import { loadSettings, type Settings } from "./settings.ts";
 import { openStore } from "./store/open.ts";
@@ -208,9 +208,10 @@ async function main(): Promise<number> {
     console.error(`discover failed, ingesting anyway: ${describeError(error)}`);
   }
 
-  // `today` picks today's boards (`boardsToRead`, ingest.ts): Monday reads
-  // every board, another weekday only those that have ever produced or
-  // whose company was bound in the last week.
+  // `today` picks today's boards (`boardsToRead`, ingest.ts): Monday, or the
+  // first run after a criteria edit, reads every board; another run only
+  // those that have ever produced or whose company was bound in the last
+  // week.
   const result = await phase(
     "list",
     () => ingest(store, readers, { today: new Date() }),
@@ -224,6 +225,9 @@ async function main(): Promise<number> {
   console.log(
     `list: ${result.boardsToday} boards today, ${result.boardsWaiting} waiting for Monday`,
   );
+  if (result.criteriaEdited) {
+    console.log("list: every board read: criteria edited since the last full read");
+  }
   for (const error of result.errors) {
     console.log(`  ${error}`);
   }
@@ -261,8 +265,8 @@ async function main(): Promise<number> {
 export function listExitCode(
   result: Pick<IngestResult, "companies" | "errors" | "boardsToday">,
 ): number {
-  const everyBoardFailed = result.boardsToday > 0 && result.errors.length >= result.boardsToday;
-  return result.companies === 0 || everyBoardFailed ? 1 : 0;
+  const failed = everyBoardFailed(result.boardsToday, result.errors.length);
+  return result.companies === 0 || failed ? 1 : 0;
 }
 
 // The one place that catches: a run whose first store read times out

@@ -53,6 +53,10 @@ export interface IngestResult {
   // `boardsWaiting` is every other one, left for Monday.
   readonly boardsToday: number;
   readonly boardsWaiting: number;
+  // Every board was picked because the criteria row was edited after the
+  // last read of every board (`criteriaEdited`). False when a failed read
+  // picked every board instead.
+  readonly criteriaEdited: boolean;
 }
 
 export interface GoneBoard {
@@ -622,8 +626,20 @@ function boundRecently(
   return days < 7;
 }
 
+// Whether the criteria row was edited after the last read of every board:
+// `full_read_at` (the `updated_at` that read was made for) is null or older
+// than `updated_at`. Compared as instants, not strings: the memory store and
+// Postgres need not spell one instant alike. No criteria row is never edited.
+export function criteriaEdited(criteria: Criteria | undefined): boolean {
+  if (criteria === undefined) return false;
+  if (criteria.full_read_at === null) return true;
+  return Date.parse(criteria.full_read_at) < Date.parse(criteria.updated_at);
+}
+
 // The board keys (`boardKey`) listed today. A board is read when: it is
-// Monday (`today`'s local day); its company was bound (a candidate outcome
+// Monday (`today`'s local day); the criteria row was edited since the last
+// read of every board (`criteriaEdited`), so an edit reaches every board at
+// the next run rather than the next Monday; its company was bound (a candidate outcome
 // `watched` or `added`) less than a week before `today`; or any of its
 // stored postings, judged fresh, passes `passesTitleAndPlace` (a posting that
 // later aged out still marks its board as one that hires for the role).
@@ -645,6 +661,7 @@ export function boardsToRead(
   boundSince: ReadonlyMap<string, string>,
 ): Set<string> {
   const isMonday = today.getDay() === 1;
+  const edited = criteriaEdited(criteria);
   const read = new Set<string>();
   for (const company of companies) {
     const recent = boundRecently(company.name, boundSince, today);
@@ -653,7 +670,7 @@ export function boardsToRead(
       const producing =
         criteria !== undefined &&
         postings.some((posting) => passesTitleAndPlace(posting, criteria));
-      if (isMonday || recent || producing) read.add(boardKey(board));
+      if (isMonday || edited || recent || producing) read.add(boardKey(board));
     }
   }
   return read;
@@ -945,6 +962,9 @@ export async function ingest(
     readFailed = true;
   }
 
+  // Only a read `boardsToRead` chose counts toward `full_read_at`: a failed
+  // read above also reads every board, but for its own reason.
+  const edited = !readFailed && criteriaEdited(criteria);
   const companyBoards = companies.flatMap(boardsOf);
   const boardsForToday = readFailed
     ? new Set(companyBoards.map(boardKey))
@@ -1005,16 +1025,53 @@ export async function ingest(
     pruned = 0;
   }
 
+  // Every board has been read for this criteria row, so the next run need
+  // not repeat it until the next edit. Written once every read has landed,
+  // so a run that dies part way reads every board again. A few failed boards
+  // do not hold the marker back: a run over thousands of external boards
+  // almost always has some, and holding it would read every board every day.
+  // Only a run where practically every board failed (`everyBoardFailed`, the
+  // same test `daily.ts` exits non-zero on) leaves it unwritten, so the next
+  // run reads every board again. A failed write is a log line, not an error:
+  // `daily.ts`'s every-board-failed check counts errors against boards, and
+  // this is not a board. The next run then reads every board again, which
+  // costs a Monday-sized run and nothing else.
+  const allErrors = [...errors, ...results.flatMap((result) => result.errors), ...pruneErrors];
+  if (edited && everyBoardFailed(boardsToday, allErrors.length)) {
+    log(
+      `ingest: every board picked for the criteria edit, but every board failed (${allErrors.length} errors, ${boardsToday} boards); full_read_at not written, the next run reads every board again`,
+    );
+  } else if (edited && criteria !== undefined) {
+    const marked = await store
+      .update("criteria", "1", { full_read_at: criteria.updated_at })
+      .catch((err: unknown) => ({ ok: false as const, reason: describeError(err) }));
+    if (!marked.ok) {
+      log(
+        `ingest: every board read for the criteria edit, but full_read_at not written: ${marked.reason}`,
+      );
+    }
+  }
+
   return {
     companies: companies.length,
     listed: results.reduce((sum, result) => sum + result.listed, 0),
     recorded: results.reduce((sum, result) => sum + result.recorded, 0),
     pruned,
-    errors: [...errors, ...results.flatMap((result) => result.errors), ...pruneErrors],
+    errors: allErrors,
     gone: results.flatMap((result) => result.gone),
     boardsToday,
     boardsWaiting,
+    criteriaEdited: edited,
   };
+}
+
+// Practically every board picked today failed: errors and boards are both
+// counted per company board, so errors at or past the board count means no
+// board can be assumed read. Shared by the `full_read_at` gate here and
+// `daily.ts`'s `listExitCode`, so the two agree on what "every board failed"
+// means.
+export function everyBoardFailed(boardsToday: number, errorCount: number): boolean {
+  return boardsToday > 0 && errorCount >= boardsToday;
 }
 
 /** A comp figure as the integer columns hold it, or null. See `toRow`. */
