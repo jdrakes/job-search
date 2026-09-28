@@ -6,6 +6,7 @@
 import { createHash } from "node:crypto";
 
 import { compInText, type Listing, type Reader } from "./ats/ats.ts";
+import { READERS } from "./ats/readers.ts";
 import { boardKey, boardsOf, isGone, readable } from "./companies.ts";
 import { loadCriteria } from "./criteria.ts";
 import { describeError } from "./errors.ts";
@@ -24,6 +25,7 @@ import {
   COMPANY_FIELDS,
   postingKey,
   type Board,
+  type Candidate,
   type Company,
   type Criteria,
   type Platform,
@@ -37,6 +39,9 @@ export interface IngestResult {
   readonly companies: number;
   readonly listed: number;
   readonly recorded: number;
+  // Stored postings deleted this run: not kept, not acted on, and their
+  // title and place fail (`prunable`), whether or not a read listed them.
+  readonly pruned: number;
   readonly errors: readonly string[];
   // Every board that answered gone this run, with its company's name. The
   // list phase writes postings only; discovery removes these boards
@@ -78,6 +83,7 @@ export interface IngestOptions {
   readonly now?: () => string;
   // The local date the run started, for `boardsToRead`.
   readonly today: Date;
+  readonly log?: (line: string) => void;
 }
 
 // The columns every written re-list carries. `first_seen` is not among
@@ -533,30 +539,122 @@ function passesTitleAndPlace(posting: TitleAndPlace, criteria: Criteria): boolea
   );
 }
 
+// Whether a posting is stored at all (#287): its title and place pass. A
+// posting on a native two-phase platform with no pay is judged at the floor
+// instead, as `wantsBody` does: such a board states pay only on the detail
+// `judgeAll` fetches, and only for a stored posting, so without this a
+// numbered or Senior title on it would never be stored, never fetched, and
+// never found. The floor pass holds after the detail was read and stated no
+// pay too, so such a row stays stored though its verdict is out: it is kept
+// to be read, so its detail is not fetched again. Pruned, it would be stored
+// again as new at the next read and its detail fetched again, every other
+// read for as long as it stays listed.
+function admits(posting: TitleAndPlace, platform: Platform, criteria: Criteria): boolean {
+  if (passesTitleAndPlace(posting, criteria)) return true;
+  return (
+    nativeTwoPhase(platform) &&
+    posting.comp_high === null &&
+    passesTitleAndPlace({ ...posting, comp_high: criteria.comp_floor }, criteria)
+  );
+}
+
+// Whether a platform's own reader lists postings with no body and fetches
+// each detail: asked of `READERS`, never of the reader `ingest` is handed.
+// `withDetailReads` wraps a whole platform for one board's detail read, so
+// every Greenhouse board's reader has a `body`, though a Greenhouse listing
+// states all the pay it ever will.
+function nativeTwoPhase(platform: Platform): boolean {
+  return READERS[platform].body !== undefined;
+}
+
+// A listing is judged on the pay `toRow` leaves on its row: the listing's own
+// when it states a body or a band, else the stored band.
+function listingAdmits(
+  listing: Listing,
+  stored: StoredListing | undefined,
+  platform: Platform,
+  criteria: Criteria,
+): boolean {
+  const statesPay = listing.body !== null || listing.compLow !== null || listing.compHigh !== null;
+  const compHigh = statesPay ? wholeDollars(listing.compHigh) : (stored?.comp_high ?? null);
+  const posting = { title: listing.title, location: listing.location, comp_high: compHigh };
+  return admits(posting, platform, criteria);
+}
+
+// A stored posting nothing reads is deleted (#287; Design, Data: the store
+// holds "every posting the title and place checks admit, and every one James
+// acted on"): not kept, no status, and its title and place fail on what is
+// stored. A key a read listed this run goes by that listing's verdict
+// instead (`admitted`, `rejected`), since the stored title may be the one
+// the listing replaces. A board need not be read for its postings to be
+// pruned: a gone posting, one on a board waiting for Monday, and one of a
+// dropped company are decided on their stored row alone.
+function prunable(
+  stored: ReadonlyMap<string, StoredListing>,
+  admitted: ReadonlySet<string>,
+  rejected: ReadonlySet<string>,
+  criteria: Criteria,
+): string[] {
+  const keys: string[] = [];
+  for (const [key, row] of stored) {
+    if (row.kept === true || row.status !== null || admitted.has(key)) continue;
+    if (rejected.has(key) || !admits(row, row.platform, criteria)) keys.push(key);
+  }
+  return keys;
+}
+
+// Milliseconds in a day, for `boundRecently`'s week window.
+const DAY_MS = 86_400_000;
+
+// Whether `company`'s boards count as newly bound (Design, Ingestion: "A
+// board bound in the last week ... is read every weekday"): it has a
+// `boundSince` entry less than 7 days before `today`. A company `boundSince`
+// never heard of (no candidate outcome `watched` or `added`, ever) is not
+// recent.
+function boundRecently(
+  company: string,
+  boundSince: ReadonlyMap<string, string>,
+  today: Date,
+): boolean {
+  const at = boundSince.get(company);
+  if (at === undefined) return false;
+  const days = Math.floor((today.getTime() - Date.parse(at)) / DAY_MS);
+  return days < 7;
+}
+
 // The board keys (`boardKey`) listed today. A board is read when: it is
-// Monday (`today`'s local day); it has no stored posting (a new board is read
-// at once); or any of its stored postings, judged fresh, passes
-// `passesTitleAndPlace` (a posting that later aged out still marks its board
-// as one that hires for the role). Every other board waits for Monday. With
-// no criteria row nothing can pass, so a weekday reads only new boards.
+// Monday (`today`'s local day); its company was bound (a candidate outcome
+// `watched` or `added`) less than a week before `today`; or any of its
+// stored postings, judged fresh, passes `passesTitleAndPlace` (a posting that
+// later aged out still marks its board as one that hires for the role).
+// Every other board waits for Monday. With #287 a board whose postings all
+// fail never stores one, so "no stored posting" is not itself a reason to
+// read: a board that has produced nothing since it was bound a week or more
+// ago waits like any other non-producing board. With no criteria row nothing
+// can pass, so a weekday reads only newly bound boards.
 //
 // Postings are found by their key's prefix, not their `board` column: a
 // legacy key not in the `platform/board::id` form is counted on no board. A
-// board holding only such keys looks new and is read (an extra read); a board
-// that also holds current keys is decided by those.
+// board holding only such keys is decided on bound-recently alone; a board
+// that also holds current keys is decided by those too.
 export function boardsToRead(
   companies: readonly Company[],
   storedByBoard: StoredByBoard<TitleAndPlace>,
   criteria: Criteria | undefined,
   today: Date,
+  boundSince: ReadonlyMap<string, string>,
 ): Set<string> {
   const isMonday = today.getDay() === 1;
   const read = new Set<string>();
-  for (const board of companies.flatMap(boardsOf)) {
-    const postings = [...(storedByBoard.get(storedPrefix(board))?.values() ?? [])];
-    const producing =
-      criteria !== undefined && postings.some((posting) => passesTitleAndPlace(posting, criteria));
-    if (isMonday || postings.length === 0 || producing) read.add(boardKey(board));
+  for (const company of companies) {
+    const recent = boundRecently(company.name, boundSince, today);
+    for (const board of boardsOf(company)) {
+      const postings = [...(storedByBoard.get(storedPrefix(board))?.values() ?? [])];
+      const producing =
+        criteria !== undefined &&
+        postings.some((posting) => passesTitleAndPlace(posting, criteria));
+      if (isMonday || recent || producing) read.add(boardKey(board));
+    }
   }
   return read;
 }
@@ -564,6 +662,10 @@ export function boardsToRead(
 interface ListedCompany {
   readonly listed: number;
   readonly recorded: number;
+  // Every key this company's reads listed, by whether its title and place
+  // pass; see `prunable`.
+  readonly admitted: ReadonlySet<string>;
+  readonly rejected: ReadonlySet<string>;
   readonly errors: readonly string[];
   readonly gone: readonly GoneBoard[];
 }
@@ -589,6 +691,9 @@ async function listCompany(
   // Postgres refuses an upsert batch naming one key twice, so the batch is
   // keyed like the store: the last listing for a key wins.
   const batch = new Map<string, ListedRow | GoneRow>();
+  // Every key a read listed, by its title-and-place verdict (`prunable`).
+  const admitted = new Set<string>();
+  const rejected = new Set<string>();
 
   for (const board of boardsOf(company)) {
     // Waiting for Monday: not read, not marked gone, no error.
@@ -630,14 +735,32 @@ async function listCompany(
       // Seen whether or not it needs a write, so the sweep below never marks
       // an unchanged posting gone.
       seenKeys.add(key);
-      const row = toRow(company.name, board, listing, now(), stored.get(key), criteria);
+      const before = stored.get(key);
+      // Only a posting whose title and place pass is stored (#287). One that
+      // fails is not written when new; stored, it is not written unless it
+      // is acted on or kept (those go on as before, and `judgeAll` re-judges
+      // them), and `ingest`'s prune deletes it. A key the same read lists
+      // twice goes by its last listing, as the batch does.
+      if (criteria !== undefined && !listingAdmits(listing, before, board.platform, criteria)) {
+        rejected.add(key);
+        admitted.delete(key);
+        batch.delete(key);
+        if (before === undefined) continue;
+        if (before.kept !== true && before.status === null) continue;
+      } else {
+        admitted.add(key);
+        rejected.delete(key);
+      }
+      const row = toRow(company.name, board, listing, now(), before, criteria);
       if (row !== null) batch.set(key, row);
     }
 
     // Only here, after a read that answered: a failed read says nothing
     // about which postings are still up. Goes in the same upsert as the
     // listed rows. A posting already marked keeps its first mark and gets
-    // no write.
+    // no write. A key `ingest` prunes this run may be marked here first: the
+    // prune runs once every company's upsert has landed, so no mark can
+    // follow a delete and recreate the key as a stub.
     for (const [key, before] of storedByBoard.get(storedPrefix(board)) ?? []) {
       if (seenKeys.has(key) || before.gone_at !== null) continue;
       batch.set(key, {
@@ -654,18 +777,21 @@ async function listCompany(
   // reject the platforms' `Promise.all` while the other workers kept
   // listing unobserved.
   const rows = [...batch.values()];
+  let recorded = rows.length;
   try {
     if (rows.length > 0) await store.upsert("postings", rows);
   } catch (err) {
     errors.push(`${company.name}: recording ${rows.length} postings: ${describeError(err)}`);
-    return { listed, recorded: 0, errors, gone };
+    recorded = 0;
   }
-  return { listed, recorded: rows.length, errors, gone };
+  return { listed, recorded, admitted, rejected, errors, gone };
 }
 
 // Every column a re-list can write, bar `body`: `body_hash` stands for it.
 interface StoredListing {
   readonly company: string;
+  // Whether `prunable` gives the posting the floor pass (`nativeTwoPhase`).
+  readonly platform: Platform;
   readonly title: string | null;
   readonly url: string | null;
   readonly location: string | null;
@@ -674,12 +800,15 @@ interface StoredListing {
   readonly comp_low: number | null;
   readonly comp_high: number | null;
   readonly workplace: Workplace | null;
+  // `kept` and `status` spare a posting from pruning; see `prunable`.
+  readonly kept: boolean | null;
   readonly status: Status | null;
   readonly gone_at: string | null;
 }
 
 const STORED_LISTING_COLUMNS = [
   "company",
+  "platform",
   "title",
   "url",
   "location",
@@ -688,6 +817,7 @@ const STORED_LISTING_COLUMNS = [
   "comp_low",
   "comp_high",
   "workplace",
+  "kept",
   "status",
   "gone_at",
 ] as const satisfies readonly (keyof StoredListing)[];
@@ -705,6 +835,7 @@ async function storedListings(store: Store): Promise<Map<string, StoredListing>>
       row.key,
       {
         company: row.company,
+        platform: row.platform,
         title: row.title,
         url: row.url,
         location: row.location,
@@ -713,6 +844,7 @@ async function storedListings(store: Store): Promise<Map<string, StoredListing>>
         comp_low: row.comp_low,
         comp_high: row.comp_high,
         workplace: row.workplace,
+        kept: row.kept,
         status: row.status,
         gone_at: row.gone_at,
       },
@@ -726,25 +858,52 @@ function platformOf(company: Company): Platform {
   return boardsOf(company)[0].platform;
 }
 
+// Every company's latest `outcome_at` among candidates bound `watched` or
+// `added` (`boardsToRead`'s "bound in the last week"). A candidate with no
+// `company` or no `outcome_at` names nothing to bind; an outcome other than
+// `watched` or `added` (a duplicate, a dropped one, ...) does not bind
+// either. `outcome_at` sorts lexically like every other timestamp column
+// here.
+async function boundSince(store: Store): Promise<Map<string, string>> {
+  const rows = await store.select<Pick<Candidate, "company" | "outcome" | "outcome_at">>(
+    "candidates",
+    undefined,
+    ["company", "outcome", "outcome_at"],
+  );
+  const bound = new Map<string, string>();
+  for (const row of rows) {
+    if (row.company === null || row.outcome_at === null) continue;
+    if (row.outcome !== "watched" && row.outcome !== "added") continue;
+    const latest = bound.get(row.company);
+    if (latest === undefined || row.outcome_at > latest) bound.set(row.company, row.outcome_at);
+  }
+  return bound;
+}
+
 export async function ingest(
   store: Store,
   readers: Partial<Record<Platform, Reader>>,
   options: IngestOptions,
 ): Promise<IngestResult> {
   const now = options.now ?? (() => new Date().toISOString());
+  const log = options.log ?? console.log;
   const companies = await readable(store);
 
   // A failed sweep read is one error line: an empty map means every body
-  // gets written this run, and every board looks new so every board is read.
+  // gets rewritten this run and no posting is marked gone. `readFailed`
+  // below forces every board to be read, since an empty map can no longer be
+  // told apart from a board with genuinely nothing stored.
   const errors: string[] = [];
   let stored: Map<string, StoredListing>;
+  let readFailed = false;
   try {
     stored = await storedListings(store);
   } catch (err) {
     errors.push(
-      `reading stored body hashes: ${describeError(err)}; every body will be rewritten this run, band and workplace changes go undetected, no posting is marked gone, and every board is read`,
+      `reading stored body hashes: ${describeError(err)}; every body will be rewritten this run, band and workplace changes go undetected, no posting is marked gone or pruned, and every board is read`,
     );
     stored = new Map();
+    readFailed = true;
   }
 
   // Each board's stored postings, by the `platform/board` prefix `postingKey`
@@ -762,14 +921,34 @@ export async function ingest(
     else group.set(key, listing);
   }
 
-  // Judges each listed body before it is stored; see `toRow`.
-  // No criteria row stores every body, silently: an error line here would
-  // count toward `daily.ts`'s every-board-failed check.
+  // Decides which listings are stored and which bodies they keep; see
+  // `listCompany` and `toRow`. No criteria row stores every listing and every
+  // body and prunes nothing, as one log line, not an error: an error line
+  // here would count toward `daily.ts`'s every-board-failed check.
   const criteriaResult = await loadCriteria(store);
   const criteria = criteriaResult.ok ? criteriaResult.value : undefined;
+  if (!criteriaResult.ok) {
+    log("ingest: no criteria row; every listing is stored and none is pruned");
+  }
 
-  const boardsForToday = boardsToRead(companies, storedByBoard, criteria, options.today);
+  // `boardsToRead`'s other input: a company bound (a candidate outcome
+  // `watched` or `added`) inside the last week is read daily even with
+  // nothing stored yet. A failed read is one error line and, like a failed
+  // stored-postings read, forces every board to be read: there is no way to
+  // tell a company truly never bound from one `boundSince` could not read.
+  let bound: ReadonlyMap<string, string>;
+  try {
+    bound = await boundSince(store);
+  } catch (err) {
+    errors.push(`reading candidates: ${describeError(err)}; every board is read`);
+    bound = new Map();
+    readFailed = true;
+  }
+
   const companyBoards = companies.flatMap(boardsOf);
+  const boardsForToday = readFailed
+    ? new Set(companyBoards.map(boardKey))
+    : boardsToRead(companies, storedByBoard, criteria, options.today, bound);
   const boardsToday = companyBoards.filter((board) => boardsForToday.has(boardKey(board))).length;
   const boardsWaiting = companyBoards.length - boardsToday;
 
@@ -807,11 +986,31 @@ export async function ingest(
 
   // Same input, same error lines in the same order every run.
   const results = walked.flat();
+
+  // One prune per run, once every company's upsert has landed (`prunable`).
+  // A key one read admitted and another rejected (two companies carrying one
+  // board, its listing changed between their reads) was written by the one
+  // that admitted it, so it stays. With no criteria row nothing is judged,
+  // and with a failed stored read `stored` is empty: either way nothing is
+  // deleted.
+  const admitted = new Set(results.flatMap((result) => [...result.admitted]));
+  const rejected = new Set(results.flatMap((result) => [...result.rejected]));
+  const keys = criteria === undefined ? [] : prunable(stored, admitted, rejected, criteria);
+  let pruned = keys.length;
+  const pruneErrors: string[] = [];
+  try {
+    if (keys.length > 0) await store.delete("postings", keys);
+  } catch (err) {
+    pruneErrors.push(`pruning ${keys.length} postings: ${describeError(err)}`);
+    pruned = 0;
+  }
+
   return {
     companies: companies.length,
     listed: results.reduce((sum, result) => sum + result.listed, 0),
     recorded: results.reduce((sum, result) => sum + result.recorded, 0),
-    errors: [...errors, ...results.flatMap((result) => result.errors)],
+    pruned,
+    errors: [...errors, ...results.flatMap((result) => result.errors), ...pruneErrors],
     gone: results.flatMap((result) => result.gone),
     boardsToday,
     boardsWaiting,

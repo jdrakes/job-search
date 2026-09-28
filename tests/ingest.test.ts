@@ -4,9 +4,9 @@ import { test } from "node:test";
 
 import type { Listing, Reader } from "../src/ats/ats.ts";
 import { listExitCode } from "../src/daily.ts";
-import { boardsToRead, ingest, judgeAll } from "../src/ingest.ts";
+import { boardsToRead, ingest, judgeAll, type IngestResult } from "../src/ingest.ts";
 import { HttpError } from "../src/net/http.ts";
-import type { Company, Criteria, Platform, Posting, Table } from "../src/schema.ts";
+import type { Candidate, Company, Criteria, Platform, Posting, Table } from "../src/schema.ts";
 import { memoryStore } from "../src/store/memory.ts";
 import type { Store } from "../src/store/store.ts";
 
@@ -77,6 +77,20 @@ function company(name: string, overrides: Partial<Company> = {}): Company {
   };
 }
 
+function candidate(overrides: Partial<Candidate> & Pick<Candidate, "id">): Candidate {
+  return {
+    name: null,
+    url: null,
+    origin: "ui",
+    evidence: null,
+    added_at: "2026-09-20T00:00:00.000Z",
+    outcome: null,
+    outcome_at: null,
+    company: null,
+    ...overrides,
+  };
+}
+
 function listing(id: string, overrides: Partial<Listing> = {}): Listing {
   return {
     id,
@@ -90,6 +104,20 @@ function listing(id: string, overrides: Partial<Listing> = {}): Listing {
     workplace: null,
     ...overrides,
   };
+}
+
+// A listing whose title and place every `criteria()` passes: since #287
+// nothing else is stored. The id in the title keeps two such postings from
+// reading as duplicates of each other.
+function admitted(id: string, overrides: Partial<Listing> = {}): Listing {
+  return listing(id, { title: `Staff Backend Engineer ${id}`, ...overrides });
+}
+
+// Stored, and dropped by the listing criteria on its pay alone: its title and
+// place pass, and its band sits below `criteria()`'s floor. Stated on the
+// listing, so a two-phase board has no reason to fetch its detail either.
+function belowFloor(id: string): Listing {
+  return admitted(id, { compLow: 50_000, compHigh: 60_000 });
 }
 
 // The judging pass needs a criteria row to run at all; most titles below
@@ -161,8 +189,8 @@ test("ingest: two companies with two boards each are all listed", async () => {
   });
 
   const readers: Partial<Record<Platform, Reader>> = {
-    greenhouse: { platform: "greenhouse", list: async (board) => [listing(`${board.id}-1`)] },
-    lever: { platform: "lever", list: async (board) => [listing(`${board.id}-1`)] },
+    greenhouse: { platform: "greenhouse", list: async (board) => [admitted(`${board.id}-1`)] },
+    lever: { platform: "lever", list: async (board) => [admitted(`${board.id}-1`)] },
   };
 
   const result = await ingest(store, readers, { today: MONDAY });
@@ -195,7 +223,7 @@ test("ingest: two company names carrying one board record one posting, not two",
   });
 
   const readers: Partial<Record<Platform, Reader>> = {
-    greenhouse: { platform: "greenhouse", list: async () => [listing("4123456")] },
+    greenhouse: { platform: "greenhouse", list: async () => [admitted("4123456")] },
   };
 
   const result = await ingest(store, readers, { today: MONDAY });
@@ -228,7 +256,7 @@ test("ingest: a failing board is recorded as an error and the others still land"
         throw new Error("board unavailable");
       },
     },
-    lever: { platform: "lever", list: async (board) => [listing(`${board.id}-1`)] },
+    lever: { platform: "lever", list: async (board) => [admitted(`${board.id}-1`)] },
   };
 
   const result = await ingest(store, readers, { today: MONDAY });
@@ -353,7 +381,7 @@ test("ingest: a run with a gone, a failing and a listing board makes no companie
   );
   const readers: Partial<Record<Platform, Reader>> = {
     greenhouse: goneReader("greenhouse", 404),
-    lever: { platform: "lever", list: async (board) => [listing(`${board.id}-1`)] },
+    lever: { platform: "lever", list: async (board) => [admitted(`${board.id}-1`)] },
     ashby: goneReader("ashby", 500),
   };
 
@@ -403,8 +431,8 @@ test("ingest: every row a run lists is recorded not gone", async () => {
     criteria: [criteria()],
   });
   const readers: Partial<Record<Platform, Reader>> = {
-    greenhouse: { platform: "greenhouse", list: async () => [listing("1"), listing("2")] },
-    lever: { platform: "lever", list: async () => [listing("3")] },
+    greenhouse: { platform: "greenhouse", list: async () => [admitted("1"), admitted("2")] },
+    lever: { platform: "lever", list: async () => [admitted("3")] },
   };
 
   await ingest(store, readers, { now: tickingClock(), today: MONDAY });
@@ -466,8 +494,8 @@ test("ingest: a store refusal while recording one company is an error line and t
   };
 
   const readers: Partial<Record<Platform, Reader>> = {
-    greenhouse: { platform: "greenhouse", list: async (board) => [listing(`${board.id}-1`)] },
-    lever: { platform: "lever", list: async (board) => [listing(`${board.id}-1`)] },
+    greenhouse: { platform: "greenhouse", list: async (board) => [admitted(`${board.id}-1`)] },
+    lever: { platform: "lever", list: async (board) => [admitted(`${board.id}-1`)] },
   };
 
   const result = await ingest(store, readers, { today: MONDAY });
@@ -871,7 +899,7 @@ test("ingest: a re-listed posting whose board states a workplace the store lacks
           company: "Acme",
           platform: "ashby",
           board: "acme",
-          title: "Staff Engineer",
+          title: "Staff Backend Engineer",
           workplace: null,
           judged_with: "2026-09-14T00:00:00Z",
         }),
@@ -883,7 +911,7 @@ test("ingest: a re-listed posting whose board states a workplace the store lacks
   const readers: Partial<Record<Platform, Reader>> = {
     ashby: {
       platform: "ashby",
-      list: async () => [listing("swe4", { title: "Staff Engineer", workplace: "remote" })],
+      list: async () => [listing("swe4", { title: "Staff Backend Engineer", workplace: "remote" })],
     },
   };
 
@@ -914,7 +942,7 @@ test("ingest: a re-listed posting whose board states the workplace already store
           company: "Acme",
           platform: "ashby",
           board: "acme",
-          title: "Staff Engineer",
+          title: "Staff Backend Engineer",
           workplace: "remote",
           judged_with: "2026-09-14T00:00:00Z",
         }),
@@ -926,7 +954,7 @@ test("ingest: a re-listed posting whose board states the workplace already store
   const readers: Partial<Record<Platform, Reader>> = {
     ashby: {
       platform: "ashby",
-      list: async () => [listing("swe5", { title: "Staff Engineer", workplace: "remote" })],
+      list: async () => [listing("swe5", { title: "Staff Backend Engineer", workplace: "remote" })],
     },
   };
 
@@ -1214,7 +1242,7 @@ test("ingest: a failed hash read logs an error and lists with every body written
       if (
         table === "postings" &&
         columns?.join(",") ===
-          "key,company,title,url,location,posted_at,body_hash,comp_low,comp_high,workplace,status,gone_at"
+          "key,company,platform,title,url,location,posted_at,body_hash,comp_low,comp_high,workplace,kept,status,gone_at"
       ) {
         throw new Error("column postings.body_hash does not exist");
       }
@@ -1259,8 +1287,13 @@ function keptListing(id: string): Listing {
   });
 }
 
-// The same listing, dropped by title alone.
+// The same listing, dropped by title alone: since #287 not stored at all
+// unless acted on or kept.
 const EXCLUDES_SENIOR = criteria({ excluded_title_words: ["senior"] });
+
+// The same listing, dropped by its pay alone: its title and place pass, so
+// it is stored, and `toRow` decides its body.
+const FLOOR_ABOVE_PAY = criteria({ comp_floor: 400_000 });
 
 function oneBoard(listings: Listing[]): Partial<Record<Platform, Reader>> {
   return { greenhouse: { platform: "greenhouse", list: async () => listings } };
@@ -1270,8 +1303,8 @@ const ACME = company("Acme", { boards: [{ platform: "greenhouse", id: "acme-gh" 
 const KEY = "greenhouse/acme-gh::b1";
 
 // Breaks if `toRow` stores a body without judging it first.
-test("ingest: a one-phase listing dropped on its title is stored without its body", async () => {
-  const store = memoryStore({ companies: [ACME], criteria: [EXCLUDES_SENIOR] });
+test("ingest: a one-phase listing dropped on its pay is stored without its body", async () => {
+  const store = memoryStore({ companies: [ACME], criteria: [FLOOR_ABOVE_PAY] });
 
   const result = await ingest(store, oneBoard([keptListing("b1")]), { today: MONDAY });
 
@@ -1297,7 +1330,7 @@ test("ingest: a criteria edit that drops a stored one-phase posting clears its b
         body_hash: hashOf(KEPT_BODY),
       }),
     ],
-    criteria: [EXCLUDES_SENIOR],
+    criteria: [FLOOR_ABOVE_PAY],
   });
 
   await ingest(store, oneBoard([keptListing("b1")]), { today: MONDAY });
@@ -1398,8 +1431,8 @@ test("ingest then judgeAll: a one-phase listing out only on a text criterion sta
 
 // Breaks if the `remote`/`onsite` exemption is missing from `toRow`:
 // `scripts/score-remote.ts` reads these bodies whatever the verdict.
-test("ingest: a one-phase listing dropped on its title whose board states remote keeps its body", async () => {
-  const store = memoryStore({ companies: [ACME], criteria: [EXCLUDES_SENIOR] });
+test("ingest: a one-phase listing dropped on its pay whose board states remote keeps its body", async () => {
+  const store = memoryStore({ companies: [ACME], criteria: [FLOOR_ABOVE_PAY] });
 
   await ingest(store, oneBoard([{ ...keptListing("b1"), workplace: "remote" }]), { today: MONDAY });
 
@@ -1409,16 +1442,14 @@ test("ingest: a one-phase listing dropped on its title whose board states remote
 });
 
 // Breaks if either `toRow` or `judgeAll` drops an `onsite` body on a
-// verdict.
-test("ingest then judgeAll: an onsite listing out on every criterion keeps its body", async () => {
-  const store = memoryStore({
-    companies: [ACME],
-    criteria: [criteria({ excluded_title_words: ["sales"] })],
-  });
+// verdict. Its title and place pass, so it is stored (#287); every other
+// criterion drops it.
+test("ingest then judgeAll: an onsite listing out on its pay and its text keeps its body", async () => {
+  const store = memoryStore({ companies: [ACME], criteria: [criteria()] });
   const body = "In our Wyoming office five days a week. Delphi and COBOL daily.";
   const readers = oneBoard([
     listing("b1", {
-      title: "Junior Sales Representative",
+      title: "Staff Backend Engineer",
       compLow: 40_000,
       compHigh: 50_000,
       body,
@@ -1473,7 +1504,7 @@ test("ingest: a listing with no id is refused, never recorded under an empty key
       list: async () => [
         listing("", { title: "First" }),
         listing("", { title: "Second" }),
-        listing("real"),
+        admitted("real"),
       ],
     },
   };
@@ -2359,8 +2390,8 @@ test("ingest: never fetches a body for a posting the listing criteria dropped", 
   const readers: Partial<Record<Platform, Reader>> = {
     greenhouse: {
       platform: "greenhouse",
-      // A level word but no role word: dropped before a body is worth fetching.
-      list: async () => [listing("eng1", { title: "Staff Engineer" })],
+      // Pay below the floor: dropped before a body is worth fetching.
+      list: async () => [belowFloor("eng1")],
       body: async () => {
         bodyCalled = true;
         return null;
@@ -2424,7 +2455,9 @@ test("ingest: a numbered title with no stored comp on a two-phase board is judge
   assert.equal(row?.evidence["level"], 'title carries a bare number "6" used as a level');
 });
 
-test("ingest: a two-phase title with no level marker and no engineering word has no body fetched", async () => {
+// Breaks if the stored-listing check (#287) judges a two-phase listing at the
+// floor when even the floor cannot settle its level.
+test("ingest: a two-phase title with no level marker and no engineering word is not stored and has no body fetched", async () => {
   const store = memoryStore({
     companies: [company("Acme", { boards: [{ platform: "workday", id: "acme-wd" }] })],
     criteria: [criteria({ comp_floor: 120_000 })],
@@ -2441,10 +2474,7 @@ test("ingest: a two-phase title with no level marker and no engineering word has
   await judgeAll(store, readers);
 
   assert.equal(fetches.calls(), 0);
-  const [row] = await store.select<Posting>("postings", { key: "workday/acme-wd::swe6" });
-  assert.equal(row?.kept, false);
-  assert.equal(row?.body, null);
-  assert.deepEqual(row?.reasons, ["level", "role"]);
+  assert.deepEqual(await store.select<Posting>("postings"), []);
 });
 
 test("ingest: a criteria change alone makes an already-judged posting need judging again, with no refetch", async () => {
@@ -2558,8 +2588,8 @@ test("ingest: the judging pass reads every posting without its body", async () =
   const readers: Partial<Record<Platform, Reader>> = {
     greenhouse: {
       platform: "greenhouse",
-      // No role word, so no body is asked for.
-      list: async () => [listing("eng1", { title: "Staff Engineer" })],
+      // Pay below the floor, so no body is asked for.
+      list: async () => [belowFloor("eng1")],
     },
   };
 
@@ -2571,7 +2601,7 @@ test("ingest: the judging pass reads every posting without its body", async () =
   // Two sweeps: ingest's own `key, body_hash` read and the judging pass's;
   // neither reads by key.
   assert.equal(sweeps.length, 2, "ingest and judging each sweep the table once");
-  const judgingSweep = sweeps.find((call) => call.columns?.includes("judged_with"));
+  const judgingSweep = sweeps.find((call) => call.columns?.includes("first_seen"));
   // `body` is not on the list, which is the point of the sweep.
   assert.deepEqual(judgingSweep?.columns, [
     "key",
@@ -2609,7 +2639,15 @@ test("ingest: reads a stored body only for the postings the listing criteria kep
           title: "Staff Backend Engineer",
           body: "This is a fully remote position open to candidates anywhere in the US.",
         }),
-        posting({ key: "Acme::eng1", company: "Acme", title: "Staff Engineer" }),
+        // Dropped by the listing criteria on its pay, not its title and
+        // place, so the prune (#287) leaves it for the judging pass.
+        posting({
+          key: "Acme::eng1",
+          company: "Acme",
+          title: "Staff Platform Engineer",
+          comp_low: 50_000,
+          comp_high: 60_000,
+        }),
       ],
       criteria: [criteria()],
     }),
@@ -2653,10 +2691,7 @@ test("ingest: the judging pass writes the verdict columns with key and company, 
   const readers: Partial<Record<Platform, Reader>> = {
     workday: {
       platform: "workday",
-      list: async () => [
-        listing("swe1", { title: "Staff Backend Engineer" }),
-        listing("eng1", { title: "Staff Engineer" }),
-      ],
+      list: async () => [listing("swe1", { title: "Staff Backend Engineer" }), belowFloor("eng1")],
       body: async (_board, id) =>
         listing(id, { body: "This is a fully remote position, open to anyone in the US." }),
     },
@@ -2718,14 +2753,8 @@ test("judgeAll: verdicts are written in batches, not one write per posting", asy
   const readers: Partial<Record<Platform, Reader>> = {
     greenhouse: {
       platform: "greenhouse",
-      // No role word, so no body is fetched: one flush group, five rows.
-      list: async () => [
-        listing("eng1", { title: "Staff Engineer" }),
-        listing("eng2", { title: "Staff Engineer" }),
-        listing("eng3", { title: "Staff Engineer" }),
-        listing("eng4", { title: "Staff Engineer" }),
-        listing("eng5", { title: "Staff Engineer" }),
-      ],
+      // Pay below the floor, so no body is fetched: one flush group, five rows.
+      list: async () => ["eng1", "eng2", "eng3", "eng4", "eng5"].map(belowFloor),
     },
   };
 
@@ -2749,10 +2778,7 @@ test("judgeAll: a refused flush is one error line, not a thrown run, and its row
   const readers: Partial<Record<Platform, Reader>> = {
     greenhouse: {
       platform: "greenhouse",
-      list: async () => [
-        listing("swe1", { title: "Staff Backend Engineer" }),
-        listing("eng1", { title: "Staff Engineer" }),
-      ],
+      list: async () => [listing("swe1", { title: "Staff Backend Engineer" }), belowFloor("eng1")],
       body: async (_board, id) =>
         listing(id, { body: "This is a fully remote position, open to anyone in the US." }),
     },
@@ -2791,12 +2817,13 @@ test("judgeAll: a flush mid-loop empties the buffer and the remainder lands in a
   );
 
   // One over the flush size, so the buffer flushes once in the loop and
-  // once at the end; no role word, so every verdict is in one column set.
+  // once at the end; pay below the floor, so every verdict is in one column
+  // set.
   const ids = Array.from({ length: 201 }, (_, i) => `eng${i + 1}`);
   const readers: Partial<Record<Platform, Reader>> = {
     greenhouse: {
       platform: "greenhouse",
-      list: async () => ids.map((id) => listing(id, { title: "Staff Engineer" })),
+      list: async () => ids.map(belowFloor),
     },
   };
 
@@ -3255,7 +3282,7 @@ function goneFixture(goneAtB: string | null = null): Posting[] {
       company: "Acme",
       platform: "greenhouse",
       board: "acme-gh",
-      title: `Title ${id}`,
+      title: `Staff Backend Engineer ${id}`,
       judged_with: "2026-09-14T00:00:00Z",
       gone_at: id === "b" ? goneAtB : null,
     }),
@@ -3277,7 +3304,7 @@ test("ingest: a stored posting its board's read no longer lists is marked gone a
     criteria: [criteria()],
   });
 
-  const result = await ingest(store, oneBoard([listing("a")]), {
+  const result = await ingest(store, oneBoard([admitted("a")]), {
     now: tickingClock(),
     today: MONDAY,
   });
@@ -3298,7 +3325,7 @@ test("ingest: a posting marked gone on one run and listed again on the next is b
     postings: goneFixture(),
     criteria: [criteria()],
   });
-  let listings = [listing("a")];
+  let listings = [admitted("a")];
   const readers: Partial<Record<Platform, Reader>> = {
     greenhouse: { platform: "greenhouse", list: async () => listings },
   };
@@ -3309,7 +3336,7 @@ test("ingest: a posting marked gone on one run and listed again on the next is b
     { key: GONE_B, company: "Acme", judged_with: "2026-09-18T07:00:00.000Z" },
   ]);
 
-  listings = [listing("a"), listing("b")];
+  listings = [admitted("a"), admitted("b")];
   const result = await ingest(store, readers, {
     now: tickingClockFrom("2026-09-19"),
     today: MONDAY,
@@ -3359,7 +3386,7 @@ test("ingest: a posting already marked gone that the read still does not list ge
     memoryStore({ companies: [ACME], postings: goneFixture("2026-09-12T00:00:00.000Z") }),
   );
 
-  await ingest(store, oneBoard([listing("a")]), { now: tickingClock(), today: MONDAY });
+  await ingest(store, oneBoard([admitted("a")]), { now: tickingClock(), today: MONDAY });
 
   assert.deepEqual(listedPostingKeys(upserts), [GONE_A]);
   assert.equal(await goneAtOf(store, GONE_B), "2026-09-12T00:00:00.000Z", "the first mark stands");
@@ -3385,6 +3412,472 @@ test("ingest: a board whose read fails marks none of its postings gone and clear
   assert.deepEqual(listedPostingKeys(upserts), []);
   assert.equal(await goneAtOf(store, GONE_A), null);
   assert.equal(await goneAtOf(store, GONE_B), "2026-09-12T00:00:00.000Z");
+});
+
+// Since #287 a posting is stored only when its title and place pass, or it
+// is kept or acted on. `keptListing` is "Senior Backend Engineer", which
+// `EXCLUDES_SENIOR` rejects on its title.
+function storedSenior(id: string, overrides: Partial<Posting> = {}): Posting {
+  return posting({
+    key: `greenhouse/acme-gh::${id}`,
+    company: "Acme",
+    board: "acme-gh",
+    title: "Senior Backend Engineer",
+    kept: false,
+    judged_with: "2026-09-14T00:00:00Z",
+    ...overrides,
+  });
+}
+
+// Breaks if `listCompany` writes a new listing without the title-and-place
+// check, or if the check refuses one whose title and place pass.
+test("ingest: of three new listings only the one whose title and place pass is stored", async () => {
+  const store = memoryStore({
+    companies: [ACME],
+    criteria: [criteria({ excluded_locations: ["Berlin"] })],
+  });
+  const readers = oneBoard([
+    admitted("in"),
+    listing("title-out", { title: "Account Executive" }),
+    admitted("place-out", { location: "Berlin, Germany" }),
+  ]);
+
+  const result = await ingest(store, readers, { today: MONDAY });
+
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.listed, 3, "a listing not stored still counts as listed");
+  assert.equal(result.recorded, 1);
+  assert.equal(result.pruned, 0, "nothing was stored to delete");
+  const rows = await store.select<Posting>("postings");
+  assert.deepEqual(
+    rows.map((row) => row.key),
+    ["greenhouse/acme-gh::in"],
+  );
+});
+
+// Breaks if the floor pass `admits` gives a two-phase board reaches a
+// one-phase board: its listing carries all the pay it will ever state.
+test("ingest: a one-phase Senior title with no pay is not stored", async () => {
+  const store = memoryStore({ companies: [ACME], criteria: [criteria()] });
+
+  const result = await ingest(
+    store,
+    oneBoard([listing("b1", { title: "Senior Backend Engineer" })]),
+    { today: MONDAY },
+  );
+
+  assert.equal(result.recorded, 0);
+  assert.deepEqual(await store.select<Posting>("postings"), []);
+});
+
+// Breaks if `admits` judges a listing that states no pay on its own empty
+// band: `toRow` leaves the stored band on such a row, so the judge still
+// sees it, and deleting the posting would lose a level the pay settled.
+test("ingest: a stored Senior posting relisted with no pay stated is judged on its stored band and kept", async () => {
+  const store = memoryStore({
+    companies: [ACME],
+    postings: [storedSenior("b1", { comp_low: 250_000, comp_high: 300_000 })],
+    criteria: [criteria()],
+  });
+
+  const result = await ingest(
+    store,
+    oneBoard([listing("b1", { title: "Senior Backend Engineer" })]),
+    { now: tickingClock(), today: MONDAY },
+  );
+
+  assert.equal(result.pruned, 0);
+  const [row] = await store.select<Posting>("postings", { key: KEY });
+  assert.equal(row?.comp_high, 300_000);
+});
+
+// Breaks if a stored posting a criteria edit rejects is kept, or if the
+// gone sweep marks the deleted key (an upsert naming it would recreate it).
+test("ingest: a stored posting its title now rejects, never acted on, is deleted when its board reads", async () => {
+  const { store, upserts } = recording(
+    memoryStore({
+      companies: [ACME],
+      postings: [storedSenior("b1"), storedSenior("b2", { kept: null })],
+      criteria: [EXCLUDES_SENIOR],
+    }),
+  );
+
+  const result = await ingest(store, oneBoard([keptListing("b1"), keptListing("b2")]), {
+    now: tickingClock(),
+    today: MONDAY,
+  });
+
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.pruned, 2);
+  assert.equal(result.recorded, 0);
+  assert.deepEqual(listedPostingKeys(upserts), []);
+  assert.deepEqual(await store.select<Posting>("postings"), []);
+});
+
+// Breaks if the prune is tied to a board's read answering: a posting's title
+// and place are on its stored row, so a failed read cannot hide a rejection.
+test("ingest: a stored posting its title rejects is pruned even when its board's read fails", async () => {
+  const store = memoryStore({
+    companies: [ACME],
+    postings: [storedSenior("b1")],
+    criteria: [EXCLUDES_SENIOR],
+  });
+  const readers: Partial<Record<Platform, Reader>> = {
+    greenhouse: {
+      platform: "greenhouse",
+      list: async () => {
+        throw new HttpError(500, "HTTP 500");
+      },
+    },
+  };
+
+  const result = await ingest(store, readers, { now: tickingClock(), today: MONDAY });
+
+  assert.equal(result.errors.length, 1);
+  assert.equal(result.pruned, 1);
+  assert.deepEqual(await store.select<Posting>("postings"), []);
+});
+
+// Breaks if the prune covers only keys a read listed: a gone posting, a
+// legacy key and a dropped company's posting are listed by no read, and
+// Design, Data holds only what the title and place checks admit or James
+// acted on. Breaks too if `kept` or `status` stops sparing an unlisted one.
+test("ingest: every stored posting its title rejects is pruned whether or not a read lists it; kept and acted-on ones stay", async () => {
+  const store = memoryStore({
+    companies: [ACME],
+    postings: [
+      storedSenior("gone"),
+      storedSenior("gone-kept", { kept: true }),
+      storedSenior("gone-applied", { status: "applied" }),
+      storedSenior("legacy", { key: "Acme::legacy" }),
+      storedSenior("x", {
+        key: "greenhouse/dropped-gh::x",
+        company: "Dropped",
+        board: "dropped-gh",
+      }),
+    ],
+    criteria: [EXCLUDES_SENIOR],
+  });
+
+  const result = await ingest(store, oneBoard([admitted("a")]), {
+    now: tickingClock(),
+    today: MONDAY,
+  });
+
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.pruned, 3);
+  const rows = await store.select<Posting>("postings");
+  assert.deepEqual(
+    rows.map((row) => [row.key, row.gone_at]),
+    [
+      ["greenhouse/acme-gh::a", null],
+      ["greenhouse/acme-gh::gone-applied", "2026-09-18T06:00:00.000Z"],
+      ["greenhouse/acme-gh::gone-kept", "2026-09-18T06:00:00.000Z"],
+    ],
+  );
+});
+
+// Breaks if the prune decides a listed key on its stored title rather than
+// the title the read just listed: the first would delete a posting the
+// listing now admits, the second keep one it now rejects for another run.
+test("ingest: a listed posting is pruned or kept by its listed title, not its stored one", async () => {
+  const store = memoryStore({
+    companies: [ACME],
+    postings: [storedSenior("b1"), storedSenior("b2", { title: "Staff Backend Engineer b2" })],
+    criteria: [EXCLUDES_SENIOR],
+  });
+
+  const result = await ingest(store, oneBoard([admitted("b1"), keptListing("b2")]), {
+    now: tickingClock(),
+    today: MONDAY,
+  });
+
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.pruned, 1);
+  const rows = await store.select<Posting>("postings");
+  assert.deepEqual(
+    rows.map((row) => [row.key, row.title]),
+    [["greenhouse/acme-gh::b1", "Staff Backend Engineer b1"]],
+  );
+});
+
+// Breaks if a failed stored read prunes: with no stored rows to judge,
+// nothing can be told apart from a posting that should stay.
+test("ingest: a failed stored-postings read deletes nothing", async () => {
+  const inner = memoryStore({
+    companies: [ACME],
+    postings: [storedSenior("b1")],
+    criteria: [EXCLUDES_SENIOR],
+  });
+  let deletes = 0;
+  const store: Store = {
+    ...inner,
+    async select<T>(
+      table: Table,
+      eq?: Partial<Record<string, unknown>>,
+      columns?: readonly string[],
+    ) {
+      if (table === "postings" && columns?.includes("body_hash") === true) {
+        throw new Error("connection reset");
+      }
+      return inner.select<T>(table, eq, columns);
+    },
+    async delete(table, keys) {
+      deletes += 1;
+      return inner.delete(table, keys);
+    },
+  };
+
+  const result = await ingest(store, oneBoard([]), { today: MONDAY });
+
+  assert.match(result.errors[0] ?? "", /reading stored body hashes: connection reset/);
+  assert.equal(result.pruned, 0);
+  assert.equal(deletes, 0);
+  const rows = await inner.select<Posting>("postings");
+  assert.deepEqual(
+    rows.map((row) => row.key),
+    ["greenhouse/acme-gh::b1"],
+  );
+});
+
+// The operator's setup (`withDetailReads`): one board's detail read wraps
+// the whole Greenhouse reader, so every Greenhouse board's reader has a
+// `body`. Breaks if the floor pass is decided from the reader `ingest` is
+// handed rather than the platform's own in `READERS`: a Greenhouse listing
+// states all the pay it will, so a Senior title with none is rejected like
+// any one-phase listing's, listed (`b1`) or stored and never judged (`b2`).
+test("ingest: a Greenhouse Senior posting with no pay and a body is not stored when listed and is pruned when stored, on a platform wrapped for a detail read", async () => {
+  const store = memoryStore({
+    companies: [ACME],
+    postings: [storedSenior("b2", { body: KEPT_BODY, judged_with: null })],
+    criteria: [criteria()],
+  });
+  const readers: Partial<Record<Platform, Reader>> = {
+    greenhouse: {
+      platform: "greenhouse",
+      list: async () => [listing("b1", { title: "Senior Backend Engineer", body: KEPT_BODY })],
+      body: async () => null,
+    },
+  };
+
+  const result = await ingest(store, readers, { now: tickingClock(), today: MONDAY });
+
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.recorded, 1, "only the gone mark on b2, not b1");
+  assert.equal(result.pruned, 1);
+  assert.deepEqual(await store.select<Posting>("postings"), []);
+});
+
+// A two-phase board stating pay only on its detail: `nopay` states none,
+// `paid` states a band above `criteria()`'s floor.
+function seniorTwoPhaseReader(): { readonly reader: Reader; readonly fetched: string[] } {
+  const fetched: string[] = [];
+  return {
+    reader: {
+      platform: "workday",
+      list: async () => [
+        listing("nopay", { title: "Senior Backend Engineer" }),
+        listing("paid", { title: "Senior Platform Engineer" }),
+      ],
+      body: async (_board, id) => {
+        fetched.push(id);
+        const pay = id === "paid" ? " The salary range is $250,000 - $300,000." : "";
+        return listing(id, { body: `Remote in the US.${pay}` });
+      },
+    },
+    fetched,
+  };
+}
+
+const TWO_PHASE_ACME = company("Acme", { boards: [{ platform: "workday", id: "acme-wd" }] });
+
+// Breaks if a native two-phase listing with no pay loses the floor pass: a
+// posting relisted before its first judging would be pruned before its pay
+// was ever seen.
+test("ingest: a two-phase Senior posting awaiting its first detail is stored and survives a relist", async () => {
+  const store = memoryStore({ companies: [TWO_PHASE_ACME], criteria: [criteria()] });
+  const { reader } = seniorTwoPhaseReader();
+  const readers: Partial<Record<Platform, Reader>> = { workday: reader };
+
+  const first = await ingest(store, readers, { today: MONDAY });
+  const second = await ingest(store, readers, { today: MONDAY });
+
+  assert.equal(first.recorded, 2);
+  assert.equal(second.pruned, 0);
+  const rows = await store.select<Posting>("postings");
+  assert.deepEqual(
+    rows.map((row) => [row.key, row.judged_with]),
+    [
+      ["workday/acme-wd::nopay", null],
+      ["workday/acme-wd::paid", null],
+    ],
+  );
+});
+
+// Breaks if the floor pass ends once the detail is read: `nopay` would be
+// pruned at the second read, stored again as new at the third, and its
+// detail fetched again, one wasted fetch every other read.
+test("ingest: a two-phase Senior posting whose detail was read and states no pay stays stored and is not fetched again", async () => {
+  const store = memoryStore({ companies: [TWO_PHASE_ACME], criteria: [criteria()] });
+  const { reader, fetched } = seniorTwoPhaseReader();
+  const readers: Partial<Record<Platform, Reader>> = { workday: reader };
+
+  const runs: IngestResult[] = [];
+  for (let run = 0; run < 3; run += 1) {
+    runs.push(await ingest(store, readers, { today: MONDAY }));
+    assert.deepEqual((await judgeAll(store, readers)).errors, []);
+  }
+
+  assert.deepEqual(fetched, ["nopay", "paid"]);
+  assert.deepEqual(
+    runs.map((result) => result.pruned),
+    [0, 0, 0],
+  );
+  const rows = await store.select<Posting>("postings");
+  assert.deepEqual(
+    rows.map((row) => [row.key, row.comp_high, row.kept]),
+    [
+      ["workday/acme-wd::nopay", null, false],
+      ["workday/acme-wd::paid", 300_000, true],
+    ],
+  );
+});
+
+// Breaks if the stored `kept` or `status` is not read, or not consulted,
+// before a rejected posting is deleted.
+test("ingest: a stored posting its title rejects is never deleted while kept or acted on", async () => {
+  const store = memoryStore({
+    companies: [ACME],
+    postings: [storedSenior("b1", { kept: true }), storedSenior("b2", { status: "applied" })],
+    criteria: [EXCLUDES_SENIOR],
+  });
+
+  const result = await ingest(store, oneBoard([keptListing("b1"), keptListing("b2")]), {
+    now: tickingClock(),
+    today: MONDAY,
+  });
+
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.pruned, 0);
+  const rows = await store.select<Posting>("postings");
+  assert.deepEqual(
+    rows.map((row) => [row.key, row.kept, row.status, row.gone_at]),
+    [
+      ["greenhouse/acme-gh::b1", true, null, null],
+      ["greenhouse/acme-gh::b2", false, "applied", null],
+    ],
+  );
+});
+
+// Breaks if a missing criteria row filters or deletes anything, or logs per
+// company instead of once.
+test("ingest: with no criteria row every listing is stored, nothing is deleted, and one line says so", async () => {
+  const store = memoryStore({
+    companies: [ACME, company("Globex", { boards: [{ platform: "greenhouse", id: "globex-gh" }] })],
+    postings: [storedSenior("b1"), storedSenior("unlisted")],
+  });
+  const lines: string[] = [];
+
+  const result = await ingest(
+    store,
+    oneBoard([
+      listing("b1", { title: "Account Executive" }),
+      listing("b2", { title: "Recruiter" }),
+    ]),
+    { today: MONDAY, log: (line) => lines.push(line) },
+  );
+
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.pruned, 0);
+  assert.deepEqual(lines, ["ingest: no criteria row; every listing is stored and none is pruned"]);
+  const rows = await store.select<Posting>("postings");
+  assert.deepEqual(
+    rows.map((row) => row.key),
+    [
+      "greenhouse/acme-gh::b1",
+      "greenhouse/acme-gh::b2",
+      "greenhouse/acme-gh::unlisted",
+      "greenhouse/globex-gh::b1",
+      "greenhouse/globex-gh::b2",
+    ],
+  );
+});
+
+// Breaks if `pruned` sums per company: two companies carrying one board both
+// read it and both delete the same key, which is one posting gone.
+test("ingest: a rejected posting on a board two companies carry counts as pruned once", async () => {
+  const store = memoryStore({
+    companies: [
+      company("Acme", { boards: [{ platform: "greenhouse", id: "acme-gh" }] }),
+      company("Acme Labs", { boards: [{ platform: "greenhouse", id: "acme-gh" }] }),
+    ],
+    postings: [storedSenior("b1")],
+    criteria: [EXCLUDES_SENIOR],
+  });
+
+  const result = await ingest(store, oneBoard([keptListing("b1")]), { today: MONDAY });
+
+  assert.equal(result.pruned, 1);
+  assert.deepEqual(await store.select<Posting>("postings"), []);
+});
+
+// Breaks if a gone mark can follow a delete: the first company's read lists
+// the rejected key and the second's, of the same board, no longer does, so
+// its gone sweep names the key. Deleted before that sweep, the mark's upsert
+// would insert it back as a stub.
+test("ingest: a pruned key is never marked gone back into the store by a second company carrying its board", async () => {
+  const store = memoryStore({
+    companies: [
+      company("Acme", { boards: [{ platform: "greenhouse", id: "acme-gh" }] }),
+      company("Acme Labs", { boards: [{ platform: "greenhouse", id: "acme-gh" }] }),
+    ],
+    postings: [storedSenior("b1")],
+    criteria: [EXCLUDES_SENIOR],
+  });
+  let reads = 0;
+  const readers: Partial<Record<Platform, Reader>> = {
+    greenhouse: {
+      platform: "greenhouse",
+      list: async () => {
+        reads += 1;
+        return reads === 1 ? [keptListing("b1")] : [];
+      },
+    },
+  };
+
+  const result = await ingest(store, readers, { now: tickingClock(), today: MONDAY });
+
+  assert.equal(reads, 2);
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.pruned, 1);
+  assert.deepEqual(await store.select<Posting>("postings"), []);
+});
+
+// Breaks if a refused delete throws the run, or skips the company's upsert.
+test("ingest: a refused delete is one error line, prunes nothing, and the listed rows still land", async () => {
+  const inner = memoryStore({
+    companies: [ACME],
+    postings: [storedSenior("b1")],
+    criteria: [EXCLUDES_SENIOR],
+  });
+  const store: Store = {
+    ...inner,
+    delete: () => Promise.reject(new Error("refused")),
+  };
+
+  const result = await ingest(store, oneBoard([keptListing("b1"), admitted("b2")]), {
+    today: MONDAY,
+  });
+
+  assert.equal(result.errors.length, 1);
+  assert.match(result.errors[0] ?? "", /^pruning 1 postings: refused/);
+  assert.equal(result.pruned, 0);
+  assert.equal(result.recorded, 1);
+  const rows = await inner.select<Posting>("postings");
+  assert.deepEqual(
+    rows.map((row) => row.key),
+    ["greenhouse/acme-gh::b1", "greenhouse/acme-gh::b2"],
+  );
 });
 
 // A re-list identical to what is stored is no write: the daily run lists
@@ -3534,17 +4027,18 @@ test("ingest: a posting never stored before is written", async () => {
   assert.equal(written?.["body"], UNCHANGED_BODY);
 });
 
-// A title with no role word: the listing criteria drop it, so its body is
-// not kept.
-const DROPPED_TITLE = "Title same";
+// A floor above `unchangedListing`'s band: the listing criteria drop it on
+// its pay, so its body is not kept; its title and place pass, so it is
+// stored (#287).
+const FLOOR_ABOVE_BAND = criteria({ comp_floor: 400_000 });
 
 // Breaks if the `!keep` branch returns `cleared` when there was nothing
 // stored to clear and nothing else changed.
 test("ingest: a dropped posting with no stored body and nothing changed gets no write", async () => {
   const { written } = await relist(
-    [unchangedStored({ title: DROPPED_TITLE, body: null, body_hash: null })],
-    unchangedListing({ title: DROPPED_TITLE }),
-    [criteria()],
+    [unchangedStored({ body: null, body_hash: null })],
+    unchangedListing(),
+    [FLOOR_ABOVE_BAND],
   );
 
   assert.equal(written, undefined);
@@ -3553,11 +4047,7 @@ test("ingest: a dropped posting with no stored body and nothing changed gets no 
 // Breaks if the `!keep` branch collapses to null while a stored body is
 // being cleared.
 test("ingest: a dropped posting whose stored body is cleared is written even with nothing else changed", async () => {
-  const { written } = await relist(
-    [unchangedStored({ title: DROPPED_TITLE })],
-    unchangedListing({ title: DROPPED_TITLE }),
-    [criteria()],
-  );
+  const { written } = await relist([unchangedStored()], unchangedListing(), [FLOOR_ABOVE_BAND]);
 
   assert.equal(written?.["body"], null);
   assert.equal(written?.["body_hash"], null);
@@ -3674,7 +4164,7 @@ test("boardsToRead: Monday reads every board, whatever its postings say", () => 
     "greenhouse/acme-failing": [{ title: "Marketing Manager" }],
   });
 
-  const result = boardsToRead(companies, stored, criteria(), MONDAY);
+  const result = boardsToRead(companies, stored, criteria(), MONDAY, new Map());
 
   assert.deepEqual([...result].sort(), [
     "greenhouse::acme-failing",
@@ -3683,17 +4173,22 @@ test("boardsToRead: Monday reads every board, whatever its postings say", () => 
   ]);
 });
 
-// Breaks if a new board waits for Monday.
-test("boardsToRead: a board with no stored posting is read on a non-Monday", () => {
+// Breaks if a company bound inside the last week waits for Monday instead:
+// with #287 a board whose postings all fail never stores one, so a company
+// just bound (a candidate outcome watched or added) is the only way to read
+// its board before it has anything stored.
+test("boardsToRead: a company bound 3 days before a Tuesday is read", () => {
   const companies = [company("Acme", { boards: [{ platform: "greenhouse", id: "acme-new" }] })];
+  const boundSince = new Map([["Acme", "2026-09-26T12:00:00"]]);
 
-  const result = boardsToRead(companies, new Map(), criteria(), TUESDAY);
+  const result = boardsToRead(companies, new Map(), criteria(), TUESDAY, boundSince);
 
   assert.deepEqual([...result], ["greenhouse::acme-new"]);
 });
 
-// Breaks if a board that has never produced is read daily.
-test("boardsToRead: a board whose every posting fails level, role, excluded words or country is skipped on a non-Monday", () => {
+// Breaks if a board that has never produced is read daily, whether it was
+// bound long enough ago that its week is up, or never bound at all.
+test("boardsToRead: a company bound 10 days before a Tuesday with no passing posting waits", () => {
   const companies = [company("Acme", { boards: [{ platform: "greenhouse", id: "acme-failing" }] })];
   const stored = storedOn({
     "greenhouse/acme-failing": [
@@ -3703,8 +4198,19 @@ test("boardsToRead: a board whose every posting fails level, role, excluded word
       { title: "Staff Backend Engineer", location: "Berlin, Germany" },
     ],
   });
+  const boundSince = new Map([["Acme", "2026-09-19T12:00:00"]]);
 
-  const result = boardsToRead(companies, stored, criteria(), TUESDAY);
+  const result = boardsToRead(companies, stored, criteria(), TUESDAY, boundSince);
+
+  assert.deepEqual([...result], []);
+});
+
+// Breaks if a board that has never produced and was never bound is read
+// daily (the pre-#287 fallback "no stored posting" arm, now dropped).
+test("boardsToRead: a board with no stored posting and no bound company waits on a non-Monday", () => {
+  const companies = [company("Acme", { boards: [{ platform: "greenhouse", id: "acme-new" }] })];
+
+  const result = boardsToRead(companies, new Map(), criteria(), TUESDAY, new Map());
 
   assert.deepEqual([...result], []);
 });
@@ -3725,9 +4231,70 @@ test("boardsToRead: a Senior-titled posting with pay above the floor makes its b
     "greenhouse/acme-unpaid": [{ title: "Senior Backend Engineer" }],
   });
 
-  const result = boardsToRead(companies, stored, criteria({ comp_floor: 120_000 }), TUESDAY);
+  const result = boardsToRead(
+    companies,
+    stored,
+    criteria({ comp_floor: 120_000 }),
+    TUESDAY,
+    new Map(),
+  );
 
   assert.deepEqual([...result], ["greenhouse::acme-paid"]);
+});
+
+// Breaks if `ingest` never reads `candidates` to build `boundSince`, or
+// builds it wrong: a board with nothing stored is read only because its
+// company was bound (outcome `added`) three days ago.
+test("ingest: a board with no stored posting is read when its company was added as a candidate three days ago", async () => {
+  const store = memoryStore({
+    companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "acme-new" }] })],
+    candidates: [
+      candidate({ id: "1", company: "Acme", outcome: "added", outcome_at: "2026-09-26T12:00:00" }),
+    ],
+    criteria: [criteria()],
+  });
+  const read: string[] = [];
+  const readers: Partial<Record<Platform, Reader>> = {
+    greenhouse: {
+      platform: "greenhouse",
+      list: async (board) => {
+        read.push(board.id);
+        return [];
+      },
+    },
+  };
+
+  const result = await ingest(store, readers, { today: TUESDAY });
+
+  assert.deepEqual(read, ["acme-new"]);
+  assert.equal(result.boardsToday, 1);
+});
+
+// Breaks if `boundSince` counts a candidate outcome other than `watched` or
+// `added` (Design, Ingestion names only those two) as binding its company.
+test("ingest: a candidate known three days ago, with no watched or added outcome, does not bind its company", async () => {
+  const store = memoryStore({
+    companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "acme-new" }] })],
+    candidates: [
+      candidate({ id: "1", company: "Acme", outcome: "known", outcome_at: "2026-09-26T12:00:00" }),
+    ],
+    criteria: [criteria()],
+  });
+  const read: string[] = [];
+  const readers: Partial<Record<Platform, Reader>> = {
+    greenhouse: {
+      platform: "greenhouse",
+      list: async (board) => {
+        read.push(board.id);
+        return [];
+      },
+    },
+  };
+
+  const result = await ingest(store, readers, { today: TUESDAY });
+
+  assert.deepEqual(read, []);
+  assert.equal(result.boardsToday, 0);
 });
 
 // Breaks if the check reads stored verdicts instead of judging title and
@@ -3794,6 +4361,9 @@ test("ingest: a board with no producing posting waits for Monday, is never read,
         platform: "greenhouse",
         board: "acme-failing",
         title: "Marketing Manager",
+        // Acted on, so the prune (#287) keeps it and the board still
+        // produces nothing its title and place pass.
+        status: "applied",
       }),
     ],
     criteria: [criteria()],
@@ -3873,6 +4443,52 @@ test("ingest: a refused stored-postings read on a non-Monday reads every board a
   assert.match(result.errors[0] ?? "", /statement timeout/);
 });
 
+// Breaks if a refused candidates read (`boundSince`) throws out of `ingest`,
+// or is silently swallowed into "nothing is bound": either would leave a
+// board with no admitted posting waiting, though nothing here says it should.
+test("ingest: a failed candidates read on a non-Monday reads every board and costs one error line", async () => {
+  const inner = memoryStore({
+    companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "acme-failing" }] })],
+    postings: [
+      posting({
+        key: "greenhouse/acme-failing::1",
+        company: "Acme",
+        platform: "greenhouse",
+        board: "acme-failing",
+        title: "Marketing Manager",
+      }),
+    ],
+    criteria: [criteria()],
+  });
+  const store: Store = {
+    ...inner,
+    async select<T>(
+      table: Table,
+      eq?: Partial<Record<string, unknown>>,
+      columns?: readonly string[],
+    ) {
+      if (table === "candidates") throw new Error("statement timeout");
+      return inner.select<T>(table, eq, columns);
+    },
+  };
+  const read: string[] = [];
+  const readers: Partial<Record<Platform, Reader>> = {
+    greenhouse: {
+      platform: "greenhouse",
+      list: async (board) => {
+        read.push(board.id);
+        return [];
+      },
+    },
+  };
+
+  const result = await ingest(store, readers, { today: TUESDAY });
+
+  assert.deepEqual(read, ["acme-failing"]);
+  assert.equal(result.errors.length, 1);
+  assert.match(result.errors[0] ?? "", /reading candidates.*statement timeout/);
+});
+
 // Breaks if today's boards are counted by unique board key (review 4): a
 // board two companies carry is read, and fails, once per company, so one
 // shared failing board beside one working board is not every board failing.
@@ -3896,7 +4512,10 @@ test("ingest and listExitCode: a failing board two companies share, beside a wor
     },
   };
 
-  const result = await ingest(store, readers, { today: TUESDAY });
+  // Monday, not Tuesday: this test is about how boards are counted once
+  // they're read, not about which ones `boardsToRead` picks (#287, no
+  // candidate or stored posting is seeded here).
+  const result = await ingest(store, readers, { today: MONDAY });
 
   assert.equal(result.errors.length, 2);
   assert.equal(result.boardsToday, 3);

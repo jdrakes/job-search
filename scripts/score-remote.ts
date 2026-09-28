@@ -3,6 +3,12 @@
  * states its workplace, with that field hidden, so `judgeRemote`'s
  * field-first branch never fires and what this scores is the text path
  * alone. `scoreRemote` is pure so a test can score a stub.
+ *
+ * Scores postings whose board states a workplace and which carry a body,
+ * most of them rejected on title or place. Since #287 those are not stored,
+ * so this runs against a database restored from
+ * `~/workspace/job-search-local/dumps/postings-before-prune.sql`, with
+ * `JOB_SEARCH_DB_URL` pointed at it.
  */
 import process from "node:process";
 

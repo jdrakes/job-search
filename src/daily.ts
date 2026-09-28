@@ -209,8 +209,8 @@ async function main(): Promise<number> {
   }
 
   // `today` picks today's boards (`boardsToRead`, ingest.ts): Monday reads
-  // every board, another weekday only those that have ever produced or are
-  // new.
+  // every board, another weekday only those that have ever produced or
+  // whose company was bound in the last week.
   const result = await phase(
     "list",
     () => ingest(store, readers, { today: new Date() }),
@@ -219,7 +219,7 @@ async function main(): Promise<number> {
 
   console.log(
     `ingest: ${result.companies} companies, ${result.listed} listed, ${result.recorded} recorded, ` +
-      `${result.errors.length} errors, ${result.gone.length} gone`,
+      `${result.pruned} pruned, ${result.errors.length} errors, ${result.gone.length} gone`,
   );
   console.log(
     `list: ${result.boardsToday} boards today, ${result.boardsWaiting} waiting for Monday`,
