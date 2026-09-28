@@ -4662,7 +4662,9 @@ test("ingest: a failed stored-postings read does not write full_read_at, even wi
 // Breaks if the marker is gated only on the stored-postings and candidates
 // reads: a run whose board reads all fail (an ATS down or rate-limiting)
 // would mark the edit as read, and the failed boards would wait for Monday.
-test("ingest: a failed board read does not write full_read_at, even with an edit pending", async () => {
+// One board, one error: errors meet `boardsToday`, `listExitCode`'s own
+// "every board failed".
+test("ingest: every board read failing does not write full_read_at, even with an edit pending", async () => {
   const { store, updates } = recording(waitingStore(null));
   const failingReaders: Partial<Record<Platform, Reader>> = {
     greenhouse: {
@@ -4682,9 +4684,43 @@ test("ingest: a failed board read does not write full_read_at, even with an edit
   assert.equal(result.boardsToday, 1);
   assert.equal(result.criteriaEdited, true);
   assert.equal(result.errors.length, 1);
+  assert.equal(listExitCode(result), 1);
   assert.deepEqual(updates, []);
   assert.deepEqual(lines, [
-    "ingest: every board picked for the criteria edit, but 1 errors this run; full_read_at not written, the next run reads every board again",
+    "ingest: every board picked for the criteria edit, but every board failed (1 errors, 1 boards); full_read_at not written, the next run reads every board again",
+  ]);
+});
+
+// Breaks if any single board's error holds the marker back: a run over
+// thousands of external boards almost always has a few, and the edit would
+// then read every board every day. The live run that found this had 3 of
+// 7,139; here 3 of 100.
+test("ingest: a few failed board reads still write full_read_at for a pending edit", async () => {
+  const failingBoards = new Set(["board-7", "board-42", "board-99"]);
+  const inner = memoryStore({
+    companies: Array.from({ length: 100 }, (_, index) =>
+      company(`Company ${index}`, { boards: [{ platform: "greenhouse", id: `board-${index}` }] }),
+    ),
+    criteria: [criteria({ updated_at: "2026-09-20T00:00:00Z", full_read_at: null })],
+  });
+  const { store, updates } = recording(inner);
+  const flakyReaders: Partial<Record<Platform, Reader>> = {
+    greenhouse: {
+      platform: "greenhouse",
+      list: async (board) => {
+        if (failingBoards.has(board.id)) throw new Error("HTTP 500");
+        return [];
+      },
+    },
+  };
+
+  const result = await ingest(store, flakyReaders, { today: TUESDAY, log: () => {} });
+
+  assert.equal(result.boardsToday, 100);
+  assert.equal(result.criteriaEdited, true);
+  assert.equal(result.errors.length, 3);
+  assert.deepEqual(updates, [
+    { table: "criteria", key: "1", patch: { full_read_at: "2026-09-20T00:00:00Z" } },
   ]);
 });
 

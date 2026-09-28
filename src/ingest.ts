@@ -1027,17 +1027,19 @@ export async function ingest(
 
   // Every board has been read for this criteria row, so the next run need
   // not repeat it until the next edit. Written once every read has landed,
-  // so a run that dies part way reads every board again. Any error this run
-  // (one board's failed read is enough) means some board was not read for
-  // the edit, so the marker is not written and the next run reads every
-  // board again rather than leave that board waiting for Monday. A failed
-  // write is a log line, not an error: `daily.ts`'s every-board-failed check
-  // counts errors against boards, and this is not a board. The next run then
-  // reads every board again, which costs a Monday-sized run and nothing else.
+  // so a run that dies part way reads every board again. A few failed boards
+  // do not hold the marker back: a run over thousands of external boards
+  // almost always has some, and holding it would read every board every day.
+  // Only a run where practically every board failed (`everyBoardFailed`, the
+  // same test `daily.ts` exits non-zero on) leaves it unwritten, so the next
+  // run reads every board again. A failed write is a log line, not an error:
+  // `daily.ts`'s every-board-failed check counts errors against boards, and
+  // this is not a board. The next run then reads every board again, which
+  // costs a Monday-sized run and nothing else.
   const allErrors = [...errors, ...results.flatMap((result) => result.errors), ...pruneErrors];
-  if (edited && allErrors.length > 0) {
+  if (edited && everyBoardFailed(boardsToday, allErrors.length)) {
     log(
-      `ingest: every board picked for the criteria edit, but ${allErrors.length} errors this run; full_read_at not written, the next run reads every board again`,
+      `ingest: every board picked for the criteria edit, but every board failed (${allErrors.length} errors, ${boardsToday} boards); full_read_at not written, the next run reads every board again`,
     );
   } else if (edited && criteria !== undefined) {
     const marked = await store
@@ -1061,6 +1063,15 @@ export async function ingest(
     boardsWaiting,
     criteriaEdited: edited,
   };
+}
+
+// Practically every board picked today failed: errors and boards are both
+// counted per company board, so errors at or past the board count means no
+// board can be assumed read. Shared by the `full_read_at` gate here and
+// `daily.ts`'s `listExitCode`, so the two agree on what "every board failed"
+// means.
+export function everyBoardFailed(boardsToday: number, errorCount: number): boolean {
+  return boardsToday > 0 && errorCount >= boardsToday;
 }
 
 /** A comp figure as the integer columns hold it, or null. See `toRow`. */

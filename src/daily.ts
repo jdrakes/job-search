@@ -14,7 +14,7 @@ import type { DiscoverySource, Source } from "./discovery/source.ts";
 import { theMuseSource } from "./discovery/themuse.ts";
 import { weWorkRemotelySource } from "./discovery/weworkremotely.ts";
 import { describeError } from "./errors.ts";
-import { ingest, type IngestResult, judgeAll } from "./ingest.ts";
+import { everyBoardFailed, ingest, type IngestResult, judgeAll } from "./ingest.ts";
 import { phase } from "./phase.ts";
 import { loadSettings, type Settings } from "./settings.ts";
 import { openStore } from "./store/open.ts";
@@ -265,8 +265,8 @@ async function main(): Promise<number> {
 export function listExitCode(
   result: Pick<IngestResult, "companies" | "errors" | "boardsToday">,
 ): number {
-  const everyBoardFailed = result.boardsToday > 0 && result.errors.length >= result.boardsToday;
-  return result.companies === 0 || everyBoardFailed ? 1 : 0;
+  const failed = everyBoardFailed(result.boardsToday, result.errors.length);
+  return result.companies === 0 || failed ? 1 : 0;
 }
 
 // The one place that catches: a run whose first store read times out
