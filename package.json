@@ -14,7 +14,8 @@
     "fmt:check": "prettier --check .",
     "build:ui": "tsc -p ui/tsconfig.json && node scripts/write-ui-config.ts",
     "score:remote": "node --env-file=.env scripts/score-remote.ts",
-    "criteria:load": "node --env-file=.env scripts/criteria-load.ts"
+    "criteria:load": "node --env-file=.env scripts/criteria-load.ts",
+    "peers": "node --env-file=.env scripts/peers.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
