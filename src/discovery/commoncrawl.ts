@@ -60,9 +60,12 @@ export function parseIndexPage(body: string, host: string): string[] {
 // Without a crawl index there is nothing to walk, so collinfo.json failing
 // throws. After that, a host or page the index fails to answer is one log
 // line and the walk goes on: the index fails transiently on a real share of
-// requests, and one failure must not discard every board already read. A
-// failed page ends its host's walk, since the pages after it are likely to
-// fail too. Nothing read at all still throws.
+// requests (on 2026-09-27 it answered 502 and 504 to one in three, some
+// for over a minute), and one failure must not discard every board already
+// read. A failed page does not end its host's walk: the pages after it are
+// asked too, since a transient 502 on one page says nothing about the
+// next, and stopping there lost every later page of that host for the run.
+// Nothing read at all still throws.
 async function boards(options?: HttpOptions, log?: (line: string) => void): Promise<Board[]> {
   const collections = await getJson<unknown>(COLLECTIONS_URL, options);
   const index = latestIndex(collections);
@@ -90,7 +93,7 @@ async function boards(options?: HttpOptions, log?: (line: string) => void): Prom
         body = await getText(`${index}?url=${host}/*&output=json&fl=url&page=${page}`, options);
       } catch (err) {
         log?.(`commoncrawl: page unreachable ${host} page ${page}: ${describeError(err)}`);
-        break;
+        continue;
       }
       for (const rawId of parseIndexPage(body, host)) {
         // Every Greenhouse id on file is lowercase; Lever is case-sensitive

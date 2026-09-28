@@ -477,6 +477,10 @@ test("hostDelayMs: Workable's board host gets the 1.5s its 429s asked for", () =
   assert.equal(hostDelayMs("apply.workable.com"), 1500);
 });
 
+test("hostDelayMs: Common Crawl's index gets 3s, the spacing its 502s asked for", () => {
+  assert.equal(hostDelayMs("index.commoncrawl.org"), 3000);
+});
+
 test("hostDelayMs: Workable's delay is keyed to that host alone, not the domain", () => {
   // An entry matched by suffix rather than by exact host would slow every
   // other Workable host to 1500ms; only `apply.workable.com` answered 429.

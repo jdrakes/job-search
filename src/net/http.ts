@@ -82,6 +82,11 @@ const HOST_DELAYS_MS: Record<string, number> = {
   // second. 1500 ms is ~0.67 a second, under both that figure and the rate
   // that failed. The ceiling is evidenced; this exact number is judgement.
   "apply.workable.com": 1500,
+  // Common Crawl's URL index is shared, overloaded at times, and answered
+  // 502 and 504 to about one request in three on 2026-09-27, at the 500 ms
+  // floor. One request every 3 s asks a sixth of that; the source reads a
+  // handful of pages a run, so the cost is seconds.
+  "index.commoncrawl.org": 3000,
 };
 
 export function hostDelayMs(host: string): number {
