@@ -228,12 +228,18 @@ test("boards(): one host's showNumPages failing is one log line and the other ho
 });
 
 // Breaks if a page failure propagates out of boards(), if the host's earlier
-// pages are discarded, or if the walk `continue`s to page 2 instead of
-// ending that host (page 2 is not in the fake, so asking it throws).
-test("boards(): a host's second page failing keeps its first page and every other host, and ends that host's walk", async () => {
-  const fetchImpl = failingCrawlFetch(ONE_BOARD_PER_HOST, [pageUrl("jobs.lever.co", 1)], {
-    "jobs.lever.co": 3,
-  });
+// pages are discarded, or if the walk stops at the failed page instead of
+// asking the pages after it (page 2 of Lever carries a board only a
+// continued walk can find).
+test("boards(): a host's page failing keeps every other page and host, and the walk goes on past it", async () => {
+  const fetchImpl = failingCrawlFetch(
+    {
+      ...ONE_BOARD_PER_HOST,
+      [pageUrl("jobs.lever.co", 2)]: indexPage("https://jobs.lever.co/epsilon"),
+    },
+    [pageUrl("jobs.lever.co", 1)],
+    { "jobs.lever.co": 3 },
+  );
   const lines: string[] = [];
 
   const boards = await commonCrawlSource.boards(
@@ -246,6 +252,7 @@ test("boards(): a host's second page failing keeps its first page and every othe
     { platform: "greenhouse", id: "beta" },
     { platform: "greenhouse", id: "gamma" },
     { platform: "lever", id: "delta" },
+    { platform: "lever", id: "epsilon" },
   ]);
   assert.deepEqual(lines, ["commoncrawl: page unreachable jobs.lever.co page 1: HTTP 404"]);
 });
