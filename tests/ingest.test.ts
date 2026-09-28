@@ -4659,6 +4659,35 @@ test("ingest: a failed stored-postings read does not write full_read_at, even wi
   assert.deepEqual(updates, []);
 });
 
+// Breaks if the marker is gated only on the stored-postings and candidates
+// reads: a run whose board reads all fail (an ATS down or rate-limiting)
+// would mark the edit as read, and the failed boards would wait for Monday.
+test("ingest: a failed board read does not write full_read_at, even with an edit pending", async () => {
+  const { store, updates } = recording(waitingStore(null));
+  const failingReaders: Partial<Record<Platform, Reader>> = {
+    greenhouse: {
+      platform: "greenhouse",
+      list: async () => {
+        throw new Error("rate limited");
+      },
+    },
+  };
+  const lines: string[] = [];
+
+  const result = await ingest(store, failingReaders, {
+    today: TUESDAY,
+    log: (line) => lines.push(line),
+  });
+
+  assert.equal(result.boardsToday, 1);
+  assert.equal(result.criteriaEdited, true);
+  assert.equal(result.errors.length, 1);
+  assert.deepEqual(updates, []);
+  assert.deepEqual(lines, [
+    "ingest: every board picked for the criteria edit, but 1 errors this run; full_read_at not written, the next run reads every board again",
+  ]);
+});
+
 // Breaks if a refused marker write is counted as an error: `listExitCode`
 // would count it against a day's boards, and with one board due a clean run
 // would exit as if every board failed.
