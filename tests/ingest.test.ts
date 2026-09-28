@@ -4,7 +4,7 @@ import { test } from "node:test";
 
 import type { Listing, Reader } from "../src/ats/ats.ts";
 import { listExitCode } from "../src/daily.ts";
-import { boardsToRead, ingest, judgeAll } from "../src/ingest.ts";
+import { boardsToRead, ingest, judgeAll, type IngestResult } from "../src/ingest.ts";
 import { HttpError } from "../src/net/http.ts";
 import type { Candidate, Company, Criteria, Platform, Posting, Table } from "../src/schema.ts";
 import { memoryStore } from "../src/store/memory.ts";
@@ -1242,7 +1242,7 @@ test("ingest: a failed hash read logs an error and lists with every body written
       if (
         table === "postings" &&
         columns?.join(",") ===
-          "key,company,platform,title,url,location,posted_at,body_hash,comp_low,comp_high,workplace,kept,status,gone_at,judged_with"
+          "key,company,platform,title,url,location,posted_at,body_hash,comp_low,comp_high,workplace,kept,status,gone_at"
       ) {
         throw new Error("column postings.body_hash does not exist");
       }
@@ -3642,11 +3642,16 @@ test("ingest: a failed stored-postings read deletes nothing", async () => {
 
 // The operator's setup (`withDetailReads`): one board's detail read wraps
 // the whole Greenhouse reader, so every Greenhouse board's reader has a
-// `body`. Breaks if the floor pass is gated on the reader alone: a listing
-// that carries its body has stated all the pay it will, so a Senior title
-// with none is rejected like any one-phase listing's.
-test("ingest: a Greenhouse Senior posting with no pay and a body is not stored on a platform wrapped for a detail read", async () => {
-  const store = memoryStore({ companies: [ACME], criteria: [criteria()] });
+// `body`. Breaks if the floor pass is decided from the reader `ingest` is
+// handed rather than the platform's own in `READERS`: a Greenhouse listing
+// states all the pay it will, so a Senior title with none is rejected like
+// any one-phase listing's, listed (`b1`) or stored and never judged (`b2`).
+test("ingest: a Greenhouse Senior posting with no pay and a body is not stored when listed and is pruned when stored, on a platform wrapped for a detail read", async () => {
+  const store = memoryStore({
+    companies: [ACME],
+    postings: [storedSenior("b2", { body: KEPT_BODY, judged_with: null })],
+    criteria: [criteria()],
+  });
   const readers: Partial<Record<Platform, Reader>> = {
     greenhouse: {
       platform: "greenhouse",
@@ -3655,10 +3660,11 @@ test("ingest: a Greenhouse Senior posting with no pay and a body is not stored o
     },
   };
 
-  const result = await ingest(store, readers, { today: MONDAY });
+  const result = await ingest(store, readers, { now: tickingClock(), today: MONDAY });
 
   assert.deepEqual(result.errors, []);
-  assert.equal(result.recorded, 0);
+  assert.equal(result.recorded, 1, "only the gone mark on b2, not b1");
+  assert.equal(result.pruned, 1);
   assert.deepEqual(await store.select<Posting>("postings"), []);
 });
 
@@ -3685,9 +3691,9 @@ function seniorTwoPhaseReader(): { readonly reader: Reader; readonly fetched: st
 
 const TWO_PHASE_ACME = company("Acme", { boards: [{ platform: "workday", id: "acme-wd" }] });
 
-// Breaks if the floor pass needs a judged posting, or reads `judged_with`
-// as the detail having been read while it is still null: a posting relisted
-// before its first judging would be pruned before its pay was ever seen.
+// Breaks if a native two-phase listing with no pay loses the floor pass: a
+// posting relisted before its first judging would be pruned before its pay
+// was ever seen.
 test("ingest: a two-phase Senior posting awaiting its first detail is stored and survives a relist", async () => {
   const store = memoryStore({ companies: [TWO_PHASE_ACME], criteria: [criteria()] });
   const { reader } = seniorTwoPhaseReader();
@@ -3708,24 +3714,32 @@ test("ingest: a two-phase Senior posting awaiting its first detail is stored and
   );
 });
 
-// Breaks if the floor pass outlives the detail read: a posting whose detail
-// stated no pay would be stored and never pruned.
-test("ingest: a two-phase Senior posting whose detail was read and states no pay is pruned; one stating pay stays", async () => {
+// Breaks if the floor pass ends once the detail is read: `nopay` would be
+// pruned at the second read, stored again as new at the third, and its
+// detail fetched again, one wasted fetch every other read.
+test("ingest: a two-phase Senior posting whose detail was read and states no pay stays stored and is not fetched again", async () => {
   const store = memoryStore({ companies: [TWO_PHASE_ACME], criteria: [criteria()] });
   const { reader, fetched } = seniorTwoPhaseReader();
   const readers: Partial<Record<Platform, Reader>> = { workday: reader };
 
-  await ingest(store, readers, { today: MONDAY });
-  const judging = await judgeAll(store, readers);
-  const result = await ingest(store, readers, { today: MONDAY });
+  const runs: IngestResult[] = [];
+  for (let run = 0; run < 3; run += 1) {
+    runs.push(await ingest(store, readers, { today: MONDAY }));
+    assert.deepEqual((await judgeAll(store, readers)).errors, []);
+  }
 
-  assert.deepEqual(judging.errors, []);
   assert.deepEqual(fetched, ["nopay", "paid"]);
-  assert.equal(result.pruned, 1);
+  assert.deepEqual(
+    runs.map((result) => result.pruned),
+    [0, 0, 0],
+  );
   const rows = await store.select<Posting>("postings");
   assert.deepEqual(
     rows.map((row) => [row.key, row.comp_high, row.kept]),
-    [["workday/acme-wd::paid", 300_000, true]],
+    [
+      ["workday/acme-wd::nopay", null, false],
+      ["workday/acme-wd::paid", 300_000, true],
+    ],
   );
 });
 

@@ -6,6 +6,7 @@
 import { createHash } from "node:crypto";
 
 import { compInText, type Listing, type Reader } from "./ats/ats.ts";
+import { READERS } from "./ats/readers.ts";
 import { boardKey, boardsOf, isGone, readable } from "./companies.ts";
 import { loadCriteria } from "./criteria.ts";
 import { describeError } from "./errors.ts";
@@ -539,29 +540,31 @@ function passesTitleAndPlace(posting: TitleAndPlace, criteria: Criteria): boolea
 }
 
 // Whether a posting is stored at all (#287): its title and place pass. A
-// posting whose pay is not yet knowable is judged at the floor instead, as
-// `wantsBody` does: a two-phase board states pay only on the detail
+// posting on a native two-phase platform with no pay is judged at the floor
+// instead, as `wantsBody` does: such a board states pay only on the detail
 // `judgeAll` fetches, and only for a stored posting, so without this a
-// numbered or Senior title on such a board would never be stored, never
-// fetched, and never found. Once the detail was read and still states no
-// pay, the posting is judged like any other.
-function admits(posting: TitleAndPlace, awaitingDetail: boolean, criteria: Criteria): boolean {
+// numbered or Senior title on it would never be stored, never fetched, and
+// never found. The floor pass holds after the detail was read and stated no
+// pay too, so such a row stays stored though its verdict is out: it is kept
+// to be read, so its detail is not fetched again. Pruned, it would be stored
+// again as new at the next read and its detail fetched again, every other
+// read for as long as it stays listed.
+function admits(posting: TitleAndPlace, platform: Platform, criteria: Criteria): boolean {
   if (passesTitleAndPlace(posting, criteria)) return true;
   return (
-    awaitingDetail &&
+    nativeTwoPhase(platform) &&
     posting.comp_high === null &&
     passesTitleAndPlace({ ...posting, comp_high: criteria.comp_floor }, criteria)
   );
 }
 
-// Whether a posting's detail may still state its pay: its reader can fetch
-// a detail, and `judgeAll` has not judged it since it was listed (a judged
-// posting on such a board has had its detail read). A reader having `body`
-// is not enough alone: `withDetailReads` wraps a whole platform for one
-// board's detail read, so every Greenhouse posting's reader has one; a
-// listing that carries its body is one-phase whatever its reader.
-function awaitsDetail(reader: Reader | undefined, judgedWith: string | null): boolean {
-  return reader?.body !== undefined && judgedWith === null;
+// Whether a platform's own reader lists postings with no body and fetches
+// each detail: asked of `READERS`, never of the reader `ingest` is handed.
+// `withDetailReads` wraps a whole platform for one board's detail read, so
+// every Greenhouse board's reader has a `body`, though a Greenhouse listing
+// states all the pay it ever will.
+function nativeTwoPhase(platform: Platform): boolean {
+  return READERS[platform].body !== undefined;
 }
 
 // A listing is judged on the pay `toRow` leaves on its row: the listing's own
@@ -569,14 +572,13 @@ function awaitsDetail(reader: Reader | undefined, judgedWith: string | null): bo
 function listingAdmits(
   listing: Listing,
   stored: StoredListing | undefined,
+  platform: Platform,
   criteria: Criteria,
-  reader: Reader,
 ): boolean {
   const statesPay = listing.body !== null || listing.compLow !== null || listing.compHigh !== null;
   const compHigh = statesPay ? wholeDollars(listing.compHigh) : (stored?.comp_high ?? null);
   const posting = { title: listing.title, location: listing.location, comp_high: compHigh };
-  const awaitingDetail = listing.body === null && awaitsDetail(reader, stored?.judged_with ?? null);
-  return admits(posting, awaitingDetail, criteria);
+  return admits(posting, platform, criteria);
 }
 
 // A stored posting nothing reads is deleted (#287; Design, Data: the store
@@ -592,13 +594,11 @@ function prunable(
   admitted: ReadonlySet<string>,
   rejected: ReadonlySet<string>,
   criteria: Criteria,
-  readers: Partial<Record<Platform, Reader>>,
 ): string[] {
   const keys: string[] = [];
   for (const [key, row] of stored) {
     if (row.kept === true || row.status !== null || admitted.has(key)) continue;
-    const awaitingDetail = awaitsDetail(readers[row.platform], row.judged_with);
-    if (rejected.has(key) || !admits(row, awaitingDetail, criteria)) keys.push(key);
+    if (rejected.has(key) || !admits(row, row.platform, criteria)) keys.push(key);
   }
   return keys;
 }
@@ -741,7 +741,7 @@ async function listCompany(
       // is acted on or kept (those go on as before, and `judgeAll` re-judges
       // them), and `ingest`'s prune deletes it. A key the same read lists
       // twice goes by its last listing, as the batch does.
-      if (criteria !== undefined && !listingAdmits(listing, before, criteria, reader)) {
+      if (criteria !== undefined && !listingAdmits(listing, before, board.platform, criteria)) {
         rejected.add(key);
         admitted.delete(key);
         batch.delete(key);
@@ -790,7 +790,7 @@ async function listCompany(
 // Every column a re-list can write, bar `body`: `body_hash` stands for it.
 interface StoredListing {
   readonly company: string;
-  // Which reader `prunable` asks whether a detail may still state pay.
+  // Whether `prunable` gives the posting the floor pass (`nativeTwoPhase`).
   readonly platform: Platform;
   readonly title: string | null;
   readonly url: string | null;
@@ -804,8 +804,6 @@ interface StoredListing {
   readonly kept: boolean | null;
   readonly status: Status | null;
   readonly gone_at: string | null;
-  // Null until `judgeAll` judges it: a two-phase posting's detail is unread.
-  readonly judged_with: string | null;
 }
 
 const STORED_LISTING_COLUMNS = [
@@ -822,7 +820,6 @@ const STORED_LISTING_COLUMNS = [
   "kept",
   "status",
   "gone_at",
-  "judged_with",
 ] as const satisfies readonly (keyof StoredListing)[];
 type StoredListingColumn = (typeof STORED_LISTING_COLUMNS)[number];
 
@@ -850,7 +847,6 @@ async function storedListings(store: Store): Promise<Map<string, StoredListing>>
         kept: row.kept,
         status: row.status,
         gone_at: row.gone_at,
-        judged_with: row.judged_with,
       },
     ]),
   );
@@ -999,8 +995,7 @@ export async function ingest(
   // deleted.
   const admitted = new Set(results.flatMap((result) => [...result.admitted]));
   const rejected = new Set(results.flatMap((result) => [...result.rejected]));
-  const keys =
-    criteria === undefined ? [] : prunable(stored, admitted, rejected, criteria, readers);
+  const keys = criteria === undefined ? [] : prunable(stored, admitted, rejected, criteria);
   let pruned = keys.length;
   const pruneErrors: string[] = [];
   try {
