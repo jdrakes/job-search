@@ -83,7 +83,7 @@ test("parseRecord: reads a valid record, an absent url as null", () => {
   const text = JSON.stringify({
     searched: ["Acme"],
     candidates: [
-      { name: "Hooli", url: "https://hooli.example/careers", evidence: "Listed as a peer." },
+      { name: "Hooli", url: "https://jobs.ashbyhq.com/hooli", evidence: "Listed as a peer." },
       { name: "Vandelay", evidence: "Same market." },
     ],
   });
@@ -92,10 +92,37 @@ test("parseRecord: reads a valid record, an absent url as null", () => {
     value: {
       searched: ["Acme"],
       candidates: [
-        { name: "Hooli", url: "https://hooli.example/careers", evidence: "Listed as a peer." },
+        { name: "Hooli", url: "https://jobs.ashbyhq.com/hooli", evidence: "Listed as a peer." },
         { name: "Vandelay", url: null, evidence: "Same market." },
       ],
     },
+    dropped: [],
+  });
+});
+
+// A company's own careers domain names no board the readers can read: the
+// URL is dropped and named, and the candidate kept for its name, so the run
+// probes the name instead of resolving the row bad_url.
+test("parseRecord: drops a url that names no board, keeps the candidate, names the drop", () => {
+  const text = JSON.stringify({
+    searched: ["Acme"],
+    candidates: [
+      {
+        name: "Hooli",
+        url: "https://hooli.example/careers/jobs/123?gh_jid=123",
+        evidence: "Listed as a peer.",
+      },
+    ],
+  });
+  assert.deepEqual(parseRecord(text), {
+    ok: true,
+    value: {
+      searched: ["Acme"],
+      candidates: [{ name: "Hooli", url: null, evidence: "Listed as a peer." }],
+    },
+    dropped: [
+      "candidates[0] (Hooli) url names no board: https://hooli.example/careers/jobs/123?gh_jid=123",
+    ],
   });
 });
 

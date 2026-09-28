@@ -153,6 +153,9 @@ Relay its output verbatim. What it can say:
   - `searched names that are not current seeds`: take each named name out
     of `searched`. A seed already marked by an earlier `record` is one of
     them.
+- `peers: url dropped, resolved by name: <line>`: the URL names no board
+  the readers can read (a company's own careers site, say), so `record`
+  kept the candidate without it; the run looks the name up. Nothing to fix.
 - `peers: not marked: <line>`: a seed's company row was deleted after the
   seeds were checked. The candidates were still written. Tell James which
   seed, and do not retry.
