@@ -24,6 +24,7 @@ import {
   COMPANY_FIELDS,
   postingKey,
   type Board,
+  type Candidate,
   type Company,
   type Criteria,
   type Platform,
@@ -564,30 +565,57 @@ function admits(
   );
 }
 
+// Milliseconds in a day, for `boundRecently`'s week window.
+const DAY_MS = 86_400_000;
+
+// Whether `company`'s boards count as newly bound (Design, Ingestion: "A
+// board bound in the last week ... is read every weekday"): it has a
+// `boundSince` entry less than 7 days before `today`. A company `boundSince`
+// never heard of (no candidate outcome `watched` or `added`, ever) is not
+// recent.
+function boundRecently(
+  company: string,
+  boundSince: ReadonlyMap<string, string>,
+  today: Date,
+): boolean {
+  const at = boundSince.get(company);
+  if (at === undefined) return false;
+  const days = Math.floor((today.getTime() - Date.parse(at)) / DAY_MS);
+  return days < 7;
+}
+
 // The board keys (`boardKey`) listed today. A board is read when: it is
-// Monday (`today`'s local day); it has no stored posting (a new board is read
-// at once); or any of its stored postings, judged fresh, passes
-// `passesTitleAndPlace` (a posting that later aged out still marks its board
-// as one that hires for the role). Every other board waits for Monday. With
-// no criteria row nothing can pass, so a weekday reads only new boards.
+// Monday (`today`'s local day); its company was bound (a candidate outcome
+// `watched` or `added`) less than a week before `today`; or any of its
+// stored postings, judged fresh, passes `passesTitleAndPlace` (a posting that
+// later aged out still marks its board as one that hires for the role).
+// Every other board waits for Monday. With #287 a board whose postings all
+// fail never stores one, so "no stored posting" is not itself a reason to
+// read: a board that has produced nothing since it was bound a week or more
+// ago waits like any other non-producing board. With no criteria row nothing
+// can pass, so a weekday reads only newly bound boards.
 //
 // Postings are found by their key's prefix, not their `board` column: a
 // legacy key not in the `platform/board::id` form is counted on no board. A
-// board holding only such keys looks new and is read (an extra read); a board
-// that also holds current keys is decided by those.
+// board holding only such keys is decided on bound-recently alone; a board
+// that also holds current keys is decided by those too.
 export function boardsToRead(
   companies: readonly Company[],
   storedByBoard: StoredByBoard<TitleAndPlace>,
   criteria: Criteria | undefined,
   today: Date,
+  boundSince: ReadonlyMap<string, string>,
 ): Set<string> {
   const isMonday = today.getDay() === 1;
   const read = new Set<string>();
-  for (const board of companies.flatMap(boardsOf)) {
-    const postings = [...(storedByBoard.get(storedPrefix(board))?.values() ?? [])];
-    const producing =
-      criteria !== undefined && postings.some((posting) => passesTitleAndPlace(posting, criteria));
-    if (isMonday || postings.length === 0 || producing) read.add(boardKey(board));
+  for (const company of companies) {
+    const recent = boundRecently(company.name, boundSince, today);
+    for (const board of boardsOf(company)) {
+      const postings = [...(storedByBoard.get(storedPrefix(board))?.values() ?? [])];
+      const producing =
+        criteria !== undefined && postings.some((posting) => passesTitleAndPlace(posting, criteria));
+      if (isMonday || recent || producing) read.add(boardKey(board));
+    }
   }
   return read;
 }
@@ -792,6 +820,28 @@ function platformOf(company: Company): Platform {
   return boardsOf(company)[0].platform;
 }
 
+// Every company's latest `outcome_at` among candidates bound `watched` or
+// `added` (`boardsToRead`'s "bound in the last week"). A candidate with no
+// `company` or no `outcome_at` names nothing to bind; an outcome other than
+// `watched` or `added` (a duplicate, a dropped one, ...) does not bind
+// either. `outcome_at` sorts lexically like every other timestamp column
+// here.
+async function boundSince(store: Store): Promise<Map<string, string>> {
+  const rows = await store.select<Pick<Candidate, "company" | "outcome" | "outcome_at">>(
+    "candidates",
+    undefined,
+    ["company", "outcome", "outcome_at"],
+  );
+  const bound = new Map<string, string>();
+  for (const row of rows) {
+    if (row.company === null || row.outcome_at === null) continue;
+    if (row.outcome !== "watched" && row.outcome !== "added") continue;
+    const latest = bound.get(row.company);
+    if (latest === undefined || row.outcome_at > latest) bound.set(row.company, row.outcome_at);
+  }
+  return bound;
+}
+
 export async function ingest(
   store: Store,
   readers: Partial<Record<Platform, Reader>>,
@@ -802,9 +852,12 @@ export async function ingest(
   const companies = await readable(store);
 
   // A failed sweep read is one error line: an empty map means every body
-  // gets written this run, and every board looks new so every board is read.
+  // gets rewritten this run and no posting is marked gone. `readFailed`
+  // below forces every board to be read, since an empty map can no longer be
+  // told apart from a board with genuinely nothing stored.
   const errors: string[] = [];
   let stored: Map<string, StoredListing>;
+  let readFailed = false;
   try {
     stored = await storedListings(store);
   } catch (err) {
@@ -812,6 +865,7 @@ export async function ingest(
       `reading stored body hashes: ${describeError(err)}; every body will be rewritten this run, band and workplace changes go undetected, no posting is marked gone, and every board is read`,
     );
     stored = new Map();
+    readFailed = true;
   }
 
   // Each board's stored postings, by the `platform/board` prefix `postingKey`
@@ -839,8 +893,24 @@ export async function ingest(
     log("ingest: no criteria row; every listing is stored and none is pruned");
   }
 
-  const boardsForToday = boardsToRead(companies, storedByBoard, criteria, options.today);
+  // `boardsToRead`'s other input: a company bound (a candidate outcome
+  // `watched` or `added`) inside the last week is read daily even with
+  // nothing stored yet. A failed read is one error line and, like a failed
+  // stored-postings read, forces every board to be read: there is no way to
+  // tell a company truly never bound from one `boundSince` could not read.
+  let bound: ReadonlyMap<string, string>;
+  try {
+    bound = await boundSince(store);
+  } catch (err) {
+    errors.push(`reading candidates: ${describeError(err)}; every board is read`);
+    bound = new Map();
+    readFailed = true;
+  }
+
   const companyBoards = companies.flatMap(boardsOf);
+  const boardsForToday = readFailed
+    ? new Set(companyBoards.map(boardKey))
+    : boardsToRead(companies, storedByBoard, criteria, options.today, bound);
   const boardsToday = companyBoards.filter((board) => boardsForToday.has(boardKey(board))).length;
   const boardsWaiting = companyBoards.length - boardsToday;
 

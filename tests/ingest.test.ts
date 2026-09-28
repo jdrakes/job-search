@@ -6,7 +6,7 @@ import type { Listing, Reader } from "../src/ats/ats.ts";
 import { listExitCode } from "../src/daily.ts";
 import { boardsToRead, ingest, judgeAll } from "../src/ingest.ts";
 import { HttpError } from "../src/net/http.ts";
-import type { Company, Criteria, Platform, Posting, Table } from "../src/schema.ts";
+import type { Candidate, Company, Criteria, Platform, Posting, Table } from "../src/schema.ts";
 import { memoryStore } from "../src/store/memory.ts";
 import type { Store } from "../src/store/store.ts";
 
@@ -73,6 +73,20 @@ function company(name: string, overrides: Partial<Company> = {}): Company {
     reason: null,
     dropped_at: null,
     peers_searched_at: null,
+    ...overrides,
+  };
+}
+
+function candidate(overrides: Partial<Candidate> & Pick<Candidate, "id">): Candidate {
+  return {
+    name: null,
+    url: null,
+    origin: "ui",
+    evidence: null,
+    added_at: "2026-09-20T00:00:00.000Z",
+    outcome: null,
+    outcome_at: null,
+    company: null,
     ...overrides,
   };
 }
@@ -3907,7 +3921,7 @@ test("boardsToRead: Monday reads every board, whatever its postings say", () => 
     "greenhouse/acme-failing": [{ title: "Marketing Manager" }],
   });
 
-  const result = boardsToRead(companies, stored, criteria(), MONDAY);
+  const result = boardsToRead(companies, stored, criteria(), MONDAY, new Map());
 
   assert.deepEqual([...result].sort(), [
     "greenhouse::acme-failing",
@@ -3916,17 +3930,22 @@ test("boardsToRead: Monday reads every board, whatever its postings say", () => 
   ]);
 });
 
-// Breaks if a new board waits for Monday.
-test("boardsToRead: a board with no stored posting is read on a non-Monday", () => {
+// Breaks if a company bound inside the last week waits for Monday instead:
+// with #287 a board whose postings all fail never stores one, so a company
+// just bound (a candidate outcome watched or added) is the only way to read
+// its board before it has anything stored.
+test("boardsToRead: a company bound 3 days before a Tuesday is read", () => {
   const companies = [company("Acme", { boards: [{ platform: "greenhouse", id: "acme-new" }] })];
+  const boundSince = new Map([["Acme", "2026-09-26T12:00:00"]]);
 
-  const result = boardsToRead(companies, new Map(), criteria(), TUESDAY);
+  const result = boardsToRead(companies, new Map(), criteria(), TUESDAY, boundSince);
 
   assert.deepEqual([...result], ["greenhouse::acme-new"]);
 });
 
-// Breaks if a board that has never produced is read daily.
-test("boardsToRead: a board whose every posting fails level, role, excluded words or country is skipped on a non-Monday", () => {
+// Breaks if a board that has never produced is read daily, whether it was
+// bound long enough ago that its week is up, or never bound at all.
+test("boardsToRead: a company bound 10 days before a Tuesday with no passing posting waits", () => {
   const companies = [company("Acme", { boards: [{ platform: "greenhouse", id: "acme-failing" }] })];
   const stored = storedOn({
     "greenhouse/acme-failing": [
@@ -3936,8 +3955,19 @@ test("boardsToRead: a board whose every posting fails level, role, excluded word
       { title: "Staff Backend Engineer", location: "Berlin, Germany" },
     ],
   });
+  const boundSince = new Map([["Acme", "2026-09-19T12:00:00"]]);
 
-  const result = boardsToRead(companies, stored, criteria(), TUESDAY);
+  const result = boardsToRead(companies, stored, criteria(), TUESDAY, boundSince);
+
+  assert.deepEqual([...result], []);
+});
+
+// Breaks if a board that has never produced and was never bound is read
+// daily (the pre-#287 fallback "no stored posting" arm, now dropped).
+test("boardsToRead: a board with no stored posting and no bound company waits on a non-Monday", () => {
+  const companies = [company("Acme", { boards: [{ platform: "greenhouse", id: "acme-new" }] })];
+
+  const result = boardsToRead(companies, new Map(), criteria(), TUESDAY, new Map());
 
   assert.deepEqual([...result], []);
 });
@@ -3958,9 +3988,70 @@ test("boardsToRead: a Senior-titled posting with pay above the floor makes its b
     "greenhouse/acme-unpaid": [{ title: "Senior Backend Engineer" }],
   });
 
-  const result = boardsToRead(companies, stored, criteria({ comp_floor: 120_000 }), TUESDAY);
+  const result = boardsToRead(
+    companies,
+    stored,
+    criteria({ comp_floor: 120_000 }),
+    TUESDAY,
+    new Map(),
+  );
 
   assert.deepEqual([...result], ["greenhouse::acme-paid"]);
+});
+
+// Breaks if `ingest` never reads `candidates` to build `boundSince`, or
+// builds it wrong: a board with nothing stored is read only because its
+// company was bound (outcome `added`) three days ago.
+test("ingest: a board with no stored posting is read when its company was added as a candidate three days ago", async () => {
+  const store = memoryStore({
+    companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "acme-new" }] })],
+    candidates: [
+      candidate({ id: "1", company: "Acme", outcome: "added", outcome_at: "2026-09-26T12:00:00" }),
+    ],
+    criteria: [criteria()],
+  });
+  const read: string[] = [];
+  const readers: Partial<Record<Platform, Reader>> = {
+    greenhouse: {
+      platform: "greenhouse",
+      list: async (board) => {
+        read.push(board.id);
+        return [];
+      },
+    },
+  };
+
+  const result = await ingest(store, readers, { today: TUESDAY });
+
+  assert.deepEqual(read, ["acme-new"]);
+  assert.equal(result.boardsToday, 1);
+});
+
+// Breaks if `boundSince` counts a candidate outcome other than `watched` or
+// `added` (Design, Ingestion names only those two) as binding its company.
+test("ingest: a candidate known three days ago, with no watched or added outcome, does not bind its company", async () => {
+  const store = memoryStore({
+    companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "acme-new" }] })],
+    candidates: [
+      candidate({ id: "1", company: "Acme", outcome: "known", outcome_at: "2026-09-26T12:00:00" }),
+    ],
+    criteria: [criteria()],
+  });
+  const read: string[] = [];
+  const readers: Partial<Record<Platform, Reader>> = {
+    greenhouse: {
+      platform: "greenhouse",
+      list: async (board) => {
+        read.push(board.id);
+        return [];
+      },
+    },
+  };
+
+  const result = await ingest(store, readers, { today: TUESDAY });
+
+  assert.deepEqual(read, []);
+  assert.equal(result.boardsToday, 0);
 });
 
 // Breaks if the check reads stored verdicts instead of judging title and
@@ -4106,6 +4197,52 @@ test("ingest: a refused stored-postings read on a non-Monday reads every board a
   assert.match(result.errors[0] ?? "", /statement timeout/);
 });
 
+// Breaks if a refused candidates read (`boundSince`) throws out of `ingest`,
+// or is silently swallowed into "nothing is bound": either would leave a
+// board with no admitted posting waiting, though nothing here says it should.
+test("ingest: a failed candidates read on a non-Monday reads every board and costs one error line", async () => {
+  const inner = memoryStore({
+    companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "acme-failing" }] })],
+    postings: [
+      posting({
+        key: "greenhouse/acme-failing::1",
+        company: "Acme",
+        platform: "greenhouse",
+        board: "acme-failing",
+        title: "Marketing Manager",
+      }),
+    ],
+    criteria: [criteria()],
+  });
+  const store: Store = {
+    ...inner,
+    async select<T>(
+      table: Table,
+      eq?: Partial<Record<string, unknown>>,
+      columns?: readonly string[],
+    ) {
+      if (table === "candidates") throw new Error("statement timeout");
+      return inner.select<T>(table, eq, columns);
+    },
+  };
+  const read: string[] = [];
+  const readers: Partial<Record<Platform, Reader>> = {
+    greenhouse: {
+      platform: "greenhouse",
+      list: async (board) => {
+        read.push(board.id);
+        return [];
+      },
+    },
+  };
+
+  const result = await ingest(store, readers, { today: TUESDAY });
+
+  assert.deepEqual(read, ["acme-failing"]);
+  assert.equal(result.errors.length, 1);
+  assert.match(result.errors[0] ?? "", /reading candidates.*statement timeout/);
+});
+
 // Breaks if today's boards are counted by unique board key (review 4): a
 // board two companies carry is read, and fails, once per company, so one
 // shared failing board beside one working board is not every board failing.
@@ -4129,7 +4266,10 @@ test("ingest and listExitCode: a failing board two companies share, beside a wor
     },
   };
 
-  const result = await ingest(store, readers, { today: TUESDAY });
+  // Monday, not Tuesday: this test is about how boards are counted once
+  // they're read, not about which ones `boardsToRead` picks (#287, no
+  // candidate or stored posting is seeded here).
+  const result = await ingest(store, readers, { today: MONDAY });
 
   assert.equal(result.errors.length, 2);
   assert.equal(result.boardsToday, 3);
