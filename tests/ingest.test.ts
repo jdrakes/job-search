@@ -636,6 +636,7 @@ test("ingest: a re-list omits first_seen, leaving it to the column default", asy
     "company",
     "key",
     "location",
+    "locations",
     "platform",
     "posted_at",
     "title",
@@ -1251,7 +1252,7 @@ test("ingest: a failed hash read logs an error and lists with every body written
       if (
         table === "postings" &&
         columns?.join(",") ===
-          "key,company,platform,title,url,location,posted_at,body_hash,comp_low,comp_high,workplace,kept,status,gone_at"
+          "key,company,platform,title,url,location,posted_at,locations,body_hash,comp_low,comp_high,workplace,kept,status,gone_at"
       ) {
         throw new Error("column postings.body_hash does not exist");
       }
@@ -3920,6 +3921,7 @@ function unchangedStored(overrides: Partial<Posting> = {}): Posting {
     title: "Staff Backend Engineer",
     url: "https://example.com/same",
     location: "Remote, US",
+    locations: [{ name: "Remote, US", url: "https://example.com/same" }],
     posted_at: "2026-09-01",
     comp_low: 200_000,
     comp_high: 250_000,
@@ -3998,6 +4000,45 @@ test("ingest: a re-listed posting whose location changed is written", async () =
   const { written } = await relist([unchangedStored()], unchangedListing({ location: "Denver" }));
 
   assert.equal(written?.["location"], "Denver");
+});
+
+// Breaks if `fieldsChanged` stops comparing `locations`: a re-list whose
+// offices changed (added or removed) must be written even though every
+// other listed field — title, url, location, posted date — is untouched.
+test("ingest: a re-listed posting whose locations alone changed is written", async () => {
+  const { written } = await relist([unchangedStored({ locations: [] })], unchangedListing());
+
+  assert.deepEqual(written?.["locations"], [
+    { name: "Remote, US", url: "https://example.com/same" },
+  ]);
+});
+
+// Breaks if `toRow` stops writing `locations` from the grouped listing, or
+// writes the primary's own `{location, url}` instead of every office in the
+// group.
+test("ingest: a re-listed posting's written locations column matches every office in its group", async () => {
+  const readers: Partial<Record<Platform, Reader>> = {
+    greenhouse: {
+      platform: "greenhouse",
+      list: async () => [
+        listing("200", { requisitionId: "req-1", location: "Austin", url: "https://x/200" }),
+        listing("100", { requisitionId: "req-1", location: "Boston", url: "https://x/100" }),
+      ],
+    },
+  };
+  const { store, upserts } = recording(memoryStore({ companies: [ACME] }));
+
+  await ingest(store, readers, { now: tickingClock(), today: MONDAY });
+
+  const written = upserts
+    .filter((call) => call.table === "postings")
+    .flatMap((call) => call.rows)
+    .find((row) => (row as Posting).key === "greenhouse/acme-gh::100") as
+    Record<string, unknown> | undefined;
+  assert.deepEqual(written?.["locations"], [
+    { name: "Austin", url: "https://x/200" },
+    { name: "Boston", url: "https://x/100" },
+  ]);
 });
 
 // Breaks if `fieldsChanged` stops comparing the company a key is stored under.

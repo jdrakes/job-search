@@ -96,7 +96,15 @@ export interface IngestOptions {
 // change nothing is not written at all; see `toRow`.
 type ListedFields = Pick<
   Posting,
-  "key" | "company" | "platform" | "board" | "title" | "url" | "location" | "posted_at"
+  | "key"
+  | "company"
+  | "platform"
+  | "board"
+  | "title"
+  | "url"
+  | "location"
+  | "posted_at"
+  | "locations"
 >;
 
 // The rest of what a re-list can write; `toRow` leaves each out where there
@@ -131,7 +139,7 @@ function bodyHash(body: string): string {
 function toRow(
   company: string,
   board: Board,
-  listing: Listing,
+  listing: Listing & { readonly locations: readonly Office[] },
   timestamp: string,
   stored: StoredListing | undefined,
   criteria: Criteria | undefined,
@@ -145,19 +153,27 @@ function toRow(
     url: listing.url,
     location: listing.location,
     posted_at: listing.postedAt,
+    locations: listing.locations,
   };
   // `null` below means the upsert would rewrite the row with what it already
   // holds, so there is no write. `stored === undefined` (never recorded, or
   // the pre-run sweep's read failed) always counts as changed: there is
   // nothing to compare against, or the comparison cannot be trusted.
   // `platform` and `board` are not compared: `key` is built from them.
+  // `locations` is already deterministically sorted and deduped
+  // (`dedupeOffices`), so the same office set always serializes identically
+  // and a plain string comparison is sufficient — no need for a deep-equal
+  // helper.
+  const sameLocations =
+    stored !== undefined && JSON.stringify(stored.locations) === JSON.stringify(fields.locations);
   const fieldsChanged =
     stored === undefined ||
     stored.company !== company ||
     stored.title !== listing.title ||
     stored.url !== listing.url ||
     stored.location !== listing.location ||
-    stored.posted_at !== listing.postedAt;
+    stored.posted_at !== listing.postedAt ||
+    !sameLocations;
   const statesWorkplace = listing.body !== null || listing.workplace !== null;
   // A posting on record as gone that this read lists again: back, and its
   // last verdict (reached on its absence) is judged again.
@@ -783,9 +799,9 @@ async function listCompany(
     }
 
     const label = `${company.name} ${board.platform}/${board.id}`;
-    let listings: readonly Listing[];
+    let rawListings: readonly Listing[];
     try {
-      listings = await reader.list(board);
+      rawListings = await reader.list(board);
     } catch (err) {
       // The error line is the log of a gone answer too; the board itself is
       // handed back, not written.
@@ -793,7 +809,7 @@ async function listCompany(
       if (isGone(board.platform, err)) gone.push({ company: company.name, board });
       continue;
     }
-    listings = groupByRequisition(listings);
+    const listings = groupByRequisition(rawListings);
     listed += listings.length;
 
     const seenKeys = new Set<string>();
@@ -873,6 +889,7 @@ interface StoredListing {
   readonly url: string | null;
   readonly location: string | null;
   readonly posted_at: string | null;
+  readonly locations: readonly Office[];
   readonly body_hash: string | null;
   readonly comp_low: number | null;
   readonly comp_high: number | null;
@@ -890,6 +907,7 @@ const STORED_LISTING_COLUMNS = [
   "url",
   "location",
   "posted_at",
+  "locations",
   "body_hash",
   "comp_low",
   "comp_high",
@@ -917,6 +935,7 @@ async function storedListings(store: Store): Promise<Map<string, StoredListing>>
         url: row.url,
         location: row.location,
         posted_at: row.posted_at,
+        locations: row.locations,
         body_hash: row.body_hash,
         comp_low: row.comp_low,
         comp_high: row.comp_high,
