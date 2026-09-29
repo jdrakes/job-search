@@ -820,6 +820,32 @@ test("an office whose url is unsafe renders as plain text in the offices list", 
   assert.doesNotMatch(html, /href="javascript:alert\(1\)"/);
 });
 
+test("an office with a null name renders with a fallback label in the offices list", async () => {
+  const p = posting("acme::1", {
+    locations: [
+      { name: "Austin", url: "https://boards.example.com/acme/austin" },
+      { name: null, url: "https://boards.example.com/acme/unlisted" },
+    ],
+  });
+
+  const html = await render(PostingCard, {
+    posting: p,
+    config: CONFIG,
+    accessToken: ACCESS_TOKEN,
+    compFloor: null,
+    expanded: true,
+  });
+
+  assert.match(
+    html,
+    /<a href="https:\/\/boards\.example\.com\/acme\/austin" target="_blank" rel="noreferrer">Austin<\/a>/,
+  );
+  assert.match(
+    html,
+    /<a href="https:\/\/boards\.example\.com\/acme\/unlisted" target="_blank" rel="noreferrer">Unnamed office<\/a>/,
+  );
+});
+
 test("the drawer shows each reason once, as evidence, and a closed posting's note", async () => {
   const html = await render(PostingCard, {
     posting: posting("Acme::1", {

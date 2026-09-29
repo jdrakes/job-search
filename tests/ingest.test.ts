@@ -4012,7 +4012,7 @@ test("ingest: a re-listed posting whose location changed is written", async () =
 
 // Breaks if `fieldsChanged` stops comparing `locations`: a re-list whose
 // offices changed (added or removed) must be written even though every
-// other listed field — title, url, location, posted date — is untouched.
+// other listed field (title, url, location, posted date) is untouched.
 test("ingest: a re-listed posting whose locations alone changed is written", async () => {
   const { written } = await relist([unchangedStored({ locations: [] })], unchangedListing());
 

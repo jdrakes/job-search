@@ -1,7 +1,5 @@
 -- Migration 20260928080000_posting_locations: `postings.locations`, the
--- office set a same-requisition, multi-office listing collapses into
--- (job-search-archive#282, "Collapse same-requisition, multi-office
--- postings").
+-- office set a same-requisition, multi-office listing collapses into.
 --
 -- Greenhouse's public job-board API returns one row per (requisition ×
 -- office); `groupByRequisition` (src/ingest.ts) now collapses those into one

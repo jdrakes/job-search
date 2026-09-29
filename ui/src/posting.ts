@@ -559,8 +559,8 @@ export const PostingCard = defineComponent({
           <p class="note-label">Offices</p>
           <ul>
             <li v-for="office in posting.locations" :key="(office.name ?? '') + '|' + (office.url ?? '')">
-              <a v-if="postingHref(office.url)" :href="postingHref(office.url)" target="_blank" rel="noreferrer">{{ office.name }}</a>
-              <span v-else>{{ office.name }}</span>
+              <a v-if="postingHref(office.url)" :href="postingHref(office.url)" target="_blank" rel="noreferrer">{{ office.name ?? "Unnamed office" }}</a>
+              <span v-else>{{ office.name ?? "Unnamed office" }}</span>
             </li>
           </ul>
         </div>

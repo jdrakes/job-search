@@ -738,8 +738,8 @@ function dedupeOffices(offices: readonly Office[]): readonly Office[] {
 
 // Collapses same-requisition, multi-office listings (Greenhouse today; every
 // other reader leaves `requisitionId` null, so this is a no-op for them)
-// into one entry per requisition. The primary listing — the one every other
-// field comes from — is whichever group member's id already has a stored
+// into one entry per requisition. The primary listing (the one every other
+// field comes from) is whichever group member's id already has a stored
 // `postings` row (`storedIds`), so a row James has decided on stays the
 // primary across re-lists even if the board later drops specifically that
 // office; falling back to the lowest numeric id only when no member is on
@@ -749,8 +749,8 @@ function dedupeOffices(offices: readonly Office[]): readonly Office[] {
 // undecided row and orphan the one James acted on. A `null` requisitionId
 // is its own singleton group: keyed by the listing object itself, not its
 // id, so two listings that happen to share an id (an empty id, or a genuine
-// duplicate-id bug on the board) still pass through as separate entries —
-// the existing per-listing loop's own id-refusal and last-wins dedup keep
+// duplicate-id bug on the board) still pass through as separate entries; the
+// existing per-listing loop's own id-refusal and last-wins dedup keep
 // handling that, unchanged.
 export function groupByRequisition(
   listings: readonly Listing[],
