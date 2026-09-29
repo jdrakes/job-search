@@ -52,6 +52,17 @@ beyond them, and you do not guess.
    itself, not another seed in this dispatch, and not a subsidiary of
    either.
 3. For each peer, open its careers page, and from there its job board.
+   Take the board's address from a link on the careers page or from a
+   search result. Never open an address you built from the company's name
+   (`boards-api.greenhouse.io/v1/boards/<name>/jobs` and the like): a 404
+   there says your guess was wrong, not that the peer fails the rules
+   below. Once a link or a search result gives you a board's id, you may
+   read that board through its public listing API. An Ashby board page
+   (`jobs.ashbyhq.com/<id>`) is drawn by JavaScript and always reads as
+   empty: read its postings from
+   `https://api.ashbyhq.com/posting-api/job-board/<id>?includeCompensation=true`
+   instead.
+
    Keep the peer only when you open a current posting that shows both:
    - a title with one of `level_words` and one of `role_words`;
    - remote work open to someone in the United States (the posting says
@@ -83,6 +94,18 @@ beyond them, and you do not guess.
    Pay not stated anywhere on the peer's board is not a reason to drop
    it.
 
+   A peer whose board you cannot find is not ruled out: the careers page
+   links to no board, or the search results name none. Return it with
+   `url` set to `null` and the not-found evidence below.
+
+   A board you reached whose page reads as empty is not a board not
+   found: many are drawn by JavaScript. Keep its address as `url` when
+   `parseBoardUrl` reads it, and use the unread-board evidence below; the
+   run reads the board itself.
+
+   Rule a peer out on these rules only when you opened its board and read
+   its postings.
+
 4. The board URL is the address of that posting or of the board itself on
    an applicant tracking system, as you opened it. Read `boards_file`,
    function `parseBoardUrl` and the host tables above it, for the hosts
@@ -108,6 +131,7 @@ after it, no code fence.
         {
           "name": "<the peer's own name for itself>",
           "url": "<board or posting URL you opened, or null>",
+          "careers": "<the peer's careers page URL you opened, or null>",
           "evidence": "<see below>"
         }
       ]
@@ -128,3 +152,22 @@ after it, no code fence.
 
   and `Pay: not stated` when no posting there states it. Do not name the
   seed in `evidence`; the skill adds it.
+
+- For a peer whose board you could not find, `evidence` is exactly:
+
+  `Peer: <same market, stage or customer, in a few words> (<url>). Board: not found; role, remote and pay not verified`
+
+  When its careers page links to a job board on a host `parseBoardUrl`
+  cannot read (`jobs.gem.com`, say), name that host:
+
+  `Peer: <...> (<url>). Board: not found; careers page links to <host>, which the store cannot read; role, remote and pay not verified`
+
+  Its `url` is `null`. Do not write a Role, Remote or Pay clause for it.
+
+- For a peer whose board you reached but whose postings you could not
+  read, `url` is that board's address and `evidence` is exactly:
+
+  `Peer: <same market, stage or customer, in a few words> (<url>). Board: opened, postings not readable; role, remote and pay not verified`
+
+- Always give `careers` when you opened a careers page: the skill reads it
+  again, as raw HTML, for a board link you could not see.

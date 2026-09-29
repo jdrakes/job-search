@@ -1,9 +1,11 @@
 // Peer expansion's two ends in the store. `seeds` prints what the peer
 // skill searches from: the criteria's role words, every company James has
 // applied to that has not yet been searched, and every name already known so
-// the skill skips it. `record` writes what the skill found: each candidate
-// as a new row with `origin: "peers"`, and `peers_searched_at` on each seed
-// it searched.
+// the skill skips it. `boards` reads the careers page of each peer the
+// researcher found no board for and prints the board it links to, touching
+// no store. `record` writes what the skill found: each candidate as a new
+// row with `origin: "peers"`, and `peers_searched_at` on each seed it
+// searched.
 //
 // It connects as the run does, not as the list's role, and writes only a
 // candidate's input columns (with `id` and `added_at`, set here to what the
@@ -17,9 +19,11 @@ import { readFile } from "node:fs/promises";
 import process from "node:process";
 
 import { loadCriteria } from "../src/criteria.ts";
-import { parseBoardUrl } from "../src/discovery/boards.ts";
+import { boardUrl, parseBoardUrl } from "../src/discovery/boards.ts";
+import { boardNamesCompany } from "../src/discovery/probe.ts";
 import { describeError } from "../src/errors.ts";
-import type { Candidate, Company, Posting } from "../src/schema.ts";
+import { getText, type HttpOptions } from "../src/net/http.ts";
+import type { Board, Candidate, Company, Posting } from "../src/schema.ts";
 import { openStore } from "../src/store/open.ts";
 import type { Store } from "../src/store/store.ts";
 
@@ -237,7 +241,81 @@ export async function applyRecord(
   return { ok: true, value: { added: rows.length, marked, unknownSeeds } };
 }
 
-const USAGE = "peers: usage: peers.ts seeds | peers.ts record <file.json>";
+// A peer the researcher found no board for, and the careers page it opened.
+export interface BoardQuery {
+  readonly name: string;
+  readonly careers: string;
+}
+
+export function parseBoardQueries(
+  text: string,
+): { ok: true; value: BoardQuery[] } | { ok: false; reason: string } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { ok: false, reason: "not valid JSON" };
+  }
+  if (!Array.isArray(parsed)) return { ok: false, reason: "must be a JSON array" };
+  const queries: BoardQuery[] = [];
+  for (const [index, entry] of parsed.entries()) {
+    if (!isObject(entry) || !isFilled(entry.name)) {
+      return { ok: false, reason: `[${index}] needs a name` };
+    }
+    if (!isFilled(entry.careers) || !isWebUrl(entry.careers)) {
+      return { ok: false, reason: `[${index}] (${entry.name}) needs a careers url` };
+    }
+    queries.push({ name: entry.name, careers: entry.careers });
+  }
+  return { ok: true, value: queries };
+}
+
+// Every board the readers can read that a page names, in page order, once
+// each: the page's own address, every link, embed and form target, and any
+// absolute URL written in its text (a script's JSON escapes its slashes).
+export function boardsLinkedFrom(html: string, pageUrl: string): Board[] {
+  const addresses = [pageUrl];
+  for (const match of html.matchAll(/(?:href|src|action)\s*=\s*["']([^"']+)["']/gi)) {
+    try {
+      addresses.push(new URL((match[1] ?? "").replaceAll("&amp;", "&"), pageUrl).href);
+    } catch {
+      // Not a URL; nothing to read.
+    }
+  }
+  for (const match of html.matchAll(/https?:\\?\/\\?\/[^\s"'<>)]+/g)) {
+    addresses.push(match[0].replaceAll("\\/", "/"));
+  }
+  const boards = new Map<string, Board>();
+  for (const address of addresses) {
+    const board = parseBoardUrl(address);
+    if (board !== null) boards.set(`${board.platform}:${board.id}`, board);
+  }
+  return [...boards.values()];
+}
+
+// The board a peer's own careers page links to, as a URL `record` accepts,
+// or null when it links to none that is the peer's. The name probe the run
+// falls back on guesses slugs from the name, so it misses a board like
+// `jobs.ashbyhq.com/bidgely-inc`; the company's own link does not.
+export async function findBoard(
+  query: BoardQuery,
+  options?: HttpOptions,
+): Promise<{ ok: true; value: string | null } | { ok: false; reason: string }> {
+  try {
+    const html = await getText(query.careers, options);
+    for (const board of boardsLinkedFrom(html, query.careers)) {
+      if ((await boardNamesCompany(board, query.name, options)) !== false) {
+        return { ok: true, value: boardUrl(board) };
+      }
+    }
+    return { ok: true, value: null };
+  } catch (error) {
+    return { ok: false, reason: describeError(error) };
+  }
+}
+
+const USAGE =
+  "peers: usage: peers.ts seeds | peers.ts record <file.json> | peers.ts boards <file.json>";
 
 async function main(): Promise<void> {
   const [command, path] = process.argv.slice(2);
@@ -249,6 +327,25 @@ async function main(): Promise<void> {
       return;
     }
     console.log(JSON.stringify(result.value, null, 2));
+    return;
+  }
+  if (command === "boards" && path !== undefined) {
+    const parsed = parseBoardQueries(await readFile(path, "utf8"));
+    if (!parsed.ok) {
+      console.error(`peers: ${path}: ${parsed.reason}`);
+      process.exitCode = 1;
+      return;
+    }
+    const found = [];
+    for (const query of parsed.value) {
+      const result = await findBoard(query);
+      found.push(
+        result.ok
+          ? { name: query.name, url: result.value, reason: null }
+          : { name: query.name, url: null, reason: result.reason },
+      );
+    }
+    console.log(JSON.stringify(found, null, 2));
     return;
   }
   if (command === "record" && path !== undefined) {
