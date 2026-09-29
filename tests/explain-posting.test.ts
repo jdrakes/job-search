@@ -34,6 +34,7 @@ function posting(overrides: Partial<Posting> & Pick<Posting, "key" | "company">)
     title: "Staff Backend Engineer",
     url: null,
     location: null,
+    locations: [],
     comp_low: null,
     comp_high: 250_000,
     posted_at: null,

@@ -243,6 +243,7 @@ const QUEUE_ROW = {
   title: "Staff Engineer",
   url: null,
   location: null,
+  locations: [],
   comp_low: 300_000,
   comp_high: 300_000,
   posted_at: "2026-09-15",
