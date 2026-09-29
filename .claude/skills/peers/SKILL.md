@@ -35,8 +35,8 @@ A nonzero exit stops here: show James its stderr. The file holds:
 }
 ```
 
-`known` holds every company and candidate name, thousands of them, so do
-not read the file whole. Print the rest:
+`known` holds every company name and every candidate name still pending or
+resolved to a company, thousands of them, so do not read the file whole. Print the rest:
 
 ```sh
 node -e 'const file = require("/tmp/peers-seeds.json"); console.log(JSON.stringify(file.seeds, null, 2)); console.log(`known: ${file.known.length} names`)'

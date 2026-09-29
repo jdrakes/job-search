@@ -50,16 +50,50 @@ test("seedsOf: a searched company and a company with no row are not seeds", () =
   assert.deepEqual(seedsOf(postings, companies), [{ name: "Globex", roles: ["Staff Engineer"] }]);
 });
 
-test("readSeeds: prints seeds and every company and candidate name as known", async () => {
+// Breaks if a candidate resolved to no company hides its name from the
+// skill: nothing watches it, and the run would look it up again.
+test("readSeeds: known is every company, and every candidate pending or resolved to a company", async () => {
   const store = memoryStore({
     companies: [company("Globex"), company("Acme")],
     postings: [
       { key: "greenhouse/acme::1", company: "Acme", title: "Staff Engineer", status: "applied" },
     ],
     candidates: [
-      { id: "c1", name: "Hooli", origin: "james", added_at: NOW },
-      { id: "c2", name: null, url: "https://example.com", origin: "james", added_at: NOW },
-      { id: "c3", name: "Acme", origin: "james", added_at: NOW },
+      { id: "c1", name: "Hooli", origin: "james", added_at: NOW, outcome: null, company: null },
+      {
+        id: "c2",
+        name: null,
+        url: "https://example.com",
+        origin: "james",
+        added_at: NOW,
+        outcome: null,
+        company: null,
+      },
+      { id: "c3", name: "Acme", origin: "james", added_at: NOW, outcome: "known", company: "Acme" },
+      {
+        id: "c4",
+        name: "Initech Labs",
+        origin: "hn",
+        added_at: NOW,
+        outcome: "alias",
+        company: "Globex",
+      },
+      {
+        id: "c5",
+        name: "Whatnot",
+        origin: "hn",
+        added_at: NOW,
+        outcome: "no_board",
+        company: null,
+      },
+      {
+        id: "c6",
+        name: "Umbrella",
+        origin: "hn",
+        added_at: NOW,
+        outcome: "wrong_company",
+        company: null,
+      },
     ],
   });
   const result = await readSeeds(store);
@@ -67,7 +101,7 @@ test("readSeeds: prints seeds and every company and candidate name as known", as
     ok: true,
     value: {
       seeds: [{ name: "Acme", roles: ["Staff Engineer"] }],
-      known: ["Acme", "Globex", "Hooli"],
+      known: ["Acme", "Globex", "Hooli", "Initech Labs"],
     },
   });
 });

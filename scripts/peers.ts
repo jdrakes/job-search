@@ -1,6 +1,6 @@
 // Peer expansion's two ends in the store. `seeds` prints what the peer
 // skill searches from: every company James has applied to that has not yet
-// been searched, and every name already known so the skill skips it. `boards`
+// been searched, and every name already held so the skill skips it. `boards`
 // reads the careers page of each peer the researcher found no board for and
 // prints the board it links to, touching no store. `record` writes what the
 // skill found: each candidate as a new row with `origin: "peers"`, and
@@ -96,10 +96,20 @@ export async function readSeeds(
   store: Store,
 ): Promise<{ ok: true; value: SeedsOutput } | { ok: false; reason: string }> {
   const { postings, companies } = await readSeedRows(store);
-  const candidates = await store.select<Pick<Candidate, "name">>("candidates", undefined, ["name"]);
+  const candidates = await store.select<Pick<Candidate, "name" | "outcome" | "company">>(
+    "candidates",
+    undefined,
+    ["name", "outcome", "company"],
+  );
+  // A candidate still pending, or resolved to a company, holds its name; one
+  // resolved to no company (`no_board` and the like) does not, since the run
+  // looks such a name up again when a new origin names it.
   const names = [
     ...companies.map((company) => company.name),
-    ...candidates.map((candidate) => candidate.name).filter((name) => name !== null),
+    ...candidates
+      .filter((candidate) => candidate.outcome === null || candidate.company !== null)
+      .map((candidate) => candidate.name)
+      .filter((name) => name !== null),
   ];
   return {
     ok: true,
