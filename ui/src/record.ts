@@ -86,12 +86,11 @@ export function filteredRecord(
 export function orderedRecord(
   postings: readonly PostingSummary[],
   compFloor: number | null,
-  nowMs: number,
   productWords: readonly string[] = [],
   sort: Sort = "acted",
   view: ListView = "list",
 ): PostingSummary[] {
-  const sorted = sortedPostings(postings, sort, compFloor, nowMs, productWords);
+  const sorted = sortedPostings(postings, sort, compFloor, productWords);
   return view === "company" ? groupedByCompany(sorted) : sorted;
 }
 
@@ -144,7 +143,6 @@ export const RecordView = defineComponent({
       orderedRecord(
         filteredRecord(props.postings, filters.value),
         props.compFloor,
-        Date.now(),
         props.productWords,
         sort.value,
         view.value,
