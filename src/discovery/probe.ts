@@ -357,46 +357,72 @@ async function probePlatform(
 ): Promise<PlatformResult> {
   const refused: Refusal[] = [];
   for (const slug of slugs) {
-    let data: unknown;
-    try {
-      data = TEXT_PLATFORMS.has(platform)
-        ? await getText(urlFor(platform, slug), options)
-        : await getJson<unknown>(urlFor(platform, slug), options);
-    } catch (error) {
-      // A 429 is the one failure that is not an answer. Every other one -
-      // a 404, a DNS miss for an unregistered subdomain, a redirect to the
-      // vendor's marketing page - means this slug is not a board here, and
-      // the next candidate is worth trying. "Too many requests" means the
-      // vendor declined to say, and treating that as "no board" records
-      // absence of evidence as evidence of absence.
-      //
-      // It has happened twice, both on apply.workable.com. The completed
-      // backlog pass of 2026-09-22 is the pass that earned the block, so
-      // its own Workable answers were being refused while it wrote them
-      // down as misses: it reports 0 Workable boards over 3,189 names with
-      // `errors: 0`, and that zero is missing data, not a measurement. On
-      // 2026-09-23 a second pass walked 125 names the same way before a
-      // hand check of a known-good slug (`seeq`) came back 429.
-      //
-      // Throwing, rather than returning some "unknown" a caller may ignore:
-      // discover.ts's per-name catch already skips the name without adding
-      // it to `known`, so it is probed again tomorrow, which is the right
-      // handling and needs no change. The backlog pass this guarded against
-      // stopped the same way.
-      //
-      // 429 only, deliberately. A 5xx is also not an answer, but no probe
-      // has been measured failing that way, and a case is not handled here
-      // until it is seen.
-      if (error instanceof HttpError && error.status === 429) throw error;
-      continue;
-    }
     const board: Board = { platform, id: slug };
-    const reported = await REPORTED[platform](data, board, options);
+    const reported = await askSlug(platform, board, options);
     if (reported === null) continue;
     if (reported.name !== null && namesMatch(reported.name, name)) return { board, refused };
     refused.push({ board, reported: reported.name });
   }
   return { board: null, refused };
+}
+
+// Whether a board a company's own careers page links to is that company's.
+// A slug platform's board must answer and report the company's name, as a
+// probed one must: a page can link a vendor's CDN host that parses as a
+// board (`assets-cdn.breezy.hr`). The other platforms state no name to
+// check, so the company's own link is the evidence: null. A 429 throws, as
+// in `probe`.
+export async function boardNamesCompany(
+  board: Board,
+  name: string,
+  options?: HttpOptions,
+): Promise<boolean | null> {
+  const platform = SLUG_PLATFORMS.find((slugPlatform) => slugPlatform === board.platform);
+  if (platform === undefined) return null;
+  const reported = await askSlug(platform, board, { ...options, ...NO_RETRIES });
+  return reported !== null && reported.name !== null && namesMatch(reported.name, name);
+}
+
+// What one slug's listing says, or null when it does not answer as a board.
+async function askSlug(
+  platform: SlugPlatform,
+  board: Board,
+  options: HttpOptions,
+): Promise<Reported> {
+  let data: unknown;
+  try {
+    data = TEXT_PLATFORMS.has(platform)
+      ? await getText(urlFor(platform, board.id), options)
+      : await getJson<unknown>(urlFor(platform, board.id), options);
+  } catch (error) {
+    // A 429 is the one failure that is not an answer. Every other one -
+    // a 404, a DNS miss for an unregistered subdomain, a redirect to the
+    // vendor's marketing page - means this slug is not a board here, and
+    // the next candidate is worth trying. "Too many requests" means the
+    // vendor declined to say, and treating that as "no board" records
+    // absence of evidence as evidence of absence.
+    //
+    // It has happened twice, both on apply.workable.com. The completed
+    // backlog pass of 2026-09-22 is the pass that earned the block, so
+    // its own Workable answers were being refused while it wrote them
+    // down as misses: it reports 0 Workable boards over 3,189 names with
+    // `errors: 0`, and that zero is missing data, not a measurement. On
+    // 2026-09-23 a second pass walked 125 names the same way before a
+    // hand check of a known-good slug (`seeq`) came back 429.
+    //
+    // Throwing, rather than returning some "unknown" a caller may ignore:
+    // discover.ts's per-name catch already skips the name without adding
+    // it to `known`, so it is probed again tomorrow, which is the right
+    // handling and needs no change. The backlog pass this guarded against
+    // stopped the same way.
+    //
+    // 429 only, deliberately. A 5xx is also not an answer, but no probe
+    // has been measured failing that way, and a case is not handled here
+    // until it is seen.
+    if (error instanceof HttpError && error.status === 429) throw error;
+    return null;
+  }
+  return REPORTED[platform](data, board, options);
 }
 
 // The platforms are different hosts and http.ts's `rateLimit` is

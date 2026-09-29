@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { applyRecord, parseRecord, readSeeds, seedsOf } from "../scripts/peers.ts";
+import {
+  applyRecord,
+  boardsLinkedFrom,
+  findBoard,
+  parseBoardQueries,
+  parseRecord,
+  readSeeds,
+  seedsOf,
+} from "../scripts/peers.ts";
 import type { Candidate, Company } from "../src/schema.ts";
 import { memoryStore } from "../src/store/memory.ts";
 import type { Store } from "../src/store/store.ts";
@@ -306,4 +314,130 @@ test("applyRecord: a seed whose company row is deleted after the check creates n
   });
   const names = (await inner.select<Company>("companies")).map((row) => row.name);
   assert.deepEqual(names, ["Acme"]);
+});
+
+// Anything not listed answers the status given for it, else 404. A string
+// body is served as-is (HTML), anything else JSON-encoded.
+function fakeFetch(
+  routes: Record<string, unknown>,
+  statuses: Record<string, number> = {},
+): typeof fetch {
+  const impl: typeof fetch = async (input) => {
+    const url = String(input);
+    const status = statuses[url];
+    if (status !== undefined) return new Response(null, { status });
+    const body = routes[url];
+    if (body === undefined) return new Response(null, { status: 404 });
+    return new Response(typeof body === "string" ? body : JSON.stringify(body), { status: 200 });
+  };
+  return impl;
+}
+
+const HTTP = { userAgent: "test-bot (+https://example.com)", sleep: async () => {}, retries: 0 };
+
+test("boardsLinkedFrom: reads links, embeds and escaped script URLs, once each, in page order", () => {
+  const html = [
+    '<a href="/about">About</a>',
+    '<iframe src="https://jobs.ashbyhq.com/bidgely-inc/embed?version=2"></iframe>',
+    '<a href="https://job-boards.greenhouse.io/courtyardinc/jobs/1">Job</a>',
+    '<script>{"jobs":"https:\\/\\/jobs.lever.co\\/pigment"}</script>',
+    '<a href="https://jobs.ashbyhq.com/bidgely-inc">again</a>',
+    '<a href="https://www.linkedin.com/company/bidgely">LinkedIn</a>',
+  ].join("\n");
+  assert.deepEqual(boardsLinkedFrom(html, "https://www.bidgely.com/careers"), [
+    { platform: "ashby", id: "bidgely-inc" },
+    { platform: "greenhouse", id: "courtyardinc" },
+    { platform: "lever", id: "pigment" },
+  ]);
+});
+
+test("boardsLinkedFrom: a careers address that is itself a board counts", () => {
+  const url = "https://cityblockhealth.wd1.myworkdayjobs.com/CityblockExternalCareerSite";
+  assert.deepEqual(boardsLinkedFrom("", url), [
+    { platform: "workday", id: "wd1/CityblockExternalCareerSite/cityblockhealth" },
+  ]);
+});
+
+// Breaks if the lookup stops reading the careers page's own links, which is
+// the one way to reach a board whose id is not the company's name.
+test("findBoard: takes a linked board whose own page names the company", async () => {
+  const fetchImpl = fakeFetch({
+    "https://www.bidgely.com/careers":
+      '<iframe src="https://jobs.ashbyhq.com/bidgely-inc/embed"></iframe>',
+    "https://api.ashbyhq.com/posting-api/job-board/bidgely-inc?includeCompensation=true": {
+      jobs: [],
+    },
+    "https://jobs.ashbyhq.com/bidgely-inc": "<title>Bidgely Jobs</title>",
+  });
+  const found = await findBoard(
+    { name: "Bidgely", careers: "https://www.bidgely.com/careers" },
+    { ...HTTP, fetchImpl },
+  );
+  assert.deepEqual(found, { ok: true, value: "https://jobs.ashbyhq.com/bidgely-inc" });
+});
+
+// Breaks if a vendor CDN host that parses as a board is taken: Lovevery's
+// careers page links `assets-cdn.breezy.hr` before its own board.
+test("findBoard: skips a linked board that does not answer, takes the one naming the company", async () => {
+  const fetchImpl = fakeFetch({
+    "https://careers.lovevery.com/": [
+      '<link href="https://assets-cdn.breezy.hr/style.css">',
+      '<a href="https://lovevery.breezy.hr/p/1">Job</a>',
+    ].join("\n"),
+    "https://lovevery.breezy.hr/json": [{ company: { name: "Lovevery" } }],
+  });
+  const found = await findBoard(
+    { name: "Lovevery", careers: "https://careers.lovevery.com/" },
+    { ...HTTP, fetchImpl },
+  );
+  assert.deepEqual(found, { ok: true, value: "https://lovevery.breezy.hr" });
+});
+
+test("findBoard: refuses a linked board that names another company", async () => {
+  const fetchImpl = fakeFetch({
+    "https://acme.example/careers": '<a href="https://job-boards.greenhouse.io/hooli">Jobs</a>',
+    "https://boards-api.greenhouse.io/v1/boards/hooli/jobs?content=true": {
+      jobs: [{ company_name: "Hooli" }],
+    },
+  });
+  const found = await findBoard(
+    { name: "Acme", careers: "https://acme.example/careers" },
+    { ...HTTP, fetchImpl },
+  );
+  assert.deepEqual(found, { ok: true, value: null });
+});
+
+test("findBoard: takes a Workday board on the company's own link, with no name to check", async () => {
+  const fetchImpl = fakeFetch({
+    "https://www.cityblock.com/careers":
+      '<a href="https://cityblockhealth.wd1.myworkdayjobs.com/CityblockExternalCareerSite">Jobs</a>',
+  });
+  const found = await findBoard(
+    { name: "Cityblock Health", careers: "https://www.cityblock.com/careers" },
+    { ...HTTP, fetchImpl },
+  );
+  assert.deepEqual(found, {
+    ok: true,
+    value: "https://cityblockhealth.wd1.myworkdayjobs.com/CityblockExternalCareerSite",
+  });
+});
+
+test("findBoard: a careers page that refuses is returned as a reason, not thrown", async () => {
+  const fetchImpl = fakeFetch({}, { "https://www.etsy.com/careers": 403 });
+  const found = await findBoard(
+    { name: "Etsy", careers: "https://www.etsy.com/careers" },
+    { ...HTTP, fetchImpl },
+  );
+  assert.equal(found.ok, false);
+});
+
+test("parseBoardQueries: reads name and careers url, refuses one without a careers url", () => {
+  assert.deepEqual(parseBoardQueries('[{"name":"Gem","careers":"https://www.gem.com/careers"}]'), {
+    ok: true,
+    value: [{ name: "Gem", careers: "https://www.gem.com/careers" }],
+  });
+  assert.deepEqual(parseBoardQueries('[{"name":"Gem","careers":null}]'), {
+    ok: false,
+    reason: "[0] (Gem) needs a careers url",
+  });
 });
