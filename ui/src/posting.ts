@@ -125,9 +125,10 @@ export function midpoint(posting: PostingSummary): number | null {
  * Weights set from James's decisions (2026-09-29: 40 applied, 118 closed).
  * Pay alone ranks an applied posting over a closed one 67% of the time, a
  * product word in the title 61%. Age does not rank at all: James decides
- * within a week and the processor drops postings past `max_age_days`, so
- * freshness scored the same at weight 0, 15 or 30 (73%); the "By posted"
- * sort covers age. Full pay at 1.25 × floor: the apply rate climbs to 48%
+ * within a week, and while these were measured the processor dropped
+ * postings past 35 days, so freshness scored the same at weight 0, 15 or 30
+ * (73%); the "By posted" sort covers age. With no max age set, older
+ * postings reach the queue and this is worth measuring again. Full pay at 1.25 × floor: the apply rate climbs to 48%
  * between 1.25 and 1.5 × floor, but the shorter reach separates the rows
  * just above the floor, and ranked better (72% against 70%). The two
  * weights add up to 100; the score is their plain sum.
