@@ -50,18 +50,8 @@ test("seedsOf: a searched company and a company with no row are not seeds", () =
   assert.deepEqual(seedsOf(postings, companies), [{ name: "Globex", roles: ["Staff Engineer"] }]);
 });
 
-test("readSeeds: prints four criteria fields and every company and candidate name as known", async () => {
+test("readSeeds: prints seeds and every company and candidate name as known", async () => {
   const store = memoryStore({
-    criteria: [
-      {
-        id: 1,
-        level_words: ["staff"],
-        role_words: ["engineer"],
-        excluded_title_words: ["intern"],
-        comp_floor: 200000,
-        assumed_bonus_pct: 15,
-      },
-    ],
     companies: [company("Globex"), company("Acme")],
     postings: [
       { key: "greenhouse/acme::1", company: "Acme", title: "Staff Engineer", status: "applied" },
@@ -76,21 +66,18 @@ test("readSeeds: prints four criteria fields and every company and candidate nam
   assert.deepEqual(result, {
     ok: true,
     value: {
-      criteria: {
-        level_words: ["staff"],
-        role_words: ["engineer"],
-        comp_floor: 200000,
-        assumed_bonus_pct: 15,
-      },
       seeds: [{ name: "Acme", roles: ["Staff Engineer"] }],
       known: ["Acme", "Globex", "Hooli"],
     },
   });
 });
 
-test("readSeeds: refuses with no criteria row", async () => {
+test("readSeeds: needs no criteria row", async () => {
   const result = await readSeeds(memoryStore());
-  assert.equal(result.ok, false);
+  assert.deepEqual(result, {
+    ok: true,
+    value: { seeds: [], known: [] },
+  });
 });
 
 test("parseRecord: reads a valid record, an absent url as null", () => {
