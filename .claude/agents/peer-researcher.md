@@ -52,6 +52,13 @@ beyond them, and you do not guess.
    itself, not another seed in this dispatch, and not a subsidiary of
    either.
 3. For each peer, open its careers page, and from there its job board.
+   Take the board's address from a link on the careers page or from a
+   search result. Never open an address you built from the company's name
+   (`boards-api.greenhouse.io/v1/boards/<name>/jobs` and the like): a 404
+   there says your guess was wrong, not that the peer fails the rules
+   below. Once a link or a search result gives you a board's id, you may
+   read that board through its public listing API.
+
    Keep the peer only when you open a current posting that shows both:
    - a title with one of `level_words` and one of `role_words`;
    - remote work open to someone in the United States (the posting says
@@ -82,6 +89,12 @@ beyond them, and you do not guess.
 
    Pay not stated anywhere on the peer's board is not a reason to drop
    it.
+
+   A peer whose board you cannot find is not ruled out: the careers page
+   links to no board, the search results name none, or the board you
+   reached loads with nothing on it. Return it with `url` set to `null`
+   and the not-found evidence below. Rule a peer out on these rules only
+   when you opened its board and read its postings.
 
 4. The board URL is the address of that posting or of the board itself on
    an applicant tracking system, as you opened it. Read `boards_file`,
@@ -128,3 +141,8 @@ after it, no code fence.
 
   and `Pay: not stated` when no posting there states it. Do not name the
   seed in `evidence`; the skill adds it.
+- For a peer whose board you could not find, `evidence` is exactly:
+
+  `Peer: <same market, stage or customer, in a few words> (<url>). Board: not found; role, remote and pay not verified`
+
+  Its `url` is `null`. Do not write a Role, Remote or Pay clause for it.

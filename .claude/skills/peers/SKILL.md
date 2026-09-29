@@ -108,7 +108,11 @@ One table, numbered from 1:
 | #   | Name | Peer of | Evidence | Board URL |
 | --- | ---- | ------- | -------- | --------- |
 
-Board URL is the URL, or `none (the run looks the name up)` when null.
+Board URL is the URL, or `none (the run looks the name up)` when null. A
+peer whose evidence says `Board: not found` reads `none, board not found
+(unverified)` instead: the researcher never read its postings, and the run
+does the checking. James can keep it like any other row; `record` writes it
+with a null URL.
 Below it, two lists, each only when it is not empty:
 
 - **Researched, no new peers:** seed names.
