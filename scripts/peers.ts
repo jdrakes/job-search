@@ -1,11 +1,10 @@
 // Peer expansion's two ends in the store. `seeds` prints what the peer
-// skill searches from: the criteria's role words, every company James has
-// applied to that has not yet been searched, and every name already known so
-// the skill skips it. `boards` reads the careers page of each peer the
-// researcher found no board for and prints the board it links to, touching
-// no store. `record` writes what the skill found: each candidate as a new
-// row with `origin: "peers"`, and `peers_searched_at` on each seed it
-// searched.
+// skill searches from: every company James has applied to that has not yet
+// been searched, and every name already known so the skill skips it. `boards`
+// reads the careers page of each peer the researcher found no board for and
+// prints the board it links to, touching no store. `record` writes what the
+// skill found: each candidate as a new row with `origin: "peers"`, and
+// `peers_searched_at` on each seed it searched.
 //
 // It connects as the run does, not as the list's role, and writes only a
 // candidate's input columns (with `id` and `added_at`, set here to what the
@@ -18,7 +17,6 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import process from "node:process";
 
-import { loadCriteria } from "../src/criteria.ts";
 import { boardUrl, parseBoardUrl } from "../src/discovery/boards.ts";
 import { boardNamesCompany } from "../src/discovery/probe.ts";
 import { describeError } from "../src/errors.ts";
@@ -33,12 +31,6 @@ export interface Seed {
 }
 
 export interface SeedsOutput {
-  readonly criteria: {
-    readonly level_words: readonly string[];
-    readonly role_words: readonly string[];
-    readonly comp_floor: number;
-    readonly assumed_bonus_pct: number | null;
-  };
   readonly seeds: readonly Seed[];
   readonly known: readonly string[];
 }
@@ -103,19 +95,15 @@ async function readSeedRows(
 export async function readSeeds(
   store: Store,
 ): Promise<{ ok: true; value: SeedsOutput } | { ok: false; reason: string }> {
-  const criteria = await loadCriteria(store);
-  if (!criteria.ok) return criteria;
   const { postings, companies } = await readSeedRows(store);
   const candidates = await store.select<Pick<Candidate, "name">>("candidates", undefined, ["name"]);
   const names = [
     ...companies.map((company) => company.name),
     ...candidates.map((candidate) => candidate.name).filter((name) => name !== null),
   ];
-  const { level_words, role_words, comp_floor, assumed_bonus_pct } = criteria.value;
   return {
     ok: true,
     value: {
-      criteria: { level_words, role_words, comp_floor, assumed_bonus_pct },
       seeds: seedsOf(postings, companies),
       known: [...new Set(names)].sort(),
     },
