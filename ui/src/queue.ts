@@ -1,14 +1,23 @@
 /**
  * The priority queue: highest score first, ties by comp-band midpoint, then
- * `posted_at`. With no criteria row there is no score and the midpoint order
- * stands alone. Grouped by company it also shows each company's acted-on
- * postings as history. The number waiting is the Queue tab's count; a
- * filtered count sits beside the search box that narrowed it.
+ * `posted_at`, or newest first. With no criteria row there is no score and
+ * the midpoint order stands alone. In the company view it also shows each
+ * company's acted-on postings as history. The number waiting is the Queue
+ * tab's count; a filtered count sits beside the search box that narrowed it.
  */
 import { computed, defineComponent, nextTick, ref, type PropType } from "vue";
 
 import type { PostingSummary } from "../../src/schema.ts";
 import type { SessionStore } from "./auth.ts";
+import {
+  ArrangeBar,
+  loadArrangement,
+  QUEUE_SORTS,
+  saveSort,
+  saveView,
+  type ListView,
+  type Sort,
+} from "./arrange.ts";
 import { countsByCompany } from "./companies.ts";
 import type { AppConfig } from "./config.ts";
 import { EmptyState } from "./empty-state.ts";
@@ -24,11 +33,6 @@ import {
 import { SearchBox } from "./search-box.ts";
 import { contains } from "./text-match.ts";
 import { Toast, useToast } from "./toast.ts";
-
-export const QUEUE_ORDERS = ["score", "posted", "company"] as const;
-export type QueueOrder = (typeof QUEUE_ORDERS)[number];
-
-export const QUEUE_ORDER_KEY = "queue-order";
 
 function comparePostedAt(a: PostingSummary, b: PostingSummary): number {
   if (a.posted_at === null && b.posted_at === null) return 0;
@@ -47,7 +51,7 @@ function compareMidpoint(a: PostingSummary, b: PostingSummary): number {
   return comparePostedAt(a, b);
 }
 
-/** Today's default order: score descending with a floor, comp-band midpoint descending without one. */
+/** The default sort: score descending with a floor, comp-band midpoint descending without one. */
 function compareByScore(
   postings: readonly PostingSummary[],
   compFloor: number | null,
@@ -64,60 +68,79 @@ function compareByScore(
   };
 }
 
-/** Most recent act first: the Record's order and a company's history under the grouped queue's header. */
+/** Most recent act first: the Record's default sort and a company's history under the Queue's company header. */
 export function byMostRecentAct(a: PostingSummary, b: PostingSummary): number {
   return (b.status_at ?? "").localeCompare(a.status_at ?? "");
 }
 
 /**
- * Companies in the order their best waiting posting earned, each company's
- * waiting rows by score and its acted rows after them as history. A company
- * with nothing waiting does not appear: the acted rows only join a bucket
- * the waiting pass opened. One flat array, since selection, "next after
- * decided" and the arrow-key scan are index-based over it.
+ * The rows in the chosen sort. "acted" is the Record's own: the acted-on
+ * rows first, most recent act first, then the untouched ones by score.
+ * "posted" is newest first, a posting with no board date last, ties by score.
  */
-function groupedByCompany(
-  waiting: readonly PostingSummary[],
-  acted: readonly PostingSummary[],
-  byScore: (a: PostingSummary, b: PostingSummary) => number,
-): PostingSummary[] {
-  const byCompany = new Map<string, PostingSummary[]>();
-  for (const posting of [...waiting].sort(byScore)) {
-    const held = byCompany.get(posting.company);
-    if (held === undefined) byCompany.set(posting.company, [posting]);
-    else held.push(posting);
-  }
-  for (const posting of [...acted].sort(byMostRecentAct)) {
-    byCompany.get(posting.company)?.push(posting);
-  }
-  return [...byCompany.values()].flat();
-}
-
-/** `acted` is read by the "company" order alone: the flat orders are what is still waiting and nothing else. */
-export function orderedQueue(
+export function sortedPostings(
   postings: readonly PostingSummary[],
+  sort: Sort,
   compFloor: number | null,
   nowMs: number,
   productWords: readonly string[] = [],
-  order: QueueOrder = "score",
-  acted: readonly PostingSummary[] = [],
 ): PostingSummary[] {
   const byScore = compareByScore(postings, compFloor, nowMs, productWords);
-  if (order === "score") return [...postings].sort(byScore);
-  if (order === "company") return groupedByCompany(postings, acted, byScore);
-  // Newest first; a posting with no board date sorts last. Ties fall back
-  // to the score order.
+  if (sort === "score") return [...postings].sort(byScore);
+  if (sort === "acted") {
+    const acted = postings.filter((posting) => posting.status_at !== null).sort(byMostRecentAct);
+    const untouched = postings.filter((posting) => posting.status_at === null).sort(byScore);
+    return [...acted, ...untouched];
+  }
   return [...postings].sort((a, b) => {
     const diff = comparePostedAt(a, b);
     return diff !== 0 ? diff : byScore(a, b);
   });
 }
 
-/** The header a company's group opens with: rows still waiting on James, and roles he has applied to. */
+/**
+ * Companies in the order their first sorted row earned, each company's rows
+ * in that same order, and `history` after them, most recent act first. A
+ * history row only joins a bucket `sorted` opened: in the Queue a company
+ * with nothing waiting does not appear. One flat array, since selection,
+ * "next after decided" and the arrow-key scan are index-based over it.
+ */
+export function groupedByCompany(
+  sorted: readonly PostingSummary[],
+  history: readonly PostingSummary[] = [],
+): PostingSummary[] {
+  const byCompany = new Map<string, PostingSummary[]>();
+  for (const posting of sorted) {
+    const held = byCompany.get(posting.company);
+    if (held === undefined) byCompany.set(posting.company, [posting]);
+    else held.push(posting);
+  }
+  for (const posting of [...history].sort(byMostRecentAct)) {
+    byCompany.get(posting.company)?.push(posting);
+  }
+  return [...byCompany.values()].flat();
+}
+
+/** `acted` is read by the company view alone: the list view is what is still waiting and nothing else. */
+export function orderedQueue(
+  postings: readonly PostingSummary[],
+  compFloor: number | null,
+  nowMs: number,
+  productWords: readonly string[] = [],
+  sort: Sort = "score",
+  view: ListView = "list",
+  acted: readonly PostingSummary[] = [],
+): PostingSummary[] {
+  const sorted = sortedPostings(postings, sort, compFloor, nowMs, productWords);
+  return view === "company" ? groupedByCompany(sorted, acted) : sorted;
+}
+
+/** The header a company's group opens with: rows still waiting on James, roles he has applied to, and roles he closed. */
 export interface CompanyHead {
   readonly company: string;
   readonly waiting: number;
   readonly applied: number;
+  readonly closed: number;
 }
 
 /**
@@ -144,15 +167,21 @@ export interface QueueRow {
 /**
  * A row opens a group when the row before it is a different company;
  * headers and rows render as siblings in one `.list` so the arrow-key scan
- * crosses company boundaries. Both counts are read off the rows under the
- * header, so the search box and a decision move them with no reload; a
- * closed role is in neither. `history` marks the acted rows grouped mode
- * appended, never true in the flat orders.
+ * crosses company boundaries. The counts are read off the rows under the
+ * header, so the search box, a filter and a decision move them with no
+ * reload. `history` marks the acted rows the Queue's company view appended;
+ * it is never true in the list view, nor in the Record, where every row is
+ * the record and none is history.
  */
-export function queueRows(postings: readonly PostingSummary[], grouped: boolean): QueueRow[] {
+export function queueRows(
+  postings: readonly PostingSummary[],
+  grouped: boolean,
+  actedAsHistory = true,
+): QueueRow[] {
   if (!grouped) return postings.map((posting) => ({ posting, head: null, history: false }));
   const waiting = countsByCompany(postings.filter((posting) => posting.status === null));
   const applied = appliedCountsByCompany(postings);
+  const closed = countsByCompany(postings.filter((posting) => posting.status === "closed"));
   return postings.map((posting, at) => ({
     posting,
     head:
@@ -162,12 +191,13 @@ export function queueRows(postings: readonly PostingSummary[], grouped: boolean)
             company: posting.company,
             waiting: waiting.get(posting.company) ?? 0,
             applied: applied.get(posting.company) ?? 0,
+            closed: closed.get(posting.company) ?? 0,
           },
-    history: posting.status !== null,
+    history: actedAsHistory && posting.status !== null,
   }));
 }
 
-/** The rows with no status, the one number in the header James acts on. Never zero: a group only opens on a waiting row. */
+/** The rows with no status, the number in the header James acts on. Only called for a count above zero. */
 export function waitingLabel(count: number): string {
   return `${count} waiting`;
 }
@@ -177,20 +207,24 @@ export function appliedLabel(count: number): string {
   return `${count} applied`;
 }
 
+/**
+ * Waiting and applied, whichever are above zero. In the Queue a group only
+ * opens on a waiting row, so its header always says the waiting count. In
+ * the Record a company can have neither, every role closed, and its header
+ * says that instead of nothing.
+ */
 export function companyHeadLabel(head: CompanyHead): string {
-  return head.applied > 0
-    ? `${waitingLabel(head.waiting)} · ${appliedLabel(head.applied)}`
-    : waitingLabel(head.waiting);
+  const parts = [
+    ...(head.waiting > 0 ? [waitingLabel(head.waiting)] : []),
+    ...(head.applied > 0 ? [appliedLabel(head.applied)] : []),
+  ];
+  return parts.length > 0 ? parts.join(" · ") : `${head.closed} closed`;
 }
 
 /** Company or title, not both: which of the two a word hit is not a fact James wants back. */
 export function matchesQuery(posting: PostingSummary, query: string): boolean {
   if (query.trim() === "") return true;
   return contains(posting.company, query) || contains(posting.title, query);
-}
-
-function isQueueOrder(value: string): value is QueueOrder {
-  return (QUEUE_ORDERS as readonly string[]).includes(value);
 }
 
 /**
@@ -229,22 +263,8 @@ export function headAt(list: HTMLElement | null, index: number): HTMLElement | n
   return card?.querySelector<HTMLElement>(".head") ?? null;
 }
 
-export function loadQueueOrder(store: SessionStore): QueueOrder {
-  const stored = store.getItem(QUEUE_ORDER_KEY);
-  return stored !== null && isQueueOrder(stored) ? stored : "score";
-}
-
-/** A failed write (quota, private browsing) must not break the page. */
-export function saveQueueOrder(store: SessionStore, order: QueueOrder): void {
-  try {
-    store.setItem(QUEUE_ORDER_KEY, order);
-  } catch {
-    // Unremembered; the in-memory order the page is already showing stands.
-  }
-}
-
 /** For renders before a session exists, and most tests. */
-const NULL_STORE: SessionStore = {
+export const NULL_STORE: SessionStore = {
   getItem: () => null,
   setItem: () => {},
   removeItem: () => {},
@@ -275,7 +295,7 @@ function actedWith(
 
 export const QueueView = defineComponent({
   name: "QueueView",
-  components: { PostingCard, EmptyState, SearchBox, Toast },
+  components: { ArrangeBar, PostingCard, EmptyState, SearchBox, Toast },
   props: {
     postings: { type: Array as PropType<PostingSummary[]>, required: true },
     config: { type: Object as PropType<AppConfig>, required: true },
@@ -283,12 +303,12 @@ export const QueueView = defineComponent({
     // Null when the criteria read failed; no card then guesses one.
     compFloor: { type: [Number, null] as PropType<number | null>, required: true },
     productWords: { type: Array as PropType<readonly string[]>, default: () => [] },
-    // Where the chosen order is remembered across a reload.
+    // Where the chosen view and sort are remembered across a reload.
     store: { type: Object as PropType<SessionStore>, default: () => NULL_STORE },
     // The record's postings, handed in by `app.ts`, which is where a
     // posting decided on this page has already been given its new status;
-    // grouped mode shows them as each company's history, the flat orders
-    // never read them.
+    // the company view shows them as each company's history, the list view
+    // never reads them.
     history: { type: Array as PropType<PostingSummary[]>, default: () => [] },
   },
   emits: {
@@ -297,10 +317,16 @@ export const QueueView = defineComponent({
     decided: (_outcome: DecidedOutcome) => true,
   },
   setup(props, { emit }) {
-    const order = ref<QueueOrder>(loadQueueOrder(props.store));
-    function setOrder(next: QueueOrder): void {
-      order.value = next;
-      saveQueueOrder(props.store, next);
+    const initial = loadArrangement(props.store, "queue", QUEUE_SORTS);
+    const view = ref<ListView>(initial.view);
+    const sort = ref<Sort>(initial.sort);
+    function setView(next: ListView): void {
+      view.value = next;
+      saveView(props.store, "queue", next);
+    }
+    function setSort(next: Sort): void {
+      sort.value = next;
+      saveSort(props.store, "queue", next);
     }
     const { toast, showToast } = useToast();
     // After a decision the focused control goes away (the row leaves the flat
@@ -312,7 +338,7 @@ export const QueueView = defineComponent({
     // says "Queue" rather than nothing.
     const listRef = ref<HTMLElement | null>(null);
     const sectionRef = ref<HTMLElement | null>(null);
-    // Not remembered, unlike the order: a filter restored tomorrow would open
+    // Not remembered, unlike the view and sort: a filter restored tomorrow would open
     // the list on a queue silently missing most of itself. `:value` +
     // `@input` rather than `v-model`, as in the Record: `v-model` drops input
     // events during a composition, and iOS marks autocorrect candidates as one.
@@ -347,11 +373,12 @@ export const QueueView = defineComponent({
         props.compFloor,
         Date.now(),
         props.productWords,
-        order.value,
+        sort.value,
+        view.value,
         actedWith(props.history, props.postings),
       ),
     );
-    const rows = computed(() => queueRows(visible.value, order.value === "company"));
+    const rows = computed(() => queueRows(visible.value, view.value === "company"));
     // An empty queue and an empty result are different facts.
     const emptyText = computed(() =>
       query.value.trim() === "" ? "Nothing waiting on you." : "Nothing matches.",
@@ -404,26 +431,25 @@ export const QueueView = defineComponent({
       listRef,
       sectionRef,
       toast,
-      order,
-      setOrder,
+      view,
+      sort,
+      setView,
+      setSort,
+      QUEUE_SORTS,
       query,
       emptyText,
     };
   },
   template: `
     <section role="tabpanel" id="panel-queue" aria-labelledby="tab-queue" tabindex="-1" ref="sectionRef">
-      <div class="order" role="group" aria-label="Queue order">
-        <button type="button" :class="{ primary: order === 'score' }" :aria-pressed="order === 'score'" @click="setOrder('score')">By score</button>
-        <button type="button" :class="{ primary: order === 'posted' }" :aria-pressed="order === 'posted'" @click="setOrder('posted')">Newest first</button>
-        <button type="button" :class="{ primary: order === 'company' }" :aria-pressed="order === 'company'" @click="setOrder('company')">Group by company</button>
-      </div>
+      <ArrangeBar tab="queue" tab-label="Queue" :view="view" :sort="sort" :sorts="QUEUE_SORTS" @view="setView" @sort="setSort" />
       <div class="queue-search">
         <SearchBox :value="query" placeholder="Company or role" @search="query = $event" />
         <p class="matched" role="status">{{ matchedText }}</p>
       </div>
       <EmptyState v-if="waiting.length === 0" :text="emptyText" />
       <div class="master-detail" v-else ref="listRef">
-        <TransitionGroup tag="div" name="list" class="list" :class="{ grouped: order === 'company' }" @keydown="onListKeydown">
+        <TransitionGroup tag="div" name="list" class="list" :class="{ grouped: view === 'company' }" @keydown="onListKeydown">
           <template v-for="row in rows" :key="row.posting.key">
             <h2 v-if="row.head !== null" class="company-head"><span class="company">{{ row.head.company }}</span> &mdash; {{ companyHeadLabel(row.head) }}</h2>
             <PostingCard

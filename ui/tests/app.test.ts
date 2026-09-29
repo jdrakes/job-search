@@ -6,7 +6,7 @@ import { renderToString } from "vue/server-renderer";
 import { STATUSES, type Company, type PostingSummary } from "../../src/schema.ts";
 import { AppRoot, LoadingShell, runRefresh, searchFor, tabFrom } from "../src/app.ts";
 import { SESSION_KEY, type Session, type SessionStore } from "../src/auth.ts";
-import { QUEUE_ORDER_KEY } from "../src/queue.ts";
+import { viewKey } from "../src/arrange.ts";
 import { TABS } from "../src/tabs.ts";
 import { clearReads, loadReads, READS_KEY, saveReads } from "../src/reads-cache.ts";
 import type { AppConfig } from "../src/config.ts";
@@ -303,7 +303,7 @@ test("the grouped queue's history comes from the record read the shell already m
 
   const html = await render(
     signedInProps(fetchImpl, {
-      store: memoryStore({ [SESSION_KEY]: sessionJson(), [QUEUE_ORDER_KEY]: "company" }),
+      store: memoryStore({ [SESSION_KEY]: sessionJson(), [viewKey("queue")]: "company" }),
     }),
   );
 
@@ -696,10 +696,10 @@ function mountRoot(props: RootProps): Mounted {
 function storeWithRound(
   queue: PostingSummary[],
   postings: PostingSummary[],
-  order = "score",
+  view = "list",
   companies: Company[] = [],
 ) {
-  const store = memoryStore({ [SESSION_KEY]: sessionJson(), [QUEUE_ORDER_KEY]: order });
+  const store = memoryStore({ [SESSION_KEY]: sessionJson(), [viewKey("queue")]: view });
   saveReads(store, { queue, postings, companies, criteria: CRITERIA_ROW, candidates: [] });
   return store;
 }
@@ -815,7 +815,7 @@ test("a refresh in flight when the user signs out does not resurrect the session
   const restoreDom = stubDom();
   const store = memoryStore({
     [SESSION_KEY]: sessionJson({ expiresAt: NOW + 10 }),
-    [QUEUE_ORDER_KEY]: "score",
+    [viewKey("queue")]: "list",
   });
   saveReads(store, {
     queue: [QUEUE_ROW],
@@ -875,7 +875,7 @@ test("reads in flight when the user signs out are not written back to the reads 
   const restoreDom = stubDom();
   const store = memoryStore({
     [SESSION_KEY]: sessionJson(),
-    [QUEUE_ORDER_KEY]: "score",
+    [viewKey("queue")]: "list",
   });
   saveReads(store, {
     queue: [QUEUE_ROW],
@@ -1371,7 +1371,7 @@ test("a decided row stays in the grouped Queue when the record read failed", asy
   ]);
   const app = mountRoot({
     config: CONFIG,
-    store: memoryStore({ [SESSION_KEY]: sessionJson(), [QUEUE_ORDER_KEY]: "company" }),
+    store: memoryStore({ [SESSION_KEY]: sessionJson(), [viewKey("queue")]: "company" }),
     httpFetch: fetchImpl,
     now: () => NOW,
   });

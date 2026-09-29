@@ -137,15 +137,17 @@ first; the work to build it is tracked elsewhere.
     out; one that merely welcomes it is in.
 - The queue is ordered by each posting's score (see List), highest first;
   ties by the comp band's midpoint, unposted pay at the floor. James can
-  order it by posting date instead, newest first, to reach new postings
-  fast, or group it by company, where a company sorts by its best posting
+  sort it by posting date instead, newest first, to reach new postings
+  fast. Separately from the sort he picks a view: one list, or grouped by
+  company, where a company sorts by its first posting under the chosen sort
   and its heading says how many of its roles are still waiting on him and
   how many he has already applied to: two counts of the rows under that
   heading, not a total of them, since a role he closed is in neither. He
   applies to about one role per company however many it offers, so grouped
-  the queue is the shape of the decision he is actually making; by score it
-  is the shape of the single best role. The list remembers which of the
-  three he chose.
+  the queue is the shape of the decision he is actually making; as a list it
+  is the shape of the single best role. The view and the sort are two
+  choices, not one, since grouping is a way of laying rows out and takes
+  either sort. The list remembers both.
 - James edits the criteria in the list; everything is re-judged against the
   current criteria at the next run. A posting whose band changes on a
   re-list is re-judged that run: its verdict is the one its current band
@@ -165,16 +167,16 @@ first; the work to build it is tracked elsewhere.
   kind of role. One box answers both, and which of the two a word hit does
   not matter to him. It narrows what is waiting, so the heading's count and
   the grouped headers follow it and keep meaning the same thing. It is not
-  remembered between visits: the order is how he reads the queue and lasts,
-  a filter is for the minute he is in.
+  remembered between visits: the view and sort are how he reads the queue
+  and last, a filter is for the minute he is in.
 - Grouped by company, a company shows every posting it has: the ones
   waiting on James and the ones he has acted on, each with its status and
   the outcomes that status allows. He applies to about one role per company,
   so the roles he has already taken are what the remaining ones are judged
   against, and the company is the decision. The waiting ones come first,
-  highest score first; the acted-on ones follow as that company's history.
+  in the chosen sort; the acted-on ones follow as that company's history.
   The queue's count stays the number waiting on him, so it means the same in
-  every order. A company with nothing left waiting does not appear. There
+  every view and sort. A company with nothing left waiting does not appear. There
   is no decision to make there, and its history is the Record's.
 - A card says how long ago the posting went up, because how fresh a
   posting is decides whether applying to it is worth anything, and the
@@ -201,8 +203,12 @@ first; the work to build it is tracked elsewhere.
 - Every posting the processor let through, and every posting James has
   acted on whatever the processor now says of it, filterable by status,
   company and title; the ones James has acted on first, most recent act
-  first, then the rest in the queue's order. What the processor kept out
-  and James never touched is not shown.
+  first, then the rest in the queue's order. He can sort it by score or
+  newest first instead, and view it as one list or grouped by company, the
+  same two choices the queue offers, remembered apart from the queue's.
+  Grouped, every row sits under its company, whatever its status, and a
+  company whose every role he closed says so in its heading. What the
+  processor kept out and James never touched is not shown.
 - Companies: what discovery found and what is watched, each with how many
   of its postings are in the queue, most first; James can drop one.
 - Criteria: editable.

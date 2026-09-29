@@ -5,6 +5,8 @@ import { createSSRApp } from "vue";
 import { renderToString } from "vue/server-renderer";
 
 import { STATUSES, type Posting } from "../../src/schema.ts";
+import { viewKey } from "../src/arrange.ts";
+import type { SessionStore } from "../src/auth.ts";
 import type { AppConfig } from "../src/config.ts";
 import type { DecidedOutcome } from "../src/posting.ts";
 import {
@@ -33,6 +35,19 @@ import {
   textOf,
   type TreeNode,
 } from "./render-tree.ts";
+
+function memoryStore(initial: Record<string, string> = {}): SessionStore {
+  const data = new Map(Object.entries(initial));
+  return {
+    getItem: (key) => data.get(key) ?? null,
+    setItem: (key, value) => {
+      data.set(key, value);
+    },
+    removeItem: (key) => {
+      data.delete(key);
+    },
+  };
+}
 
 function render(component: object, props: Record<string, unknown>): Promise<string> {
   return renderToString(createSSRApp(component, props));
@@ -200,6 +215,94 @@ test("orderedRecord puts acted-on postings first, most recent act first, then th
   );
 });
 
+test("orderedRecord sorts every row by score or by posted date when asked, acted-on or not", () => {
+  const now = Date.parse("2026-09-15T12:00:00Z");
+  const richActed = posting("a::1", {
+    status: "applied",
+    status_at: "2026-09-01T00:00:00Z",
+    comp_low: 300_000,
+    comp_high: 300_000,
+    posted_at: "2026-08-01",
+  });
+  const modestNew = posting("b::1", {
+    comp_low: 150_000,
+    comp_high: 150_000,
+    posted_at: "2026-09-15",
+  });
+  assert.deepEqual(
+    orderedRecord([modestNew, richActed], null, now, [], "score").map((p) => p.key),
+    ["a::1", "b::1"],
+    "the richer band leads whatever its status",
+  );
+  assert.deepEqual(
+    orderedRecord([richActed, modestNew], null, now, [], "posted").map((p) => p.key),
+    ["b::1", "a::1"],
+    "the newer posting leads whatever its status",
+  );
+});
+
+test("orderedRecord in the company view keeps every row, companies in the order their first row earned", () => {
+  const now = Date.parse("2026-09-15T12:00:00Z");
+  const acmeOld = posting("acme::1", {
+    company: "Acme",
+    status: "applied",
+    status_at: "2026-09-01",
+  });
+  const bevel = posting("bevel::1", {
+    company: "Bevel",
+    status: "closed",
+    status_at: "2026-09-10",
+  });
+  const acmeNew = posting("acme::2", {
+    company: "Acme",
+    status: "closed",
+    status_at: "2026-09-12",
+  });
+  const acmeWaiting = posting("acme::3", { company: "Acme" });
+  assert.deepEqual(
+    orderedRecord([acmeOld, bevel, acmeWaiting, acmeNew], null, now, [], "acted", "company").map(
+      (p) => p.key,
+    ),
+    ["acme::2", "acme::1", "acme::3", "bevel::1"],
+    "Acme's latest act leads; Bevel, with nothing waiting, still has its group",
+  );
+});
+
+test("RecordView shows a View group and a Sort group, 'List' and 'Recently acted' pressed by default", async () => {
+  const html = await render(RecordView, {
+    postings: [posting("a::1")],
+    config: CONFIG,
+    accessToken: ACCESS_TOKEN,
+    compFloor: null,
+  });
+  const [view, sort] = [...html.matchAll(/class="order"[^>]*>([^]*?)<\/div>/g)].map(
+    (m) => m[1] ?? "",
+  );
+  assert.match(view ?? "", /aria-pressed="true"[^>]*>List</);
+  assert.match(view ?? "", /aria-pressed="false"[^>]*>By company</);
+  assert.match(sort ?? "", /aria-pressed="true"[^>]*>Recently acted</);
+  assert.match(sort ?? "", /aria-pressed="false"[^>]*>By score</);
+  assert.match(sort ?? "", /aria-pressed="false"[^>]*>Newest first</);
+});
+
+test("RecordView in the company view heads each company with its counts and marks no row as history", async () => {
+  const html = await render(RecordView, {
+    postings: [
+      posting("acme::1", { company: "Acme", status: "applied", status_at: "2026-09-01" }),
+      posting("acme::2", { company: "Acme" }),
+      posting("bevel::1", { company: "Bevel", status: "closed", status_at: "2026-09-10" }),
+    ],
+    config: CONFIG,
+    accessToken: ACCESS_TOKEN,
+    compFloor: null,
+    store: memoryStore({ [viewKey("record")]: "company" }),
+  });
+  assert.match(html, /class="grouped list"/);
+  assert.match(html, /<span class="company">Acme<\/span> — 1 waiting · 1 applied/);
+  assert.match(html, /<span class="company">Bevel<\/span> — 1 closed/);
+  assert.doesNotMatch(html, /\bhistory\b/, "every row is the record");
+});
+
 test("RecordView folds its filters under a summary and says its place on an untouched row", async () => {
   const untouched = posting("a::1", { company: "Acme", first_seen: "2026-09-01T00:00:00Z" });
   const html = await render(RecordView, {
@@ -361,7 +464,10 @@ test("the list wraps a keydown handler sourced from the shared master-detail mod
   // checks the wiring comes from `useMasterDetail`; `nextFocusable`'s
   // delegation lives in `master-detail.test.ts`.
   const source = readFileSync(new URL("../src/record.ts", import.meta.url), "utf8");
-  assert.match(source, /class="list" @keydown="onListKeydown"/);
+  assert.match(
+    source,
+    /class="list" :class="\{ grouped: view === 'company' \}" @keydown="onListKeydown"/,
+  );
   assert.match(source, /useMasterDetail\(filtered\)/);
 });
 

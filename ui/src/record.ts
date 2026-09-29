@@ -7,11 +7,27 @@
 import { computed, defineComponent, ref, type PropType } from "vue";
 
 import { STATUSES, type PostingSummary, type Status } from "../../src/schema.ts";
+import {
+  ArrangeBar,
+  loadArrangement,
+  RECORD_SORTS,
+  saveSort,
+  saveView,
+  type ListView,
+  type Sort,
+} from "./arrange.ts";
+import type { SessionStore } from "./auth.ts";
 import type { AppConfig } from "./config.ts";
 import { EmptyState } from "./empty-state.ts";
 import { useMasterDetail } from "./master-detail.ts";
 import { labelOf, outcomeToastText, PostingCard, type DecidedOutcome } from "./posting.ts";
-import { byMostRecentAct, orderedQueue } from "./queue.ts";
+import {
+  companyHeadLabel,
+  groupedByCompany,
+  NULL_STORE,
+  queueRows,
+  sortedPostings,
+} from "./queue.ts";
 import { contains } from "./text-match.ts";
 import { Toast, useToast } from "./toast.ts";
 
@@ -62,21 +78,21 @@ export function filteredRecord(
   );
 }
 
-/** Acted-on postings first, most recent `status_at` first; the rest in score order. */
+/**
+ * By default acted-on postings first, most recent `status_at` first, the
+ * rest in score order. In the company view every row sits under its company,
+ * companies in the order their first row earned under the same sort.
+ */
 export function orderedRecord(
   postings: readonly PostingSummary[],
   compFloor: number | null,
   nowMs: number,
   productWords: readonly string[] = [],
+  sort: Sort = "acted",
+  view: ListView = "list",
 ): PostingSummary[] {
-  const acted = postings.filter((posting) => posting.status_at !== null).sort(byMostRecentAct);
-  const untouched = orderedQueue(
-    postings.filter((posting) => posting.status_at === null),
-    compFloor,
-    nowMs,
-    productWords,
-  );
-  return [...acted, ...untouched];
+  const sorted = sortedPostings(postings, sort, compFloor, nowMs, productWords);
+  return view === "company" ? groupedByCompany(sorted) : sorted;
 }
 
 /*
@@ -87,7 +103,7 @@ export function orderedRecord(
  */
 export const RecordView = defineComponent({
   name: "RecordView",
-  components: { PostingCard, EmptyState, Toast },
+  components: { ArrangeBar, PostingCard, EmptyState, Toast },
   props: {
     postings: { type: Array as PropType<PostingSummary[]>, required: true },
     config: { type: Object as PropType<AppConfig>, required: true },
@@ -95,6 +111,8 @@ export const RecordView = defineComponent({
     // Null when the criteria read failed; no card then guesses one.
     compFloor: { type: [Number, null] as PropType<number | null>, required: true },
     productWords: { type: Array as PropType<readonly string[]>, default: () => [] },
+    // Where the chosen view and sort are remembered across a reload.
+    store: { type: Object as PropType<SessionStore>, default: () => NULL_STORE },
   },
   emits: {
     // Handed up to `AppRoot`, which lays the patch over both reads; this
@@ -105,6 +123,17 @@ export const RecordView = defineComponent({
     const status = ref<StatusFilter>("");
     const company = ref("");
     const title = ref("");
+    const initial = loadArrangement(props.store, "record", RECORD_SORTS);
+    const view = ref<ListView>(initial.view);
+    const sort = ref<Sort>(initial.sort);
+    function setView(next: ListView): void {
+      view.value = next;
+      saveView(props.store, "record", next);
+    }
+    function setSort(next: Sort): void {
+      sort.value = next;
+      saveSort(props.store, "record", next);
+    }
     const { toast, showToast } = useToast();
     const filters = computed<RecordFilters>(() => ({
       status: status.value,
@@ -117,8 +146,11 @@ export const RecordView = defineComponent({
         props.compFloor,
         Date.now(),
         props.productWords,
+        sort.value,
+        view.value,
       ),
     );
+    const rows = computed(() => queueRows(filtered.value, view.value === "company", false));
     // The reveal belongs to the view: this list drops and remounts a row
     // whenever a filter stops matching it. The Record never removes a row
     // live on decide, so `resolveSelection`'s own fallback handles a
@@ -159,6 +191,13 @@ export const RecordView = defineComponent({
       company,
       title,
       filtered,
+      rows,
+      companyHeadLabel,
+      view,
+      sort,
+      setView,
+      setSort,
+      RECORD_SORTS,
       paneMode,
       selectedKey,
       selected,
@@ -175,6 +214,7 @@ export const RecordView = defineComponent({
   },
   template: `
     <section role="tabpanel" id="panel-record" aria-labelledby="tab-record" tabindex="-1">
+      <ArrangeBar tab="record" tab-label="Record" :view="view" :sort="sort" :sorts="RECORD_SORTS" @view="setView" @sort="setSort" />
       <details class="filters">
         <summary>Filters<span class="count" v-if="activeFilters > 0">{{ activeFilters }}</span></summary>
         <div class="fields">
@@ -209,21 +249,22 @@ export const RecordView = defineComponent({
       <p class="matched" role="status">{{ matchedText }}</p>
       <EmptyState v-if="filtered.length === 0" :text="empty" />
       <div class="master-detail" v-else>
-        <div class="list" @keydown="onListKeydown">
-          <PostingCard
-            v-for="posting in filtered"
-            :key="posting.key"
-            :posting="posting"
-            :config="config"
-            :access-token="accessToken"
-            :comp-floor="compFloor"
-            :product-words="productWords"
-            :selected="paneMode && selected !== null && posting.key === selected.key"
-            :expandable="!paneMode"
-            :revealed="isRevealed(posting.key)"
-            @activated="selectedKey = $event"
-            @revealed="onRevealed"
-            @decided="onDecided" />
+        <div class="list" :class="{ grouped: view === 'company' }" @keydown="onListKeydown">
+          <template v-for="row in rows" :key="row.posting.key">
+            <h2 v-if="row.head !== null" class="company-head"><span class="company">{{ row.head.company }}</span> &mdash; {{ companyHeadLabel(row.head) }}</h2>
+            <PostingCard
+              :posting="row.posting"
+              :config="config"
+              :access-token="accessToken"
+              :comp-floor="compFloor"
+              :product-words="productWords"
+              :selected="paneMode && selected !== null && row.posting.key === selected.key"
+              :expandable="!paneMode"
+              :revealed="isRevealed(row.posting.key)"
+              @activated="selectedKey = $event"
+              @revealed="onRevealed"
+              @decided="onDecided" />
+          </template>
         </div>
         <aside class="detail-pane" aria-label="Selected posting">
           <PostingCard
