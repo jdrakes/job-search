@@ -4044,8 +4044,18 @@ test("ingest: a re-listed posting's written locations column matches every offic
     greenhouse: {
       platform: "greenhouse",
       list: async () => [
-        listing("200", { requisitionId: "req-1", location: "Austin", url: "https://x/200" }),
-        listing("100", { requisitionId: "req-1", location: "Boston", url: "https://x/100" }),
+        listing("200", {
+          requisitionId: "req-1",
+          title: "Engineer",
+          location: "Austin",
+          url: "https://x/200",
+        }),
+        listing("100", {
+          requisitionId: "req-1",
+          title: "Engineer",
+          location: "Boston",
+          url: "https://x/100",
+        }),
       ],
     },
   };
@@ -4225,9 +4235,24 @@ function storedOn(
 // grouped listing.
 test("groupByRequisition: same requisition id, different offices merges into one listing with every office", () => {
   const grouped = groupByRequisition([
-    listing("200", { requisitionId: "req-1", location: "Austin", url: "https://x/200" }),
-    listing("100", { requisitionId: "req-1", location: "Boston", url: "https://x/100" }),
-    listing("300", { requisitionId: "req-1", location: "Denver", url: "https://x/300" }),
+    listing("200", {
+      requisitionId: "req-1",
+      title: "Engineer",
+      location: "Austin",
+      url: "https://x/200",
+    }),
+    listing("100", {
+      requisitionId: "req-1",
+      title: "Engineer",
+      location: "Boston",
+      url: "https://x/100",
+    }),
+    listing("300", {
+      requisitionId: "req-1",
+      title: "Engineer",
+      location: "Denver",
+      url: "https://x/300",
+    }),
   ]);
   assert.equal(grouped.length, 1);
   // The primary's own fields (id, location, url) come from the lowest id.
@@ -4267,16 +4292,28 @@ test("groupByRequisition: a null requisitionId on every listing collapses to one
 });
 
 // Breaks if the primary is picked by string id order (e.g. "9" > "10") or by
-// input order rather than numeric id.
+// input order rather than numeric id. Same title on every listing (the
+// merge key is requisitionId + title), distinguished instead by location.
 test("groupByRequisition: primary is the lowest numeric id regardless of input order", () => {
   const grouped = groupByRequisition([
-    listing("20", { requisitionId: "req-1", title: "Twenty" }),
-    listing("9", { requisitionId: "req-1", title: "Nine" }),
-    listing("100", { requisitionId: "req-1", title: "Hundred" }),
+    listing("20", { requisitionId: "req-1", title: "Engineer", location: "Twenty" }),
+    listing("9", { requisitionId: "req-1", title: "Engineer", location: "Nine" }),
+    listing("100", { requisitionId: "req-1", title: "Engineer", location: "Hundred" }),
   ]);
   assert.equal(grouped.length, 1);
   assert.equal(grouped[0]!.id, "9");
-  assert.equal(grouped[0]!.title, "Nine");
+  assert.equal(grouped[0]!.location, "Nine");
+});
+
+// Breaks if a shared, reused placeholder requisition id (e.g. "N/A", "TBD")
+// starts merging two genuinely different roles because the id alone is the
+// key.
+test("groupByRequisition: same requisition id but different titles are not grouped together", () => {
+  const grouped = groupByRequisition([
+    listing("1", { requisitionId: "N/A", title: "Backend Engineer" }),
+    listing("2", { requisitionId: "N/A", title: "Frontend Engineer" }),
+  ]);
+  assert.equal(grouped.length, 2);
 });
 
 // Breaks if `locations` is built from input order rather than deduped and
@@ -4284,11 +4321,31 @@ test("groupByRequisition: primary is the lowest numeric id regardless of input o
 // matter what order the board answered offices in.
 test("groupByRequisition: locations dedupe and sort the same regardless of input order", () => {
   const offices = [
-    listing("3", { requisitionId: "req-1", location: "Seattle", url: "https://x/3" }),
-    listing("1", { requisitionId: "req-1", location: "Austin", url: "https://x/1" }),
-    listing("2", { requisitionId: "req-1", location: "Boston", url: "https://x/2" }),
+    listing("3", {
+      requisitionId: "req-1",
+      title: "Engineer",
+      location: "Seattle",
+      url: "https://x/3",
+    }),
+    listing("1", {
+      requisitionId: "req-1",
+      title: "Engineer",
+      location: "Austin",
+      url: "https://x/1",
+    }),
+    listing("2", {
+      requisitionId: "req-1",
+      title: "Engineer",
+      location: "Boston",
+      url: "https://x/2",
+    }),
     // A duplicate office (same name and url) must not double up.
-    listing("4", { requisitionId: "req-1", location: "Austin", url: "https://x/1" }),
+    listing("4", {
+      requisitionId: "req-1",
+      title: "Engineer",
+      location: "Austin",
+      url: "https://x/1",
+    }),
   ];
   const shuffled = [offices[3]!, offices[0]!, offices[2]!, offices[1]!];
   const grouped = groupByRequisition(shuffled);

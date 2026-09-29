@@ -752,7 +752,14 @@ export function groupByRequisition(
 ): readonly (Listing & { readonly locations: readonly Office[] })[] {
   const groups = new Map<string | Listing, Listing[]>();
   for (const listing of listings) {
-    const key = listing.requisitionId ?? listing;
+    // A bare `requisitionId` is free text a company's recruiters type in;
+    // a placeholder value ("N/A", "TBD", "0") can be reused across
+    // genuinely different roles on the same board. A legitimate
+    // same-requisition, multi-office listing always carries the identical
+    // title, so keying on the pair merges only the real case and never two
+    // different roles that happen to share a requisition id.
+    const key =
+      listing.requisitionId === null ? listing : `${listing.requisitionId}\u0000${listing.title}`;
     const group = groups.get(key);
     if (group === undefined) groups.set(key, [listing]);
     else group.push(listing);
