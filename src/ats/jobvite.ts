@@ -74,6 +74,7 @@ function fromRow(row: string, slug: string): Listing | null {
     postedAt: null,
     body: null,
     workplace: jobviteWorkplace(location),
+    requisitionId: null,
   };
 }
 
@@ -146,6 +147,7 @@ export function parseJobviteDetail(raw: unknown, id: string): Listing {
     postedAt: isoDate(job["datePosted"]),
     body: body === "" ? null : body,
     workplace: job["jobLocationType"] === "TELECOMMUTE" ? "remote" : null,
+    requisitionId: null,
   };
 }
 

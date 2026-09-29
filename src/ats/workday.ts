@@ -80,6 +80,7 @@ function toListing(job: Record<string, unknown>, path: string, site: string): Li
     postedAt: isoDate(job["startDate"]),
     body: body === "" ? null : body,
     workplace: workdayWorkplace(job["remoteType"]),
+    requisitionId: null,
   };
 }
 

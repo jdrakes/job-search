@@ -28,6 +28,7 @@ function toListing(raw: unknown): Listing {
     postedAt: isoDate(job["first_published"]),
     body: asText(body),
     workplace: null,
+    requisitionId: asText(job["requisition_id"]),
   };
 }
 

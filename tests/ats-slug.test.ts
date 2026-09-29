@@ -37,6 +37,30 @@ test("Greenhouse: parses a posting with a stated pay range and one without", () 
   assert.equal(withoutRange?.compHigh, null);
 });
 
+test("Greenhouse: two postings with the same requisition_id both carry it", () => {
+  const listings = parseGreenhouse({
+    jobs: [
+      {
+        id: "100",
+        title: "Senior Engineer",
+        requisition_id: "req-123",
+        location: { name: "San Francisco" },
+        first_published: "2026-01-15",
+      },
+      {
+        id: "101",
+        title: "Senior Engineer",
+        requisition_id: "req-123",
+        location: { name: "Austin" },
+        first_published: "2026-01-15",
+      },
+    ],
+  });
+  assert.equal(listings.length, 2);
+  assert.equal(listings[0]?.requisitionId, "req-123");
+  assert.equal(listings[1]?.requisitionId, "req-123");
+});
+
 test("Greenhouse: a job missing its id reads as an empty string, never a throw", () => {
   const listings = parseGreenhouse({ jobs: [{ title: "No id" }] });
   assert.equal(listings.length, 1);
@@ -53,6 +77,7 @@ test("Ashby: parses a posting with a structured salary tier and one without", ()
   assert.equal(withTier?.title, "Customer Onboarding Specialist, Inbound");
   assert.equal(withTier?.compLow, 92_000);
   assert.equal(withTier?.compHigh, 92_000);
+  assert.equal(withTier?.requisitionId, null);
 
   const withoutTier = listings.find(
     (listing) => listing.title === "Account Manager, Growth - EMEA",
@@ -60,6 +85,7 @@ test("Ashby: parses a posting with a structured salary tier and one without", ()
   assert.ok(withoutTier);
   assert.equal(withoutTier?.compLow, null);
   assert.equal(withoutTier?.compHigh, null);
+  assert.equal(withoutTier?.requisitionId, null);
 });
 
 test("Ashby: workplaceType becomes the board's own workplace word, or null when the board states none", () => {
@@ -237,6 +263,7 @@ test("Lever: parses a posting with a salary range and one without", () => {
   // `descriptionPlain` empty, which Lever does: comp comes from the
   // structured range and the body reads as absent.
   assert.equal(withRange?.body, null);
+  assert.equal(withRange?.requisitionId, null);
 
   const withoutRange = listings.find(
     (listing) => listing.title === "Senior / Lead Analyst, Customer Reporting",
@@ -244,6 +271,7 @@ test("Lever: parses a posting with a salary range and one without", () => {
   assert.ok(withoutRange);
   assert.equal(withoutRange?.compLow, null);
   assert.equal(withoutRange?.compHigh, null);
+  assert.equal(withoutRange?.requisitionId, null);
 });
 
 test("Lever: workplaceType becomes the board's own workplace word", () => {
@@ -340,6 +368,7 @@ test("SmartRecruiters: a listing entry carries no body or comp", () => {
     assert.equal(listing.compLow, null);
     assert.equal(listing.compHigh, null);
     assert.ok(listing.title !== null);
+    assert.equal(listing.requisitionId, null);
   }
 });
 

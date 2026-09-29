@@ -79,6 +79,7 @@ function toListing(raw: unknown): Listing {
     postedAt: isoDate(offer["published_at"]),
     body: asText(body),
     workplace: recruiteeWorkplace(offer),
+    requisitionId: null,
   };
 }
 

@@ -46,6 +46,7 @@ function fromListingEntry(raw: unknown): Listing {
     postedAt: isoDate(job["published_date"]),
     body: null,
     workplace: location["is_remote"] === true ? "remote" : null,
+    requisitionId: null,
   };
 }
 
@@ -90,6 +91,7 @@ export function parseBreezyDetail(html: string, id: string): Listing {
     postedAt: null,
     body: body === "" ? null : body,
     workplace: job["jobLocationType"] === "TELECOMMUTE" ? "remote" : null,
+    requisitionId: null,
   };
 }
 

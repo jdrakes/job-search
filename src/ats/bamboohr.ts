@@ -60,6 +60,7 @@ function fromListingEntry(raw: unknown): Listing {
     postedAt: null,
     body: null,
     workplace: null,
+    requisitionId: null,
   };
 }
 
@@ -95,6 +96,7 @@ export function parseBambooHrDetail(raw: unknown): Listing {
     postedAt: isoDate(job["datePosted"]),
     body: asText(body),
     workplace: null,
+    requisitionId: null,
   };
 }
 

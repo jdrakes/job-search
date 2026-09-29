@@ -102,6 +102,7 @@ function listing(id: string, overrides: Partial<Listing> = {}): Listing {
     postedAt: null,
     body: null,
     workplace: null,
+    requisitionId: null,
     ...overrides,
   };
 }

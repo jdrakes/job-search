@@ -53,6 +53,7 @@ export function parseAvatureListing(html: string, board: string): Listing[] {
       postedAt: null,
       body: null,
       workplace: null,
+      requisitionId: null,
     });
   }
   return listings;
@@ -179,6 +180,7 @@ export function parseAvatureDetail(html: string, id: string): Listing {
     postedAt: null,
     body: body === "" ? null : body,
     workplace: null,
+    requisitionId: null,
   };
 }
 

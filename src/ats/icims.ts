@@ -73,6 +73,7 @@ function toListing(raw: unknown): Listing {
     postedAt: isoDate(job["posted_date"]),
     body: bodyText === "" ? null : bodyText,
     workplace: workplaceOfLocationType(job["location_type"]),
+    requisitionId: null,
   };
 }
 

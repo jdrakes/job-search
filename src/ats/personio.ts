@@ -87,6 +87,7 @@ function toListing(positionRaw: string, board: string): Listing | null {
     body: asText(body),
     // No live posting checked states its workplace structurally.
     workplace: null,
+    requisitionId: null,
   };
 }
 
