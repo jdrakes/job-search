@@ -1,7 +1,7 @@
 ---
 name: peers
-description: 'Peer expansion: finds companies like the ones James applied to, shows each with its evidence and board URL, and adds the ones he keeps as candidates the daily run resolves. Use for /peers, /peers <count>, "find peers of the companies I applied to", "expand the watch list from my applications", or any request to research companies similar to ones already applied to.'
-argument-hint: "[count]"
+description: 'Peer expansion: finds companies like the ones James applied to, shows each with its evidence and board URL, and adds the ones he keeps as candidates the daily run resolves. Use for /peers, /peers <count>, /peers <count> <start>, "find peers of the companies I applied to", "expand the watch list from my applications", "do peers 10 starting with the 11th company", or any request to research companies similar to ones already applied to.'
+argument-hint: "[count] [start]"
 ---
 
 # peers
@@ -48,10 +48,13 @@ not read the file whole. Print the rest:
 node -e 'const file = require("/tmp/peers-seeds.json"); console.log(JSON.stringify({ criteria: file.criteria, seeds: file.seeds }, null, 2)); console.log(`known: ${file.known.length} names`)'
 ```
 
-When `seeds` is empty, say so and stop. When the skill was given
-a count (`/peers 2`), keep only the first that many seeds, in the file's
-order; the rest wait for the next run. Tell James how many seeds this run
-covers and how many remain.
+When `seeds` is empty, say so and stop. When the skill was given a count
+(`/peers 2`), keep only the first that many seeds, in the file's order.
+When it was also given a start (`/peers 10 11`, the 11th company), skip
+the first `start - 1` seeds first, in the file's order, then keep the next
+`count` many; `start` defaults to 1. Seeds outside the kept range wait for
+another run. Tell James the range this run covers (e.g. "seeds 11-20 of
+43") and how many remain before and after it.
 
 ## 2. Research, in parallel
 
