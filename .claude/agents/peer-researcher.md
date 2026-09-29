@@ -34,8 +34,8 @@ beyond them, and you do not guess.
 
 1. Find out what the seed sells, to whom, and at what stage (public,
    late-stage private, early-stage), from its own site first.
-2. Name up to 5 peers: companies in the same market, at the same stage, or
-   selling to the same customer. Fewer is fine; none is fine. Not the seed
+2. Name every peer you find: companies in the same market, at the same stage, or
+   selling to the same customer. None is fine. Not the seed
    itself, not another seed in this dispatch, and not a subsidiary of
    either.
 3. For each peer, open its careers page, and from there its job board.

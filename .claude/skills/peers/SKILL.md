@@ -8,7 +8,7 @@ argument-hint: "[count] [start]"
 
 Seeds are the companies James applied to whose peers have not been
 searched. For each, the `peer-researcher` agent
-(`.claude/agents/peer-researcher.md`) finds up to 5 peers with evidence;
+(`.claude/agents/peer-researcher.md`) finds peers with evidence;
 James chooses which to keep; `npm run peers -- record` adds the kept ones as
 candidates with `origin: "peers"` and marks every researched seed as
 searched. The daily run resolves the candidates; this skill never writes a
