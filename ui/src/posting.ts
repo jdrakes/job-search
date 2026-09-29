@@ -122,32 +122,34 @@ export function midpoint(posting: PostingSummary): number | null {
 }
 
 /*
- * A steeper scale (full pay at twice the floor, freshness gone in a month)
- * scores most of the queue at 0: most rows post no band and few midpoints
- * reach twice the floor.
+ * Weights set from James's decisions (2026-09-29: 41 applied, 118 closed).
+ * Pay alone ranks an applied posting over a closed one 67% of the time, a
+ * product word in the title 61%, freshness 54%. Freshness is near constant:
+ * the processor drops postings past `max_age_days` (35), so every row keeps
+ * most of its marks. Full pay at 1.25 × floor: the apply rate climbs to 48%
+ * between 1.25 and 1.5 × floor, but the shorter reach separates the rows just
+ * above the floor, and ranked better (72% against 70%). The three weights
+ * add up to 100; the score is their plain sum.
  */
-export const PAY_WEIGHT = 70;
-export const FRESHNESS_WEIGHT = 30;
+export const PAY_WEIGHT = 50;
+export const FRESHNESS_WEIGHT = 15;
 export const FRESH_DAYS = 90;
 /** Full pay marks at floor × (1 + PAY_REACH). */
-export const PAY_REACH = 0.5;
-/** Low enough that a fresh unpriced row sits under every fresh priced row above the floor; at half marks, unpriced rows fill the top of the queue. */
-export const UNPOSTED_PAY = 20;
-
-/** Small: pay dominates and product rows already pay well. */
-export const SHAPE_WEIGHT = 15;
+export const PAY_REACH = 0.25;
+/** Low: most unpriced rows are aggregator listings James closes (1 applied of 23). */
+export const UNPOSTED_PAY = 5;
+/** A product word in the title: James applied to 38% of such rows, 19% of the rest. */
+export const SHAPE_WEIGHT = 35;
 
 /**
- * Score out of 100, a cue on the card and never the order.
+ * Score out of 100, shown on the card and the queue's default order.
  * `pay = PAY_WEIGHT × clamp((top − floor) / (floor × PAY_REACH), 0, 1)`,
  * UNPOSTED_PAY with no band; `freshness = FRESHNESS_WEIGHT × max(0, 1 −
- * ageDays / FRESH_DAYS)`. The top of the band, not the midpoint: the
- * processor admits a band when its top clears the floor, so a midpoint
- * would score an admitted band that straddles the floor at 0.
- *
- * With product words, pay and freshness scale into `100 − SHAPE_WEIGHT`
- * and a title carrying any of them whole-word adds `SHAPE_WEIGHT`. Title
- * only: the score orders, never excludes.
+ * ageDays / FRESH_DAYS)`; plus SHAPE_WEIGHT when the title carries a product
+ * word whole-word. The top of the band, not the midpoint: the processor
+ * admits a band when its top clears the floor, so a midpoint would score an
+ * admitted band that straddles the floor at 0. Title only: the score orders,
+ * never excludes.
  */
 export function scoreOf(
   posting: PostingSummary,
@@ -161,13 +163,9 @@ export function scoreOf(
   const payScore = pay === null ? UNPOSTED_PAY : PAY_WEIGHT * Math.max(0, Math.min(1, ratio));
   const ageDays = daysBetween(posting.posted_at ?? posting.first_seen, nowMs);
   const freshness = FRESHNESS_WEIGHT * Math.max(0, 1 - ageDays / FRESH_DAYS);
-  if (productWords.length === 0) {
-    return Math.round(payScore + freshness);
-  }
-  const scale = (100 - SHAPE_WEIGHT) / 100;
   const title = posting.title ?? "";
   const namesProduct = productWords.some((word) => findWholeWord(title, word) !== null);
-  return Math.round((payScore + freshness) * scale + (namesProduct ? SHAPE_WEIGHT : 0));
+  return Math.round(payScore + freshness + (namesProduct ? SHAPE_WEIGHT : 0));
 }
 
 export function formatComp(value: number): string {
