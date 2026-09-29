@@ -30,12 +30,6 @@ A nonzero exit stops here: show James its stderr. The file holds:
 
 ```json
 {
-  "criteria": {
-    "level_words": ["..."],
-    "role_words": ["..."],
-    "comp_floor": 0,
-    "assumed_bonus_pct": null
-  },
   "seeds": [{ "name": "...", "roles": ["..."] }],
   "known": ["..."]
 }
@@ -45,7 +39,7 @@ A nonzero exit stops here: show James its stderr. The file holds:
 not read the file whole. Print the rest:
 
 ```sh
-node -e 'const file = require("/tmp/peers-seeds.json"); console.log(JSON.stringify({ criteria: file.criteria, seeds: file.seeds }, null, 2)); console.log(`known: ${file.known.length} names`)'
+node -e 'const file = require("/tmp/peers-seeds.json"); console.log(JSON.stringify(file.seeds, null, 2)); console.log(`known: ${file.known.length} names`)'
 ```
 
 When `seeds` is empty, say so and stop. When the skill was given a count
@@ -64,7 +58,6 @@ dispatch's prompt is one JSON object:
 
 ```json
 {
-  "criteria": <criteria from the seeds file, unchanged>,
   "seeds": <this batch's seeds, unchanged>,
   "boards_file": "<absolute path to src/discovery/boards.ts in this repository>"
 }
@@ -130,12 +123,8 @@ One table, numbered from 1:
 | #   | Name | Peer of | Evidence | Board URL |
 | --- | ---- | ------- | -------- | --------- |
 
-Board URL is the URL, or `none (the run looks the name up)` when null. A
-peer whose evidence says `role, remote and pay not verified` gets
-`(unverified)` after its URL, or reads `none, board not found
-(unverified)` when its URL is null: the researcher never read its
-postings, and the run does the checking. James can keep it like any other
-row.
+Board URL is the URL, or `none (the run looks the name up)` when null.
+
 Below it, two lists, each only when it is not empty:
 
 - **Researched, no new peers:** seed names.
