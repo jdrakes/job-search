@@ -4357,6 +4357,25 @@ test("groupByRequisition: locations dedupe and sort the same regardless of input
   ]);
 });
 
+// Breaks if the primary is recomputed as the lowest numeric id on every
+// run: a lower-id office added after James decided on the group's original
+// primary would silently mint a fresh, undecided row and orphan the
+// decision (review finding 4).
+test("groupByRequisition: keeps the existing stored primary even when a lower id joins the group", () => {
+  const grouped = groupByRequisition(
+    [
+      listing("100", { requisitionId: "req-1", title: "Engineer", location: "Boston" }),
+      // Added later, lower id than the stored primary, but "100" is the id
+      // James already has a decided row under.
+      listing("50", { requisitionId: "req-1", title: "Engineer", location: "Austin" }),
+    ],
+    new Set(["100"]),
+  );
+  assert.equal(grouped.length, 1);
+  assert.equal(grouped[0]!.id, "100");
+  assert.equal(grouped[0]!.location, "Boston");
+});
+
 // A singleton group (null requisitionId, or a genuine one-office req) still
 // gets a one-element `locations`, never an empty array: downstream code
 // never special-cases "no offices".

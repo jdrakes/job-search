@@ -739,16 +739,22 @@ function dedupeOffices(offices: readonly Office[]): readonly Office[] {
 // Collapses same-requisition, multi-office listings (Greenhouse today; every
 // other reader leaves `requisitionId` null, so this is a no-op for them)
 // into one entry per requisition. The primary listing — the one every other
-// field comes from — is the lowest numeric id in the group, so the choice
-// of row to keep and judge is deterministic across re-lists regardless of
-// the order the board answered offices in. A `null` requisitionId is its
-// own singleton group: keyed by the listing object itself, not its id, so
-// two listings that happen to share an id (an empty id, or a genuine
+// field comes from — is whichever group member's id already has a stored
+// `postings` row (`storedIds`), so a row James has decided on stays the
+// primary across re-lists even if the board later drops specifically that
+// office; falling back to the lowest numeric id only when no member is on
+// file yet (a brand new group, or a caller such as the backfill script that
+// has no stored rows to prefer). Recomputing the lowest id from scratch on
+// every run, with no such preference, would silently mint a fresh,
+// undecided row and orphan the one James acted on. A `null` requisitionId
+// is its own singleton group: keyed by the listing object itself, not its
+// id, so two listings that happen to share an id (an empty id, or a genuine
 // duplicate-id bug on the board) still pass through as separate entries —
 // the existing per-listing loop's own id-refusal and last-wins dedup keep
 // handling that, unchanged.
 export function groupByRequisition(
   listings: readonly Listing[],
+  storedIds: ReadonlySet<string> = new Set(),
 ): readonly (Listing & { readonly locations: readonly Office[] })[] {
   const groups = new Map<string | Listing, Listing[]>();
   for (const listing of listings) {
@@ -765,10 +771,11 @@ export function groupByRequisition(
     else group.push(listing);
   }
   return [...groups.values()].map((group) => {
+    const onFile = group.filter((listing) => storedIds.has(listing.id));
     // Strict `<` keeps the first-seen listing on a tie, as ties should not
     // occur (equal ids would already collide as the same stored row).
-    let primary = group[0]!;
-    for (const listing of group) {
+    let primary = onFile[0] ?? group[0]!;
+    for (const listing of onFile.length > 0 ? onFile : group) {
       if (Number(listing.id) < Number(primary.id)) primary = listing;
     }
     const locations = dedupeOffices(
@@ -825,7 +832,14 @@ async function listCompany(
       if (isGone(board.platform, err)) gone.push({ company: company.name, board });
       continue;
     }
-    const listings = groupByRequisition(rawListings);
+    // The ids this board already has a stored row for, so `groupByRequisition`
+    // can keep the row James decided on as the primary even if the board
+    // later drops specifically that office (see its own comment).
+    const prefix = storedPrefix(board);
+    const storedIds = new Set(
+      [...(storedByBoard.get(prefix)?.keys() ?? [])].map((key) => key.slice(prefix.length + 2)),
+    );
+    const listings = groupByRequisition(rawListings, storedIds);
     listed += listings.length;
 
     const seenKeys = new Set<string>();
