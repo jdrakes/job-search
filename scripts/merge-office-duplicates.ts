@@ -58,12 +58,19 @@ export function planBoardMerges(
   stored: ReadonlyMap<string, StoredRow>,
   listings: readonly Listing[],
 ): BoardPlan {
+  // Keyed the same way `groupByRequisition` (src/ingest.ts) now keys its own
+  // groups: `(requisitionId, title)`, not bare `requisitionId`. A reused
+  // placeholder requisition id ("N/A", "TBD") can span two different roles,
+  // and without the title in the key this map would bundle both roles'
+  // stored rows into one merge plan, disagreeing with what a future ingest
+  // would write.
   const memberIds = new Map<string, Set<string>>();
   for (const listing of listings) {
     if (listing.requisitionId === null) continue;
-    const ids = memberIds.get(listing.requisitionId) ?? new Set<string>();
+    const key = `${listing.requisitionId}\u0000${listing.title}`;
+    const ids = memberIds.get(key) ?? new Set<string>();
     ids.add(listing.id);
-    memberIds.set(listing.requisitionId, ids);
+    memberIds.set(key, ids);
   }
 
   const merges: Merge[] = [];
@@ -71,7 +78,8 @@ export function planBoardMerges(
   for (const group of groupByRequisition(listings)) {
     if (group.requisitionId === null) continue;
     const keep = postingKey(board, group.id);
-    const keys = [...(memberIds.get(group.requisitionId) ?? [])]
+    const groupKey = `${group.requisitionId}\u0000${group.title}`;
+    const keys = [...(memberIds.get(groupKey) ?? [])]
       .map((id) => postingKey(board, id))
       .filter((key) => stored.has(key))
       .sort();

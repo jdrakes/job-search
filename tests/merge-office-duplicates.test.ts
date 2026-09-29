@@ -133,6 +133,18 @@ test("planBoardMerges: a group matching one stored row plans nothing", () => {
   assert.deepEqual(plan, { merges: [], deferred: [] });
 });
 
+// Breaks if two listings sharing a reused placeholder requisition id but
+// different titles are bundled into one merge group instead of being kept
+// apart, matching groupByRequisition's (requisitionId, title) key.
+test("planBoardMerges: same requisition id, different titles, never merge together", () => {
+  const plan = planBoardMerges(BOARD, byKey([stored("100"), stored("200")]), [
+    listing("100", { requisitionId: "N/A", title: "Backend Engineer" }),
+    listing("200", { requisitionId: "N/A", title: "Frontend Engineer" }),
+  ]);
+
+  assert.deepEqual(plan, { merges: [], deferred: [] });
+});
+
 function posting(id: string, overrides: Partial<Posting> = {}): Posting {
   return {
     key: `greenhouse/digitalocean::${id}`,
