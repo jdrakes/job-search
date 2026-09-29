@@ -2,7 +2,9 @@
 // to configure judging without the browser UI, and how an operator restores
 // their own criteria after moving instances. `id` and `updated_at` are not
 // accepted from the file; this script owns both. Nor is `full_read_at`: the
-// daily run owns it (20260928070000_criteria_full_read_at).
+// daily run owns it (20260928070000_criteria_full_read_at). An existing row
+// is replaced only with `--replace`: a file kept beside the list page's
+// criteria tab goes stale, and a plain reload would undo the tab's edits.
 import { readFile } from "node:fs/promises";
 import process from "node:process";
 
@@ -99,6 +101,7 @@ export function parseCriteriaInput(
 export async function loadCriteriaFile(
   store: Store,
   text: string,
+  replace: boolean,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
   let parsed: unknown;
   try {
@@ -108,6 +111,20 @@ export async function loadCriteriaFile(
   }
   const result = parseCriteriaInput(parsed);
   if (!result.ok) return result;
+
+  if (!replace) {
+    const [existing] = await store.select<Pick<Criteria, "updated_at">>("criteria", { id: 1 }, [
+      "updated_at",
+    ]);
+    if (existing !== undefined) {
+      return {
+        ok: false,
+        reason:
+          `a criteria row already exists (last saved ${existing.updated_at}); ` +
+          "pass --replace to overwrite it",
+      };
+    }
+  }
 
   // `full_read_at` is left out, so the upsert keeps the stored one and the
   // new `updated_at` reads as an edit the next run acts on.
@@ -121,15 +138,18 @@ export async function loadCriteriaFile(
 }
 
 async function main(): Promise<void> {
-  const path = process.argv[2];
-  if (path === undefined) {
-    console.error("criteria-load: usage: criteria-load.ts <file>");
+  const args = process.argv.slice(2);
+  const replace = args.includes("--replace");
+  const paths = args.filter((arg) => arg !== "--replace");
+  const path = paths[0];
+  if (paths.length !== 1 || path === undefined) {
+    console.error("criteria-load: usage: criteria-load.ts [--replace] <file>");
     process.exitCode = 1;
     return;
   }
   const text = await readFile(path, "utf8");
   const store = openStore();
-  const result = await loadCriteriaFile(store, text);
+  const result = await loadCriteriaFile(store, text, replace);
   if (!result.ok) {
     console.error(`criteria-load: ${path}: ${result.reason}`);
     process.exitCode = 1;

@@ -48,7 +48,7 @@ test("parseCriteriaInput: rejects a wrongly typed field, naming it", () => {
 
 test("loadCriteriaFile: rejects text that is not valid JSON", async () => {
   const store = memoryStore();
-  const result = await loadCriteriaFile(store, "{ not json");
+  const result = await loadCriteriaFile(store, "{ not json", false);
   assert.equal(result.ok, false);
 });
 
@@ -56,7 +56,7 @@ test("loadCriteriaFile: loads criteria.example.json and reads the row back throu
   const store = memoryStore();
   const text = await readFile(new URL("../criteria.example.json", import.meta.url), "utf8");
 
-  const result = await loadCriteriaFile(store, text);
+  const result = await loadCriteriaFile(store, text, false);
   assert.equal(result.ok, true);
 
   const [row] = await store.select<Criteria>("criteria", { id: 1 });
@@ -83,7 +83,7 @@ test("loadCriteriaFile: leaves the stored full_read_at alone and moves updated_a
   };
   await store.upsert("criteria", [stored]);
 
-  const result = await loadCriteriaFile(store, JSON.stringify(VALID_INPUT));
+  const result = await loadCriteriaFile(store, JSON.stringify(VALID_INPUT), true);
   assert.equal(result.ok, true);
 
   const [row] = await store.select<Criteria>("criteria", { id: 1 });
@@ -107,10 +107,65 @@ test("loadCriteriaFile: the Postgres upsert neither inserts nor assigns full_rea
     },
   });
 
-  const result = await loadCriteriaFile(store, JSON.stringify(VALID_INPUT));
+  const result = await loadCriteriaFile(store, JSON.stringify(VALID_INPUT), true);
   assert.equal(result.ok, true);
 
   assert.equal(statements.length, 1);
   assert.match(statements[0] ?? "", /^INSERT INTO "criteria" /);
   assert.doesNotMatch(statements[0] ?? "", /full_read_at/);
+});
+
+// A file kept beside the list page's criteria tab goes stale, and loading it
+// would silently undo the tab's edits.
+test("loadCriteriaFile: refuses to replace an existing row without replace, leaving it as stored", async () => {
+  const store = memoryStore();
+  const stored: Criteria = {
+    id: 1,
+    updated_at: "2026-09-01T00:00:00.000Z",
+    full_read_at: null,
+    ...VALID_INPUT,
+  };
+  await store.upsert("criteria", [stored]);
+
+  const result = await loadCriteriaFile(
+    store,
+    JSON.stringify({ ...VALID_INPUT, comp_floor: 999 }),
+    false,
+  );
+  assert.equal(result.ok, false);
+  assert.match(result.ok ? "" : result.reason, /--replace/);
+  assert.match(result.ok ? "" : result.reason, /2026-09-01T00:00:00\.000Z/);
+
+  const [row] = await store.select<Criteria>("criteria", { id: 1 });
+  assert.deepEqual(row, stored);
+});
+
+test("loadCriteriaFile: replaces an existing row when replace is passed", async () => {
+  const store = memoryStore();
+  await store.upsert("criteria", [
+    { id: 1, updated_at: "2026-09-01T00:00:00.000Z", full_read_at: null, ...VALID_INPUT },
+  ]);
+
+  const result = await loadCriteriaFile(
+    store,
+    JSON.stringify({ ...VALID_INPUT, comp_floor: 999 }),
+    true,
+  );
+  assert.equal(result.ok, true);
+
+  const [row] = await store.select<Criteria>("criteria", { id: 1 });
+  assert.equal(row?.comp_floor, 999);
+});
+
+// A malformed file is reported as malformed even when a row exists, so the
+// operator fixes the file before deciding whether to replace.
+test("loadCriteriaFile: reports a malformed file before an existing row", async () => {
+  const store = memoryStore();
+  await store.upsert("criteria", [
+    { id: 1, updated_at: "2026-09-01T00:00:00.000Z", full_read_at: null, ...VALID_INPUT },
+  ]);
+
+  const result = await loadCriteriaFile(store, "{ not json", false);
+  assert.equal(result.ok, false);
+  assert.equal(result.ok ? "" : result.reason, "not valid JSON");
 });
