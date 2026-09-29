@@ -506,6 +506,7 @@ export const AppRoot = defineComponent({
           :access-token="session.accessToken"
           :comp-floor="criteria === null ? null : criteria.comp_floor"
           :product-words="criteria === null ? [] : criteria.product_words"
+          :store="store"
           @decided="onDecided" />
 
         <CompaniesView

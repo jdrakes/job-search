@@ -743,14 +743,42 @@ textarea:focus-visible {
 .order {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: var(--s-2);
 }
 
 /*
+ * View and sort are two choices, not one (2026-09-29): grouping by company
+ * is a way of laying the list out, and it takes either sort. So two groups,
+ * each named by a small label on its own left, sitting side by side and
+ * wrapping one under the other when a phone has no room for both.
+ */
+.arrange {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: var(--s-6);
+  row-gap: var(--s-2);
+}
+
+/* One width for both labels, so wrapped on a phone the two rows of buttons
+   start on the same x. */
+.order-label {
+  min-width: 2.5em;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+/* The Record's filters sit under the arrange bar, as the Queue's box does. */
+.arrange + .filters {
+  margin-top: var(--s-3);
+}
+
+/*
  * The queue's one filter box (design page, List, 2026-09-18). Its own row
- * under the order buttons rather than a fourth item among them: `.order`
- * already wraps to fit three buttons on a phone, and a box in that group
- * would decide for itself where it landed between them.
+ * under the view and sort buttons rather than an item among them: `.arrange`
+ * already wraps to fit its groups on a phone, and a box among them would
+ * decide for itself where it landed.
  *
  * Not a `details` like the Record's `.filters`. That bar hides three controls
  * behind a summary because it is three; this is one box James is meant to see
@@ -785,10 +813,10 @@ textarea:focus-visible {
 
 @media (max-width: 40rem) {
   /*
-   * The order group is the only control the queue's chrome carries, and on a
-   * phone it is a finger's target like the card's icons: 2.75rem is 44px,
+   * The view and sort groups are the queue's and the record's chrome, and on
+   * a phone they are a finger's target like the card's icons: 2.75rem is 44px,
    * the WCAG touch target the row's buttons take below, where the shared
-   * `button` floor is 32px. It costs the list nothing: the group is already
+   * `button` floor is 32px. It costs the list nothing: each group is already
    * on a line of its own here.
    */
   .order button {

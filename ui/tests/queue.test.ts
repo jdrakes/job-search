@@ -30,6 +30,14 @@ import {
   toneOf,
   type DecidedOutcome,
 } from "../src/posting.ts";
+import {
+  LEGACY_QUEUE_ORDER_KEY,
+  loadArrangement,
+  QUEUE_SORTS,
+  RECORD_SORTS,
+  sortKey,
+  viewKey,
+} from "../src/arrange.ts";
 import type { SessionStore } from "../src/auth.ts";
 import { useMasterDetail } from "../src/master-detail.ts";
 import {
@@ -40,7 +48,6 @@ import {
   headOf,
   matchesQuery,
   orderedQueue,
-  QUEUE_ORDER_KEY,
   queueRows,
   QueueView,
   waitingLabel,
@@ -408,7 +415,7 @@ const CIRRUS_APPLIED = posting("cirrus::applied", {
   status_at: "2026-09-11T00:00:00Z",
 });
 
-test("orderedQueue with order 'company' pulls a company's rows together under the place its best posting earned", () => {
+test("orderedQueue in the company view pulls a company's rows together under the place its best posting earned", () => {
   const scattered = [ACME_LOW, BEVEL_MID, ACME_TOP];
   assert.deepEqual(
     orderedQueue(scattered, null, QUEUE_NOW).map((p) => p.key),
@@ -416,21 +423,28 @@ test("orderedQueue with order 'company' pulls a company's rows together under th
     "the score order interleaves the two companies",
   );
   assert.deepEqual(
-    orderedQueue(scattered, null, QUEUE_NOW, [], "company").map((p) => p.key),
+    orderedQueue(scattered, null, QUEUE_NOW, [], "score", "company").map((p) => p.key),
     ["acme::top", "acme::low", "bevel::mid"],
     "Acme leads on its best posting, and its own rows stay in score order",
   );
 });
 
-test("orderedQueue with order 'company' returns one flat array holding every posting exactly once", () => {
+test("orderedQueue in the company view returns one flat array holding every posting exactly once", () => {
   // The flat array is what `resolveSelection`/`nextSelection` index into.
-  const grouped = orderedQueue([ACME_LOW, BEVEL_MID, ACME_TOP], null, QUEUE_NOW, [], "company");
+  const grouped = orderedQueue(
+    [ACME_LOW, BEVEL_MID, ACME_TOP],
+    null,
+    QUEUE_NOW,
+    [],
+    "score",
+    "company",
+  );
   assert.deepEqual([...grouped].map((p) => p.key).sort(), ["acme::low", "acme::top", "bevel::mid"]);
 });
 
-test("orderedQueue with order 'company' follows a company's waiting rows with its history, most recent act first", () => {
+test("orderedQueue in the company view follows a company's waiting rows with its history, most recent act first", () => {
   assert.deepEqual(
-    orderedQueue([ACME_LOW, BEVEL_MID, ACME_TOP], null, QUEUE_NOW, [], "company", [
+    orderedQueue([ACME_LOW, BEVEL_MID, ACME_TOP], null, QUEUE_NOW, [], "score", "company", [
       ACME_APPLIED,
       ACME_CLOSED,
     ]).map((p) => p.key),
@@ -439,11 +453,12 @@ test("orderedQueue with order 'company' follows a company's waiting rows with it
   );
 });
 
-test("orderedQueue with order 'company' leaves out a company with nothing waiting, however much history it holds", () => {
+test("orderedQueue in the company view leaves out a company with nothing waiting, however much history it holds", () => {
   assert.deepEqual(
-    orderedQueue([BEVEL_MID], null, QUEUE_NOW, [], "company", [CIRRUS_APPLIED, ACME_APPLIED]).map(
-      (p) => p.key,
-    ),
+    orderedQueue([BEVEL_MID], null, QUEUE_NOW, [], "score", "company", [
+      CIRRUS_APPLIED,
+      ACME_APPLIED,
+    ]).map((p) => p.key),
     ["bevel::mid"],
     "neither Cirrus nor Acme opens a group of its own",
   );
@@ -452,7 +467,9 @@ test("orderedQueue with order 'company' leaves out a company with nothing waitin
 test("orderedQueue reads the acted-on postings in the company order alone", () => {
   for (const order of ["score", "posted"] as const) {
     assert.deepEqual(
-      orderedQueue([ACME_TOP], null, QUEUE_NOW, [], order, [ACME_APPLIED]).map((p) => p.key),
+      orderedQueue([ACME_TOP], null, QUEUE_NOW, [], order, "list", [ACME_APPLIED]).map(
+        (p) => p.key,
+      ),
       ["acme::top"],
       `the ${order} order shows no history`,
     );
@@ -464,9 +481,9 @@ test("queueRows opens each company with a header naming what is waiting there, a
   assert.deepEqual(
     rows.map((row) => row.head),
     [
-      { company: "Acme", waiting: 2, applied: 0 },
+      { company: "Acme", waiting: 2, applied: 0, closed: 0 },
       null,
-      { company: "Bevel", waiting: 1, applied: 0 },
+      { company: "Bevel", waiting: 1, applied: 0, closed: 0 },
     ],
   );
   assert.deepEqual(
@@ -488,13 +505,13 @@ test("queueRows counts a header's waiting rows and its applied ones separately, 
   assert.deepEqual(
     rows.map((row) => row.head),
     [
-      { company: "Acme", waiting: 2, applied: 1 },
+      { company: "Acme", waiting: 2, applied: 1, closed: 1 },
       null,
       null,
       null,
-      { company: "Bevel", waiting: 1, applied: 0 },
+      { company: "Bevel", waiting: 1, applied: 0, closed: 0 },
     ],
-    "Acme shows four rows and the header counts two of them waiting and one applied: the closed row is neither",
+    "Acme shows four rows and the header counts two of them waiting and one applied: the closed row is in neither, counted apart",
   );
 });
 
@@ -527,9 +544,12 @@ test("appliedLabel counts what James has already taken there, as a state and not
 });
 
 test("companyHeadLabel adds the applied clause only where there is one to show", () => {
-  assert.equal(companyHeadLabel({ company: "Bevel", waiting: 1, applied: 0 }), "1 waiting");
   assert.equal(
-    companyHeadLabel({ company: "Northwind", waiting: 13, applied: 1 }),
+    companyHeadLabel({ company: "Bevel", waiting: 1, applied: 0, closed: 0 }),
+    "1 waiting",
+  );
+  assert.equal(
+    companyHeadLabel({ company: "Northwind", waiting: 13, applied: 1, closed: 0 }),
     "13 waiting · 1 applied",
     "a middot, not a comma: two counts over two different sets of the rows below",
   );
@@ -1118,7 +1138,7 @@ test("a queue row states its place, so a group's waiting rows read beside its ac
     config: CONFIG,
     accessToken: ACCESS_TOKEN,
     compFloor: null,
-    store: memoryStore({ [QUEUE_ORDER_KEY]: "company" }),
+    store: memoryStore({ [viewKey("queue")]: "company" }),
   });
   assert.match(html, /class="status tag tone-neutral">In queue</);
   assert.match(html, /class="status tag tone-progress">Applied</);
@@ -1137,65 +1157,93 @@ test("QueueView cards offer applied and closed only, read straight off the posti
   assert.deepEqual(outcomeLabels(list), ["Applied", "Closed"]);
 });
 
-test("the rendered queue shows all three order controls, 'By score' pressed by default", async () => {
+function orderGroups(html: string): { view: string; sort: string } {
+  const groups = [...html.matchAll(/class="order"[^>]*>([^]*?)<\/div>/g)].map((m) => m[1] ?? "");
+  return { view: groups[0] ?? "", sort: groups[1] ?? "" };
+}
+
+test("the rendered queue shows a View group and a Sort group, 'List' and 'By score' pressed by default", async () => {
   const html = await render(QueueView, {
     postings: [posting("a::1")],
     config: CONFIG,
     accessToken: ACCESS_TOKEN,
     compFloor: null,
   });
-  const group = html.match(/class="order"[^>]*>([^]*?)<\/div>/)?.[1] ?? "";
-  assert.match(group, />By score</);
-  assert.match(group, />Newest first</);
-  assert.match(group, />Group by company</);
-  assert.match(group, /aria-pressed="true"[^>]*>By score/);
-  assert.match(group, /aria-pressed="false"[^>]*>Newest first/);
-  assert.match(group, /aria-pressed="false"[^>]*>Group by company/);
+  const { view, sort } = orderGroups(html);
+  assert.match(view, />View</);
+  assert.match(view, /aria-pressed="true"[^>]*>List</);
+  assert.match(view, /aria-pressed="false"[^>]*>By company</);
+  assert.match(sort, />Sort</);
+  assert.match(sort, /aria-pressed="true"[^>]*>By score</);
+  assert.match(sort, /aria-pressed="false"[^>]*>Newest first</);
+  assert.doesNotMatch(sort, /Recently acted/, "nothing in the queue has been acted on");
+  assert.doesNotMatch(sort, /company/, "grouping is a view, not a sort");
 });
 
-test("a stored 'posted' order is read on mount and marks 'Newest first' pressed", async () => {
+test("a stored view and sort are read on mount, each pressing its own button", async () => {
   const html = await render(QueueView, {
     postings: [posting("a::1")],
     config: CONFIG,
     accessToken: ACCESS_TOKEN,
     compFloor: null,
-    store: memoryStore({ [QUEUE_ORDER_KEY]: "posted" }),
+    store: memoryStore({ [viewKey("queue")]: "company", [sortKey("queue")]: "posted" }),
   });
-  const group = html.match(/class="order"[^>]*>([^]*?)<\/div>/)?.[1] ?? "";
-  assert.match(group, /aria-pressed="false"[^>]*>By score/);
-  assert.match(group, /aria-pressed="true"[^>]*>Newest first/);
-  assert.match(group, /aria-pressed="false"[^>]*>Group by company/);
+  const { view, sort } = orderGroups(html);
+  assert.match(view, /aria-pressed="false"[^>]*>List</);
+  assert.match(view, /aria-pressed="true"[^>]*>By company</);
+  assert.match(sort, /aria-pressed="false"[^>]*>By score</);
+  assert.match(sort, /aria-pressed="true"[^>]*>Newest first</);
 });
 
-test("a stored 'company' order is read on mount and marks 'Group by company' pressed", async () => {
-  const html = await render(QueueView, {
-    postings: [posting("a::1")],
-    config: CONFIG,
-    accessToken: ACCESS_TOKEN,
-    compFloor: null,
-    store: memoryStore({ [QUEUE_ORDER_KEY]: "company" }),
-  });
-  const group = html.match(/class="order"[^>]*>([^]*?)<\/div>/)?.[1] ?? "";
-  assert.match(group, /aria-pressed="false"[^>]*>By score/);
-  assert.match(group, /aria-pressed="false"[^>]*>Newest first/);
-  assert.match(group, /aria-pressed="true"[^>]*>Group by company/);
+test("the single order stored before view and sort split is carried over", () => {
+  assert.deepEqual(
+    loadArrangement(memoryStore({ [LEGACY_QUEUE_ORDER_KEY]: "company" }), "queue", QUEUE_SORTS),
+    { view: "company", sort: "score" },
+  );
+  assert.deepEqual(
+    loadArrangement(memoryStore({ [LEGACY_QUEUE_ORDER_KEY]: "posted" }), "queue", QUEUE_SORTS),
+    { view: "list", sort: "posted" },
+  );
+  assert.deepEqual(
+    loadArrangement(
+      memoryStore({ [LEGACY_QUEUE_ORDER_KEY]: "company", [viewKey("queue")]: "list" }),
+      "queue",
+      QUEUE_SORTS,
+    ),
+    { view: "list", sort: "score" },
+    "a choice made since the split wins over the old key",
+  );
 });
 
-test("a stored garbage order value reads as 'score', none of the other two pressed", async () => {
-  const html = await render(QueueView, {
-    postings: [posting("a::1")],
-    config: CONFIG,
-    accessToken: ACCESS_TOKEN,
-    compFloor: null,
-    store: memoryStore({ [QUEUE_ORDER_KEY]: "alphabetical" }),
-  });
-  const group = html.match(/class="order"[^>]*>([^]*?)<\/div>/)?.[1] ?? "";
-  assert.match(group, /aria-pressed="true"[^>]*>By score/);
-  assert.match(group, /aria-pressed="false"[^>]*>Newest first/);
-  assert.match(group, /aria-pressed="false"[^>]*>Group by company/);
+test("a stored garbage view or sort reads as the default, and a sort the tab does not offer is garbage", () => {
+  assert.deepEqual(
+    loadArrangement(
+      memoryStore({ [viewKey("queue")]: "table", [sortKey("queue")]: "alphabetical" }),
+      "queue",
+      QUEUE_SORTS,
+    ),
+    { view: "list", sort: "score" },
+  );
+  assert.deepEqual(
+    loadArrangement(memoryStore({ [sortKey("queue")]: "acted" }), "queue", QUEUE_SORTS),
+    { view: "list", sort: "score" },
+    "'Recently acted' is the Record's",
+  );
 });
 
-test("choosing 'Newest first' reorders the list and writes the key", async () => {
+test("the Queue and the Record remember their view and sort under separate keys", () => {
+  const store = memoryStore({ [viewKey("queue")]: "company", [sortKey("record")]: "posted" });
+  assert.deepEqual(loadArrangement(store, "queue", QUEUE_SORTS), {
+    view: "company",
+    sort: "score",
+  });
+  assert.deepEqual(loadArrangement(store, "record", RECORD_SORTS), {
+    view: "list",
+    sort: "posted",
+  });
+});
+
+test("choosing 'Newest first' reorders the list and writes the sort key", async () => {
   const restoreDom = stubDom();
   const store = memoryStore();
   const older = posting("a::1", {
@@ -1225,10 +1273,10 @@ test("choosing 'Newest first' reorders the list and writes the key", async () =>
       textOf(list).indexOf("Older") < textOf(list).indexOf("Newer"),
       "Older leads by score",
     );
-    const newestFirst = elementsWithClass(app.root, "order")[0]?.children.find(
+    const newestFirst = elementsWithClass(app.root, "order")[1]?.children.find(
       (button) => textOf(button) === "Newest first",
     );
-    assert.ok(newestFirst !== undefined, "the 'Newest first' button renders");
+    assert.ok(newestFirst !== undefined, "the 'Newest first' button renders in the Sort group");
     click(newestFirst);
     await settled();
     const reordered = elementsWithClass(app.root, "list")[0];
@@ -1237,21 +1285,22 @@ test("choosing 'Newest first' reorders the list and writes the key", async () =>
       textOf(reordered).indexOf("Newer") < textOf(reordered).indexOf("Older"),
       "Newer now leads, by posted date",
     );
-    assert.equal(store.getItem(QUEUE_ORDER_KEY), "posted", "the choice is written to the store");
+    assert.equal(store.getItem(sortKey("queue")), "posted", "the sort is written to the store");
+    assert.equal(store.getItem(viewKey("queue")), null, "the view is untouched");
   } finally {
     app.unmount();
     restoreDom();
   }
 });
 
-test("choosing 'Group by company' writes the key at once, the same setOrder path 'Newest first' uses", () => {
-  // Not settled here: switching into grouped mode mid-mount gives
+test("choosing 'By company' writes the view key at once and leaves the sort alone", () => {
+  // Not settled here: switching into the company view mid-mount gives
   // already-mounted rows a company-head sibling, a structural change
   // inside the TransitionGroup whose enter hook needs a real classList the
-  // object-tree renderer does not provide. `setOrder` writes to the store
+  // object-tree renderer does not provide. `setView` writes to the store
   // synchronously before any re-render.
   const restoreDom = stubDom();
-  const store = memoryStore();
+  const store = memoryStore({ [sortKey("queue")]: "posted" });
   const app = mountTree(QueueView, {
     postings: [ACME_LOW, BEVEL_MID, ACME_TOP],
     config: CONFIG,
@@ -1260,16 +1309,29 @@ test("choosing 'Group by company' writes the key at once, the same setOrder path
     store,
   });
   try {
-    const groupByCompany = elementsWithClass(app.root, "order")[0]?.children.find(
-      (button) => textOf(button) === "Group by company",
+    const byCompany = elementsWithClass(app.root, "order")[0]?.children.find(
+      (button) => textOf(button) === "By company",
     );
-    assert.ok(groupByCompany !== undefined, "the 'Group by company' button renders");
-    click(groupByCompany);
-    assert.equal(store.getItem(QUEUE_ORDER_KEY), "company", "the choice is written to the store");
+    assert.ok(byCompany !== undefined, "the 'By company' button renders in the View group");
+    click(byCompany);
+    assert.equal(store.getItem(viewKey("queue")), "company", "the view is written to the store");
+    assert.equal(store.getItem(sortKey("queue")), "posted", "the sort stays");
   } finally {
     app.unmount();
     restoreDom();
   }
+});
+
+test("the company view with 'Newest first' orders companies by their newest waiting role, and rows within each by date", () => {
+  const acmeOld = posting("acme::old", { company: "Acme", posted_at: "2026-09-01" });
+  const acmeNew = posting("acme::new", { company: "Acme", posted_at: "2026-09-10" });
+  const bevelMid = posting("bevel::mid", { company: "Bevel", posted_at: "2026-09-05" });
+  assert.deepEqual(
+    orderedQueue([acmeOld, bevelMid, acmeNew], null, QUEUE_NOW, [], "posted", "company").map(
+      (p) => p.key,
+    ),
+    ["acme::new", "acme::old", "bevel::mid"],
+  );
 });
 
 test("the grouped list is one list, with the company headers as siblings of the rows inside it", () => {
@@ -1282,7 +1344,7 @@ test("the grouped list is one list, with the company headers as siblings of the 
     config: CONFIG,
     accessToken: ACCESS_TOKEN,
     compFloor: null,
-    store: memoryStore({ [QUEUE_ORDER_KEY]: "company" }),
+    store: memoryStore({ [viewKey("queue")]: "company" }),
   });
   try {
     const lists = elementsWithClass(app.root, "list");
@@ -1323,7 +1385,7 @@ test("the list is marked grouped only in grouped mode, which is the hook the row
     config: CONFIG,
     accessToken: ACCESS_TOKEN,
     compFloor: null,
-    store: memoryStore({ [QUEUE_ORDER_KEY]: "company" }),
+    store: memoryStore({ [viewKey("queue")]: "company" }),
   });
   const byScore = mountTree(QueueView, {
     postings: [ACME_LOW, BEVEL_MID, ACME_TOP],
@@ -1351,7 +1413,7 @@ test("a grouped company shows the history app.ts hands in under its waiting rows
     config: CONFIG,
     accessToken: ACCESS_TOKEN,
     compFloor: null,
-    store: memoryStore({ [QUEUE_ORDER_KEY]: "company" }),
+    store: memoryStore({ [viewKey("queue")]: "company" }),
     history: [ACME_APPLIED, CIRRUS_APPLIED],
   });
   try {
@@ -1389,7 +1451,7 @@ test("a grouped company's history row offers the outcomes its own status allows,
     config: CONFIG,
     accessToken: ACCESS_TOKEN,
     compFloor: null,
-    store: memoryStore({ [QUEUE_ORDER_KEY]: "company" }),
+    store: memoryStore({ [viewKey("queue")]: "company" }),
     history: [ACME_APPLIED],
   });
   try {
@@ -1422,7 +1484,7 @@ test("the filtered count counts what is waiting on James, not the rows the group
     config: CONFIG,
     accessToken: ACCESS_TOKEN,
     compFloor: null,
-    store: memoryStore({ [QUEUE_ORDER_KEY]: "company" }),
+    store: memoryStore({ [viewKey("queue")]: "company" }),
     history: [ACME_APPLIED, ACME_CLOSED],
   });
   try {
@@ -1444,7 +1506,7 @@ test("nothing waiting is still the empty state, however much history the record 
     config: CONFIG,
     accessToken: ACCESS_TOKEN,
     compFloor: null,
-    store: memoryStore({ [QUEUE_ORDER_KEY]: "company" }),
+    store: memoryStore({ [viewKey("queue")]: "company" }),
     history: [ACME_APPLIED, CIRRUS_APPLIED],
   });
   assert.match(html, /Nothing waiting on you/);
@@ -1460,7 +1522,7 @@ test("the pane's successor after a decision is the row the grouped list reads ne
   // need a real `classList` the object-tree renderer has none of.
   const postings = [ACME_LOW, BEVEL_MID, ACME_TOP];
   const grouped = useMasterDetail(
-    computed(() => orderedQueue(postings, null, QUEUE_NOW, [], "company")),
+    computed(() => orderedQueue(postings, null, QUEUE_NOW, [], "score", "company")),
   );
   grouped.selectedKey.value = "acme::top";
   grouped.advanceSelection("acme::top");
@@ -1477,7 +1539,9 @@ test("deciding a company's last waiting row sends the pane to that company's his
   // moves Applied to Interviewing on.
   const grouped = useMasterDetail(
     computed(() =>
-      orderedQueue([ACME_LOW, BEVEL_MID, ACME_TOP], null, QUEUE_NOW, [], "company", [ACME_APPLIED]),
+      orderedQueue([ACME_LOW, BEVEL_MID, ACME_TOP], null, QUEUE_NOW, [], "score", "company", [
+        ACME_APPLIED,
+      ]),
     ),
   );
   grouped.selectedKey.value = "acme::low";
@@ -2290,7 +2354,7 @@ test("narrowing composes: the rows the queue would show are the ordering of what
     ["acme::top", "acme::low"],
   );
 
-  const rows = queueRows(orderedQueue(matching, null, Date.now(), [], "company"), true);
+  const rows = queueRows(orderedQueue(matching, null, Date.now(), [], "score", "company"), true);
   const heads = rows.filter((row) => row.head !== null).map((row) => row.head?.company);
   assert.deepEqual(heads, ["Acme"], "only the matching company opens a group");
   assert.equal(
@@ -2375,7 +2439,9 @@ test("a company's group closes when its last waiting row is decided, taking its 
   });
   const other = posting("bevel::1", { company: "Bevel", title: "Bevel role" });
 
-  const before = orderedQueue([waiting, other], null, Date.now(), [], "company", [history]);
+  const before = orderedQueue([waiting, other], null, Date.now(), [], "score", "company", [
+    history,
+  ]);
   assert.deepEqual(
     before.map((each) => each.key),
     ["acme::last", "acme::done", "bevel::1"],
@@ -2384,7 +2450,7 @@ test("a company's group closes when its last waiting row is decided, taking its 
   assert.equal(nextSelection(before, "acme::last"), "acme::done");
 
   // Acme has nothing waiting, so the whole group goes.
-  const after = orderedQueue([other], null, Date.now(), [], "company", [history]);
+  const after = orderedQueue([other], null, Date.now(), [], "score", "company", [history]);
   assert.deepEqual(
     after.map((each) => each.key),
     ["bevel::1"],
