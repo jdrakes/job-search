@@ -752,6 +752,74 @@ test("a card's expansion carries the evidence sentences on demand", async () => 
   assert.match(open, /matched &quot;staff engineer&quot; in the title/);
 });
 
+test("a single-office posting's drawer shows no offices list, matching today's markup", async () => {
+  const p = posting("acme::1", {
+    locations: [{ name: "San Francisco", url: "https://boards.example.com/acme/1" }],
+  });
+
+  const html = await render(PostingCard, {
+    posting: p,
+    config: CONFIG,
+    accessToken: ACCESS_TOKEN,
+    compFloor: null,
+    expanded: true,
+  });
+
+  assert.doesNotMatch(html, /class="offices"/);
+});
+
+test("a multi-office posting's drawer lists every office as a working link", async () => {
+  const p = posting("acme::1", {
+    locations: [
+      { name: "Austin", url: "https://boards.example.com/acme/austin" },
+      { name: "Boston", url: "https://boards.example.com/acme/boston" },
+    ],
+  });
+
+  const html = await render(PostingCard, {
+    posting: p,
+    config: CONFIG,
+    accessToken: ACCESS_TOKEN,
+    compFloor: null,
+    expanded: true,
+  });
+
+  assert.match(html, /class="offices"/);
+  assert.match(html, /class="note-label">Offices</);
+  assert.match(
+    html,
+    /<a href="https:\/\/boards\.example\.com\/acme\/austin" target="_blank" rel="noreferrer">Austin<\/a>/,
+  );
+  assert.match(
+    html,
+    /<a href="https:\/\/boards\.example\.com\/acme\/boston" target="_blank" rel="noreferrer">Boston<\/a>/,
+  );
+});
+
+test("an office whose url is unsafe renders as plain text in the offices list", async () => {
+  const p = posting("acme::1", {
+    locations: [
+      { name: "Austin", url: "https://boards.example.com/acme/austin" },
+      { name: "Remote", url: "javascript:alert(1)" },
+    ],
+  });
+
+  const html = await render(PostingCard, {
+    posting: p,
+    config: CONFIG,
+    accessToken: ACCESS_TOKEN,
+    compFloor: null,
+    expanded: true,
+  });
+
+  assert.match(
+    html,
+    /<a href="https:\/\/boards\.example\.com\/acme\/austin" target="_blank" rel="noreferrer">Austin<\/a>/,
+  );
+  assert.match(html, /<span>Remote<\/span>/);
+  assert.doesNotMatch(html, /href="javascript:alert\(1\)"/);
+});
+
 test("the drawer shows each reason once, as evidence, and a closed posting's note", async () => {
   const html = await render(PostingCard, {
     posting: posting("Acme::1", {
