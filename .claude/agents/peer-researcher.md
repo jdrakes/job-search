@@ -121,6 +121,7 @@ after it, no code fence.
         {
           "name": "<the peer's own name for itself>",
           "url": "<board or posting URL you opened, or null>",
+          "careers": "<the peer's careers page URL you opened, or null>",
           "evidence": "<see below>"
         }
       ]
@@ -146,4 +147,11 @@ after it, no code fence.
 
   `Peer: <same market, stage or customer, in a few words> (<url>). Board: not found; role, remote and pay not verified`
 
+  When its careers page links to a job board on a host `parseBoardUrl`
+  cannot read (`jobs.gem.com`, say), name that host:
+
+  `Peer: <...> (<url>). Board: not found; careers page links to <host>, which the store cannot read; role, remote and pay not verified`
+
   Its `url` is `null`. Do not write a Role, Remote or Pay clause for it.
+  Always give `careers` when you opened a careers page: the skill reads it
+  again, as raw HTML, for a board link you could not see.

@@ -72,7 +72,8 @@ Give nothing else: not `known`, not other batches, nothing about James.
 ## 3. Collect
 
 Each agent replies with one JSON object:
-`{ "seeds": [{ "name", "peers": [{ "name", "url", "evidence" }] }], "unresearched": [{ "name", "reason" }] }`.
+`{ "seeds": [{ "name", "peers": [{ "name", "url", "careers", "evidence" }] }], "unresearched": [{ "name", "reason" }] }`.
+A peer with no `careers` field has `careers: null`.
 
 - A reply that does not parse, or lacks either array: every seed in that
   batch is unresearched, reason "agent reply unreadable". Do not retry.
@@ -101,6 +102,24 @@ Prefix each remaining peer's evidence with its seed:
 `Peer of <seed name>. <evidence as the agent wrote it>`. The seed name is
 the one in the seeds file, exactly.
 
+Then look up the boards the researcher could not find. Write every
+remaining peer whose `url` is null and whose `careers` is not, as
+`[{ "name", "careers" }]`, to `/tmp/peers-lookup.json`, and run:
+
+```sh
+npm run --silent peers -- boards /tmp/peers-lookup.json
+```
+
+It reads each careers page as raw HTML and prints
+`[{ "name", "url", "reason" }]`: `url` is a board the page links to that
+names the company (or, on Workday and the other platforms that state no
+name, the first one it links), and null when there is none. For each
+non-null `url`, set that peer's `url` to it and replace `Board: not found`
+in its evidence with `Board: linked from its careers page (<careers>)`.
+This URL comes from the script, not from you. A `reason` means the page
+did not load; the peer keeps its null URL. A nonzero exit: show James its
+stderr and go on with every URL still null.
+
 ## 5. Show James, and stop
 
 One table, numbered from 1:
@@ -109,10 +128,11 @@ One table, numbered from 1:
 | --- | ---- | ------- | -------- | --------- |
 
 Board URL is the URL, or `none (the run looks the name up)` when null. A
-peer whose evidence says `Board: not found` reads `none, board not found
-(unverified)` instead: the researcher never read its postings, and the run
-does the checking. James can keep it like any other row; `record` writes it
-with a null URL.
+peer whose evidence says `role, remote and pay not verified` gets
+`(unverified)` after its URL, or reads `none, board not found
+(unverified)` when its URL is null: the researcher never read its
+postings, and the run does the checking. James can keep it like any other
+row.
 Below it, two lists, each only when it is not empty:
 
 - **Researched, no new peers:** seed names.
