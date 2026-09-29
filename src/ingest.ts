@@ -608,7 +608,11 @@ function nativeTwoPhase(platform: Platform): boolean {
 // operator gave this board a detail read. Another board on a wrapped
 // platform is one-phase, as it would be unwrapped. A row with no board is
 // decided by its platform alone.
-function twoPhase(platform: Platform, board: string | null, reader: Reader | undefined): boolean {
+export function twoPhase(
+  platform: Platform,
+  board: string | null,
+  reader: Reader | undefined,
+): boolean {
   if (nativeTwoPhase(platform)) return true;
   return board !== null && reader?.readsDetail?.({ platform, id: board }) === true;
 }

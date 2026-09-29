@@ -15,12 +15,16 @@
 //   node --env-file=.env scripts/explain-posting.ts <key>
 import process from "node:process";
 
+import type { Reader } from "../src/ats/ats.ts";
 import { READERS } from "../src/ats/readers.ts";
 import { loadCriteria } from "../src/criteria.ts";
+import { resolveReaders } from "../src/daily.ts";
 import { describeError } from "../src/errors.ts";
+import { twoPhase } from "../src/ingest.ts";
 import { fullJudgment, representativeByKey } from "../src/judge/judge.ts";
 import { boardIndex, type Reason } from "../src/judge/listing.ts";
-import { COMPANY_FIELDS, type Company, type Posting } from "../src/schema.ts";
+import { COMPANY_FIELDS, type Company, type Platform, type Posting } from "../src/schema.ts";
+import { loadSettings } from "../src/settings.ts";
 import { openStore } from "../src/store/open.ts";
 import type { Store } from "../src/store/store.ts";
 
@@ -92,7 +96,14 @@ export interface Explanation {
 
 export type ExplainResult = Explanation | { readonly ok: false; readonly reason: string };
 
-export async function explainPosting(store: Store, key: string): Promise<ExplainResult> {
+// `readers` are the ones the daily run reads with, the operator's detail
+// reads included, so a board one of them names counts as two-phase here as
+// it does there.
+export async function explainPosting(
+  store: Store,
+  key: string,
+  readers: Record<Platform, Reader> = READERS,
+): Promise<ExplainResult> {
   const rows = await store.select<ExplainedRow>("postings", { key }, ROW_COLUMNS);
   const row = rows[0];
   if (row === undefined) {
@@ -115,8 +126,8 @@ export async function explainPosting(store: Store, key: string): Promise<Explain
   );
   const representative = representativeByKey(postings, criteria);
 
-  const twoPhase = READERS[row.platform].body !== undefined;
-  const judgedBody: JudgedBody = !twoPhase ? "listing" : row.body === null ? "absent" : "stored";
+  const readsPage = twoPhase(row.platform, row.board, readers[row.platform]);
+  const judgedBody: JudgedBody = !readsPage ? "listing" : row.body === null ? "absent" : "stored";
 
   const { kept, reasons } = fullJudgment(
     row,
@@ -168,10 +179,10 @@ function sameNames(left: readonly string[], right: readonly string[]): boolean {
 const BODY_NOTES: Record<JudgedBody, string | null> = {
   listing: null,
   stored:
-    "note: this platform reads a live detail page; this run judged the stored body " +
+    "note: this board reads a live detail page; this run judged the stored body " +
     "rather than fetching one, so a live read today could differ.",
   absent:
-    "note: this platform reads a live detail page, but no body is stored for this " +
+    "note: this board reads a live detail page, but no body is stored for this " +
     "posting (never fetched, or cleared after a text-criterion rejection). This run " +
     "judged an empty body, so the text criteria (excluded_states, country_restriction, " +
     "missing_languages, bonus, remote) read nothing; the stored verdict is the one " +
@@ -208,8 +219,9 @@ async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
+  const readers = await resolveReaders(loadSettings());
   const store = openStore();
-  const result = await explainPosting(store, key);
+  const result = await explainPosting(store, key, readers);
   printExplanation(key, result);
   if (!result.ok) process.exitCode = 1;
 }

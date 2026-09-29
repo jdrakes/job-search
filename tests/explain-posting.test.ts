@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { explainPosting } from "../scripts/explain-posting.ts";
+import { READERS, withDetailReads } from "../src/ats/readers.ts";
 import { fullJudgment } from "../src/judge/judge.ts";
 import { boardIndex } from "../src/judge/listing.ts";
 import type { Company, Criteria, Posting } from "../src/schema.ts";
@@ -170,6 +171,45 @@ test("explainPosting: a two-phase posting with no stored body is told apart from
   assert.equal(result.storedKept, false);
   assert.deepEqual(result.storedReasons, ["excluded_states"]);
   assert.equal(result.agreesWithStored, false);
+});
+
+// The operator's setup: a detail read names Greenhouse board "board", so
+// the daily run reads that board's detail page (two-phase) and every other
+// Greenhouse board stays one-phase. Breaks if explainPosting decides
+// two-phase by platform (Greenhouse's own reader has no `body`), which
+// labels the detail-read board's missing body "listing" and hides the note
+// that the text criteria read nothing; or if it decides by the wrapped
+// reader alone, which labels the other board two-phase.
+test("explainPosting: a board a detail read names, with no stored body, is absent; another board on its platform is listing", async () => {
+  const readers = withDetailReads(READERS, [
+    { platform: "greenhouse", board: "board", body: async () => null },
+  ]);
+  const named = posting({ key: "acme::1", company: "Acme", body: null, body_hash: null });
+  const other = posting({
+    key: "beta::1",
+    company: "Beta",
+    board: "other",
+    body: null,
+    body_hash: null,
+  });
+  const store = memoryStore({
+    postings: [named, other],
+    criteria: [criteria()],
+    companies: [
+      company("Acme"),
+      company("Beta", { boards: [{ platform: "greenhouse", id: "other" }] }),
+    ],
+  });
+
+  const namedResult = await explainPosting(store, "acme::1", readers);
+  assert.equal(namedResult.ok, true);
+  if (!namedResult.ok) return;
+  assert.equal(namedResult.judgedBody, "absent");
+
+  const otherResult = await explainPosting(store, "beta::1", readers);
+  assert.equal(otherResult.ok, true);
+  if (!otherResult.ok) return;
+  assert.equal(otherResult.judgedBody, "listing");
 });
 
 // Breaks if a one-phase posting whose live judgment matches what is stored
