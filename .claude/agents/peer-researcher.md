@@ -50,10 +50,14 @@ beyond them, and you do not guess.
    `https://api.ashbyhq.com/posting-api/job-board/<id>?includeCompensation=true`
    instead.
 
-   Keep the peer when you open a current posting whose title contains
+   Return every peer you named in step 2, with one exception: you opened
+   its board, read its postings, and none has a title containing
    "engineer", "engineering" or "developer" as a whole word, in any case.
-   Level, location, where the work is done and pay are not reasons to
-   drop a peer: the run judges those.
+   Nothing else rules a peer out. A board you cannot find, postings you
+   cannot read, and an engineering posting you cannot confirm all mean
+   the peer is returned, with the matching evidence below. Level,
+   location, where the work is done and pay are not reasons to drop a
+   peer either: the run judges those.
 
    A peer whose board you cannot find is not ruled out: the careers page
    links to no board, or the search results name none. Return it with
@@ -63,9 +67,6 @@ beyond them, and you do not guess.
    found: many are drawn by JavaScript. Keep its address as `url` when
    `parseBoardUrl` reads it, and use the unread-board evidence below; the
    run reads the board itself.
-
-   Rule a peer out only when you opened its board, read its postings,
-   and none has an engineering title.
 
 4. The board URL is the address of that posting or of the board itself on
    an applicant tracking system, as you opened it. Read `boards_file`,
@@ -107,6 +108,9 @@ after it, no code fence.
   (its site would not load, searches failed). A seed in `unresearched` is
   offered again next time; one in `seeds` is not, so do not put a seed in
   `seeds` you did not research.
+- Every peer named in step 2 appears in `peers` unless step 3's one
+  exception ruled it out. A peer you would mention in a note goes in
+  `peers` instead; there are no notes.
 - `evidence` is one line of two clauses, each with the URL it came from:
 
   `Peer: <same market, stage or customer, in a few words> (<url>). Engineering: <one posting title> (<url>)`
