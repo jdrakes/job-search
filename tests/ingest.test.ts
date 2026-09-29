@@ -4,7 +4,13 @@ import { test } from "node:test";
 
 import type { Listing, Reader } from "../src/ats/ats.ts";
 import { listExitCode } from "../src/daily.ts";
-import { boardsToRead, ingest, judgeAll, type IngestResult } from "../src/ingest.ts";
+import {
+  boardsToRead,
+  groupByRequisition,
+  ingest,
+  judgeAll,
+  type IngestResult,
+} from "../src/ingest.ts";
 import { HttpError } from "../src/net/http.ts";
 import type { Candidate, Company, Criteria, Platform, Posting, Table } from "../src/schema.ts";
 import { memoryStore } from "../src/store/memory.ts";
@@ -4149,6 +4155,96 @@ function storedOn(
     ]),
   );
 }
+
+// Breaks if a shared requisitionId stops merging same-req offices into one
+// grouped listing.
+test("groupByRequisition: same requisition id, different offices merges into one listing with every office", () => {
+  const grouped = groupByRequisition([
+    listing("200", { requisitionId: "req-1", location: "Austin", url: "https://x/200" }),
+    listing("100", { requisitionId: "req-1", location: "Boston", url: "https://x/100" }),
+    listing("300", { requisitionId: "req-1", location: "Denver", url: "https://x/300" }),
+  ]);
+  assert.equal(grouped.length, 1);
+  // The primary's own fields (id, location, url) come from the lowest id.
+  assert.equal(grouped[0]!.id, "100");
+  assert.equal(grouped[0]!.location, "Boston");
+  assert.deepEqual(grouped[0]!.locations, [
+    { name: "Austin", url: "https://x/200" },
+    { name: "Boston", url: "https://x/100" },
+    { name: "Denver", url: "https://x/300" },
+  ]);
+});
+
+// Breaks if distinct requisition ids are folded together.
+test("groupByRequisition: different requisition ids never merge", () => {
+  const grouped = groupByRequisition([
+    listing("1", { requisitionId: "req-1" }),
+    listing("2", { requisitionId: "req-2" }),
+  ]);
+  assert.equal(grouped.length, 2);
+});
+
+// Breaks if a null requisitionId (every non-Greenhouse reader, or a
+// Greenhouse listing missing the field) starts merging listings that share
+// nothing but the absence of a requisition id.
+test("groupByRequisition: a null requisitionId on every listing collapses to one group per listing", () => {
+  const grouped = groupByRequisition([
+    listing("1", { requisitionId: null }),
+    listing("2", { requisitionId: null }),
+    listing("3", { requisitionId: null }),
+  ]);
+  assert.equal(grouped.length, 3);
+  assert.deepEqual(
+    grouped.map((entry) => entry.id),
+    ["1", "2", "3"],
+  );
+  for (const entry of grouped) assert.equal(entry.locations.length, 1);
+});
+
+// Breaks if the primary is picked by string id order (e.g. "9" > "10") or by
+// input order rather than numeric id.
+test("groupByRequisition: primary is the lowest numeric id regardless of input order", () => {
+  const grouped = groupByRequisition([
+    listing("20", { requisitionId: "req-1", title: "Twenty" }),
+    listing("9", { requisitionId: "req-1", title: "Nine" }),
+    listing("100", { requisitionId: "req-1", title: "Hundred" }),
+  ]);
+  assert.equal(grouped.length, 1);
+  assert.equal(grouped[0]!.id, "9");
+  assert.equal(grouped[0]!.title, "Nine");
+});
+
+// Breaks if `locations` is built from input order rather than deduped and
+// sorted: the written column must serialize identically run to run no
+// matter what order the board answered offices in.
+test("groupByRequisition: locations dedupe and sort the same regardless of input order", () => {
+  const offices = [
+    listing("3", { requisitionId: "req-1", location: "Seattle", url: "https://x/3" }),
+    listing("1", { requisitionId: "req-1", location: "Austin", url: "https://x/1" }),
+    listing("2", { requisitionId: "req-1", location: "Boston", url: "https://x/2" }),
+    // A duplicate office (same name and url) must not double up.
+    listing("4", { requisitionId: "req-1", location: "Austin", url: "https://x/1" }),
+  ];
+  const shuffled = [offices[3]!, offices[0]!, offices[2]!, offices[1]!];
+  const grouped = groupByRequisition(shuffled);
+  assert.equal(grouped.length, 1);
+  assert.deepEqual(grouped[0]!.locations, [
+    { name: "Austin", url: "https://x/1" },
+    { name: "Boston", url: "https://x/2" },
+    { name: "Seattle", url: "https://x/3" },
+  ]);
+});
+
+// A singleton group (null requisitionId, or a genuine one-office req) still
+// gets a one-element `locations`, never an empty array: downstream code
+// never special-cases "no offices".
+test("groupByRequisition: a singleton group still has a non-empty locations", () => {
+  const grouped = groupByRequisition([
+    listing("1", { requisitionId: null, location: "Remote", url: "https://x/1" }),
+  ]);
+  assert.equal(grouped.length, 1);
+  assert.deepEqual(grouped[0]!.locations, [{ name: "Remote", url: "https://x/1" }]);
+});
 
 // Breaks if Monday stops reading every board.
 test("boardsToRead: Monday reads every board, whatever its postings say", () => {

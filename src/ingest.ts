@@ -687,6 +687,71 @@ interface ListedCompany {
   readonly gone: readonly GoneBoard[];
 }
 
+// One office a requisition is posted under: its board-stated name (usually
+// a location) and its own apply link.
+export interface Office {
+  readonly name: string | null;
+  readonly url: string | null;
+}
+
+// `null` sorts last; two `null`s (or two equal strings) keep their relative
+// order from `dedupeOffices`'s stable sort.
+function compareNullable(a: string | null, b: string | null): number {
+  if (a === b) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  return a.localeCompare(b);
+}
+
+// Distinct `(name, url)` pairs, sorted by name then url (nulls last), so the
+// same office set always serializes the same way regardless of the read
+// order the board answered in.
+function dedupeOffices(offices: readonly Office[]): readonly Office[] {
+  const seen = new Map<string, Office>();
+  for (const office of offices) {
+    const key = `${office.name ?? ""}\u0000${office.url ?? ""}`;
+    if (!seen.has(key)) seen.set(key, office);
+  }
+  return [...seen.values()].sort(
+    (a, b) => compareNullable(a.name, b.name) || compareNullable(a.url, b.url),
+  );
+}
+
+// Collapses same-requisition, multi-office listings (Greenhouse today; every
+// other reader leaves `requisitionId` null, so this is a no-op for them)
+// into one entry per requisition. The primary listing — the one every other
+// field comes from — is the lowest numeric id in the group, so the choice
+// of row to keep and judge is deterministic across re-lists regardless of
+// the order the board answered offices in. A `null` requisitionId is its
+// own singleton group: keyed by the listing object itself, not its id, so
+// two listings that happen to share an id (an empty id, or a genuine
+// duplicate-id bug on the board) still pass through as separate entries —
+// the existing per-listing loop's own id-refusal and last-wins dedup keep
+// handling that, unchanged.
+export function groupByRequisition(
+  listings: readonly Listing[],
+): readonly (Listing & { readonly locations: readonly Office[] })[] {
+  const groups = new Map<string | Listing, Listing[]>();
+  for (const listing of listings) {
+    const key = listing.requisitionId ?? listing;
+    const group = groups.get(key);
+    if (group === undefined) groups.set(key, [listing]);
+    else group.push(listing);
+  }
+  return [...groups.values()].map((group) => {
+    // Strict `<` keeps the first-seen listing on a tie, as ties should not
+    // occur (equal ids would already collide as the same stored row).
+    let primary = group[0]!;
+    for (const listing of group) {
+      if (Number(listing.id) < Number(primary.id)) primary = listing;
+    }
+    const locations = dedupeOffices(
+      group.map((listing) => ({ name: listing.location, url: listing.url })),
+    );
+    return { ...primary, locations };
+  });
+}
+
 async function listCompany(
   store: Store,
   readers: Partial<Record<Platform, Reader>>,
@@ -734,6 +799,7 @@ async function listCompany(
       if (isGone(board.platform, err)) gone.push({ company: company.name, board });
       continue;
     }
+    listings = groupByRequisition(listings);
     listed += listings.length;
 
     const seenKeys = new Set<string>();
