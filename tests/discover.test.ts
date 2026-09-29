@@ -296,17 +296,33 @@ test("discover: a company's name from a second source is known, with a row, and 
   assert.equal(result.resolved.known, 1);
 });
 
-test("discover: a name known only as a resolved candidate is known with no company, and not probed", async () => {
+test("discover: a name known only as a candidate resolved to a company is known with no company, and not probed", async () => {
+  const store = memoryStore({
+    candidates: [candidate({ name: "Acme Labs", origin: "hn", outcome: "alias", company: "Acme" })],
+  });
+
+  const { requested } = await run(store, [nameSource("remoteok", ["Acme Labs"])]);
+
+  assert.deepEqual(requested, []);
+  assert.deepEqual(await candidates(store), [
+    "hn Acme Labs -> alias Acme",
+    "remoteok Acme Labs -> known null",
+  ]);
+});
+
+// Breaks if a name resolved to no company blocks every later origin: a
+// company that had no board once is never looked up again.
+test("discover: a name another origin resolved to no board is probed again from a new origin", async () => {
   const store = memoryStore({
     candidates: [candidate({ name: "Nobody", origin: "hn", outcome: "no_board" })],
   });
 
   const { requested } = await run(store, [nameSource("remoteok", ["Nobody"])]);
 
-  assert.deepEqual(requested, []);
+  assert.notDeepEqual(requested, [], "the name was probed, not skipped");
   assert.deepEqual(await candidates(store), [
     "hn Nobody -> no_board null",
-    "remoteok Nobody -> known null",
+    "remoteok Nobody -> no_board null",
   ]);
 });
 

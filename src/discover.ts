@@ -55,7 +55,10 @@ interface Registry {
   // Lowercased boardKey -> the company carrying it. Lowercased because an
   // index can spell an id differently from the one on file.
   readonly carriers: Map<string, string>;
-  // nameKey of every candidate with an outcome.
+  // nameKey of every candidate resolved to a company. A name resolved to
+  // none (`no_board`, `wrong_company`, `bad_url`) stays open, so another
+  // origin naming it is looked up again: once per origin, since an origin
+  // never suggests a name twice.
   readonly resolvedNames: Set<string>;
   // origin -> nameKey of every name that origin has suggested.
   readonly suggestedBy: Map<string, Set<string>>;
@@ -106,7 +109,8 @@ async function readRegistry(
     if (row.url !== null) registry.urls.add(row.url);
     if (row.name !== null) noteSuggested(registry, row.origin, row.name);
     if (row.outcome === null) unresolved.push(row);
-    else if (row.name !== null) registry.resolvedNames.add(nameKey(row.name));
+    else if (row.name !== null && row.company !== null)
+      registry.resolvedNames.add(nameKey(row.name));
   }
   return { registry, unresolved };
 }
@@ -179,7 +183,8 @@ export async function discover(
       pending += 1;
       continue;
     }
-    if (candidate.name !== null) registry.resolvedNames.add(nameKey(candidate.name));
+    if (candidate.name !== null && resolution.company !== null)
+      registry.resolvedNames.add(nameKey(candidate.name));
     const result = await store.update("candidates", candidate.id, {
       outcome: resolution.outcome,
       outcome_at: new Date().toISOString(),
