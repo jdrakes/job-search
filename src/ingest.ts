@@ -353,11 +353,12 @@ async function writeVerdicts(store: Store, rows: readonly VerdictRow[]): Promise
 }
 
 // Whether the judging pass should read this posting's body. The listing
-// criteria are final once they say no, except on a two-phase board, where
-// pay is body-only: a first-seen row has `comp_high: null` and the level
-// criterion refuses a numbered title for want of a pay figure. So the
-// listing is judged again with a figure at the floor: if that keeps it, a
-// body stating pay can change the verdict and is worth fetching.
+// criteria are final once they say no, except on a two-phase board
+// (`twoPhase`), where pay is body-only: a first-seen row has
+// `comp_high: null` and the level criterion refuses a numbered title for
+// want of a pay figure. So the listing is judged again with a figure at the
+// floor: if that keeps it, a body stating pay can change the verdict and is
+// worth fetching.
 function wantsBody(
   posting: Pick<
     Posting,
@@ -378,7 +379,9 @@ function wantsBody(
   representative: ReadonlyMap<string, string>,
 ): boolean {
   if (judgeListing(posting, criteria, now, boards, representative).kept) return true;
-  if (posting.comp_high !== null || reader?.body === undefined) return false;
+  if (posting.comp_high !== null || !twoPhase(posting.platform, posting.board, reader)) {
+    return false;
+  }
   return judgeListing(
     { ...posting, comp_high: criteria.comp_floor },
     criteria,
@@ -448,7 +451,12 @@ export async function judgeAll(
     let detail: Listing | null = null;
     if (wantsBody(row, criteria, judgedAt, reader, boards, representative)) {
       body = await storedBody(store, row.key);
-      if (body === null && row.board !== null && reader?.body !== undefined) {
+      if (
+        body === null &&
+        row.board !== null &&
+        twoPhase(row.platform, row.board, reader) &&
+        reader?.body !== undefined
+      ) {
         const board: Board = { platform: row.platform, id: row.board };
         try {
           detail = await reader.body(board, postingIdOf(row));
@@ -466,7 +474,7 @@ export async function judgeAll(
     }
 
     // A two-phase board's comp is read here from the detail the judge
-    // fetched; every other platform's came with its listing and is carried
+    // fetched; every other board's came with its listing and is carried
     // back as read. A detail that states its pay wins over the prose, as
     // Ashby's structured pay does on a one-phase board. Overwritten only
     // when a detail was fetched this pass: writing null for a two-phase
@@ -475,7 +483,7 @@ export async function judgeAll(
     // again; and a re-judge from the stored body keeps the stored band,
     // since for Workable and Rippling that band came from the detail's
     // fields and the prose cannot restore it.
-    const twoPhase = reader?.body !== undefined;
+    const readsPage = twoPhase(row.platform, row.board, reader);
     // The stated figures are rounded as the listing path's are: the comp
     // columns are integers, and Rippling states its range as floats.
     const statedLow = wholeDollars(detail?.compLow ?? null);
@@ -487,7 +495,7 @@ export async function judgeAll(
     // A detail that states its pay and carries no prose still states its
     // pay, so the detail, not the body, is the gate. A detail that is gone
     // (null) carries the stored band.
-    const read = twoPhase && fetched && detail !== null;
+    const read = readsPage && fetched && detail !== null;
     const comp = read ? (stated ?? (body !== null ? compInText(body) : null)) : null;
     const compLow = read ? (comp?.compLow ?? null) : row.comp_low;
     const compHigh = read ? (comp?.compHigh ?? null) : row.comp_high;
@@ -519,14 +527,13 @@ export async function judgeAll(
     // A body read back from the store is never cleared here: nothing
     // guarantees it can be read again. A one-phase board's body returns
     // only with a fresh listing, and a re-judge can run without one (the
-    // board's read failed that day, or a criteria edit alone). A reader
-    // having `body` does not mean this board has a detail read either:
-    // `withDetailRead` wraps a whole platform for one board's read and
-    // answers null for the rest. Either way `wantsBody` would ask for the
-    // body again, find none, and judge the empty text back in. A stored
-    // body is cleared only by `toRow`, on a listing "out" `wantsBody` agrees
-    // with; a stored body out only on its text is kept, stale in size, not
-    // in content.
+    // board's read failed that day, or a criteria edit alone), and
+    // `twoPhase` keeps it one-phase when its platform is wrapped for another
+    // board's detail read, so no page read replaces it. `wantsBody` would
+    // ask for the body again, find none, and judge the empty text back in.
+    // A stored body is cleared only by `toRow`, on a listing "out"
+    // `wantsBody` agrees with; a stored body out only on its text is kept,
+    // stale in size, not in content.
     const workplaceScored = workplace === "remote" || workplace === "onsite";
     const keepBody = judgment.kept || row.status !== null || workplaceScored;
     pending.push(fetched ? { ...verdict, body: keepBody ? body : null, workplace } : verdict);
@@ -570,19 +577,19 @@ function passesTitleAndPlace(posting: TitleAndPlace, criteria: Criteria): boolea
 }
 
 // Whether a posting is stored at all (#287): its title and place pass. A
-// posting on a native two-phase platform with no pay is judged at the floor
-// instead, as `wantsBody` does: such a board states pay only on the detail
-// `judgeAll` fetches, and only for a stored posting, so without this a
-// numbered or Senior title on it would never be stored, never fetched, and
-// never found. The floor pass holds after the detail was read and stated no
-// pay too, so such a row stays stored though its verdict is out: it is kept
-// to be read, so its detail is not fetched again. Pruned, it would be stored
-// again as new at the next read and its detail fetched again, every other
-// read for as long as it stays listed.
-function admits(posting: TitleAndPlace, platform: Platform, criteria: Criteria): boolean {
+// posting on a two-phase board (`readsPage`, from `twoPhase`) with no pay is
+// judged at the floor instead, as `wantsBody` does: such a board states pay
+// only on the detail `judgeAll` fetches, and only for a stored posting, so
+// without this a numbered or Senior title on it would never be stored, never
+// fetched, and never found. The floor pass holds after the detail was read
+// and stated no pay too, so such a row stays stored though its verdict is
+// out: it is kept to be read, so its detail is not fetched again. Pruned, it
+// would be stored again as new at the next read and its detail fetched
+// again, every other read for as long as it stays listed.
+function admits(posting: TitleAndPlace, readsPage: boolean, criteria: Criteria): boolean {
   if (passesTitleAndPlace(posting, criteria)) return true;
   return (
-    nativeTwoPhase(platform) &&
+    readsPage &&
     posting.comp_high === null &&
     passesTitleAndPlace({ ...posting, comp_high: criteria.comp_floor }, criteria)
   );
@@ -597,18 +604,28 @@ function nativeTwoPhase(platform: Platform): boolean {
   return READERS[platform].body !== undefined;
 }
 
+// A board is two-phase when its platform's own reader is, or when the
+// operator gave this board a detail read. Another board on a wrapped
+// platform is one-phase, as it would be unwrapped. A row with no board is
+// decided by its platform alone.
+function twoPhase(platform: Platform, board: string | null, reader: Reader | undefined): boolean {
+  if (nativeTwoPhase(platform)) return true;
+  return board !== null && reader?.readsDetail?.({ platform, id: board }) === true;
+}
+
 // A listing is judged on the pay `toRow` leaves on its row: the listing's own
 // when it states a body or a band, else the stored band.
 function listingAdmits(
   listing: Listing,
   stored: StoredListing | undefined,
-  platform: Platform,
+  board: Board,
+  reader: Reader,
   criteria: Criteria,
 ): boolean {
   const statesPay = listing.body !== null || listing.compLow !== null || listing.compHigh !== null;
   const compHigh = statesPay ? wholeDollars(listing.compHigh) : (stored?.comp_high ?? null);
   const posting = { title: listing.title, location: listing.location, comp_high: compHigh };
-  return admits(posting, platform, criteria);
+  return admits(posting, twoPhase(board.platform, board.id, reader), criteria);
 }
 
 // A stored posting nothing reads is deleted (#287; Design, Data: the store
@@ -624,11 +641,13 @@ function prunable(
   admitted: ReadonlySet<string>,
   rejected: ReadonlySet<string>,
   criteria: Criteria,
+  readers: Partial<Record<Platform, Reader>>,
 ): string[] {
   const keys: string[] = [];
   for (const [key, row] of stored) {
     if (row.kept === true || row.status !== null || admitted.has(key)) continue;
-    if (rejected.has(key) || !admits(row, row.platform, criteria)) keys.push(key);
+    const readsPage = twoPhase(row.platform, row.board, readers[row.platform]);
+    if (rejected.has(key) || !admits(row, readsPage, criteria)) keys.push(key);
   }
   return keys;
 }
@@ -864,7 +883,7 @@ async function listCompany(
       // is acted on or kept (those go on as before, and `judgeAll` re-judges
       // them), and `ingest`'s prune deletes it. A key the same read lists
       // twice goes by its last listing, as the batch does.
-      if (criteria !== undefined && !listingAdmits(listing, before, board.platform, criteria)) {
+      if (criteria !== undefined && !listingAdmits(listing, before, board, reader, criteria)) {
         rejected.add(key);
         admitted.delete(key);
         batch.delete(key);
@@ -913,8 +932,10 @@ async function listCompany(
 // Every column a re-list can write, bar `body`: `body_hash` stands for it.
 interface StoredListing {
   readonly company: string;
-  // Whether `prunable` gives the posting the floor pass (`nativeTwoPhase`).
+  // With `board`, whether `prunable` gives the posting the floor pass
+  // (`twoPhase`).
   readonly platform: Platform;
+  readonly board: string | null;
   readonly title: string | null;
   readonly url: string | null;
   readonly location: string | null;
@@ -933,6 +954,7 @@ interface StoredListing {
 const STORED_LISTING_COLUMNS = [
   "company",
   "platform",
+  "board",
   "title",
   "url",
   "location",
@@ -961,6 +983,7 @@ async function storedListings(store: Store): Promise<Map<string, StoredListing>>
       {
         company: row.company,
         platform: row.platform,
+        board: row.board,
         title: row.title,
         url: row.url,
         location: row.location,
@@ -1124,7 +1147,8 @@ export async function ingest(
   // deleted.
   const admitted = new Set(results.flatMap((result) => [...result.admitted]));
   const rejected = new Set(results.flatMap((result) => [...result.rejected]));
-  const keys = criteria === undefined ? [] : prunable(stored, admitted, rejected, criteria);
+  const keys =
+    criteria === undefined ? [] : prunable(stored, admitted, rejected, criteria, readers);
   let pruned = keys.length;
   const pruneErrors: string[] = [];
   try {

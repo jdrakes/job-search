@@ -24,6 +24,8 @@ export interface Reader {
   readonly platform: Platform;
   list(board: Board, options?: HttpOptions): Promise<Listing[]>;
   body?(board: Board, id: string, options?: HttpOptions): Promise<Listing | null>;
+  // True for a board an operator detail read names.
+  readsDetail?(board: Board): boolean;
 }
 
 // A per-posting read an operator supplies for one board whose listing leaves

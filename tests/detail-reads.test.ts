@@ -88,6 +88,16 @@ test("withDetailReads: a platform no read names keeps its reader untouched", () 
   assert.equal(readersWith([]).greenhouse.body, undefined);
 });
 
+// Breaks if `readsDetail` answers for the platform rather than the board:
+// `ingest` would make every board on a wrapped platform two-phase.
+test("withDetailReads: readsDetail is true for the named board only, and absent on an unwrapped reader", () => {
+  const readers = readersWith([detailRead([])]);
+  assert.equal(readers.greenhouse.readsDetail?.({ platform: "greenhouse", id: "northgate" }), true);
+  assert.equal(readers.greenhouse.readsDetail?.({ platform: "greenhouse", id: "acme" }), false);
+  assert.equal(readers.lever.readsDetail, undefined);
+  assert.equal(readersWith([]).greenhouse.readsDetail, undefined);
+});
+
 test("resolveReaders: no extraDetailPath returns the readers as given", async () => {
   assert.equal(await resolveReaders({}), READERS);
 });

@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 
-import type { Listing, Reader } from "../src/ats/ats.ts";
+import type { DetailRead, Listing, Reader } from "../src/ats/ats.ts";
+import { READERS, withDetailReads } from "../src/ats/readers.ts";
 import { listExitCode } from "../src/daily.ts";
 import {
   boardsToRead,
@@ -1260,7 +1261,7 @@ test("ingest: a failed hash read logs an error and lists with every body written
       if (
         table === "postings" &&
         columns?.join(",") ===
-          "key,company,platform,title,url,location,posted_at,locations,body_hash,comp_low,comp_high,workplace,kept,status,gone_at"
+          "key,company,platform,board,title,url,location,posted_at,locations,body_hash,comp_low,comp_high,workplace,kept,status,gone_at"
       ) {
         throw new Error("column postings.body_hash does not exist");
       }
@@ -1665,6 +1666,7 @@ test("ingest: fetches the body and judges a posting the listing criteria kept", 
     greenhouse: {
       platform: "greenhouse",
       list: async () => [listing("swe1", { title: "Staff Backend Engineer" })],
+      readsDetail: () => true,
       body: async (board, id) => {
         bodyCalls.push({ boardId: board.id, id });
         return listing(id, {
@@ -1710,6 +1712,7 @@ test("judgeAll: a posting stored under the old company-name key still fetches it
     greenhouse: {
       platform: "greenhouse",
       list: async () => [],
+      readsDetail: () => true,
       body: async (_board, id) => {
         bodyCalls.push(id);
         return listing(id, { body: "A fully remote role, open across the US." });
@@ -1742,6 +1745,7 @@ test("judgeAll: a listing id carrying the key's own separator is fetched whole",
     greenhouse: {
       platform: "greenhouse",
       list: async () => [],
+      readsDetail: () => true,
       body: async (_board, id) => {
         bodyCalls.push(id);
         return listing(id, { body: "A fully remote role, open across the US." });
@@ -2544,6 +2548,7 @@ test("ingest: a failed body fetch is an error, leaving the posting for the next 
     greenhouse: {
       platform: "greenhouse",
       list: async () => [listing("swe1", { title: "Staff Backend Engineer" })],
+      readsDetail: () => true,
       body: async () => {
         throw new Error("board unavailable");
       },
@@ -3684,6 +3689,132 @@ test("ingest: a Greenhouse Senior posting with no pay and a body is not stored w
   assert.equal(result.recorded, 1, "only the gone mark on b2, not b1");
   assert.equal(result.pruned, 1);
   assert.deepEqual(await store.select<Posting>("postings"), []);
+});
+
+// The operator's setup through the real `withDetailReads`: Greenhouse, a
+// one-phase platform, wrapped for a detail read on board A only. Board A's
+// page states a band above `criteria()`'s floor. `bodyCalls` counts every
+// call to the wrapped reader's `body`, `pageReads` the operator read's.
+const BOARD_A = { platform: "greenhouse", id: "board-a" } as const;
+const BOARD_B = { platform: "greenhouse", id: "board-b" } as const;
+const WRAPPED_ACME = company("Acme", { boards: [BOARD_A, BOARD_B] });
+
+function wrappedForBoardA(listings: readonly Listing[]): {
+  readonly readers: Partial<Record<Platform, Reader>>;
+  readonly bodyCalls: string[];
+  readonly pageReads: string[];
+} {
+  const bodyCalls: string[] = [];
+  const pageReads: string[] = [];
+  const read: DetailRead = {
+    platform: "greenhouse",
+    board: BOARD_A.id,
+    body: async (id) => {
+      pageReads.push(id);
+      return listing(id, {
+        title: "Senior Backend Engineer",
+        body: "Remote in the US. The salary range is $250,000 - $300,000.",
+        workplace: "remote",
+      });
+    },
+  };
+  const bare: Reader = {
+    platform: "greenhouse",
+    list: async (board) => (board.id === BOARD_A.id ? [...listings] : []),
+  };
+  const wrapped = withDetailReads({ ...READERS, greenhouse: bare }, [read]).greenhouse;
+  const counted: Reader = {
+    ...wrapped,
+    body: async (board, id, options) => {
+      bodyCalls.push(`${board.id}/${id}`);
+      return wrapped.body === undefined ? null : wrapped.body(board, id, options);
+    },
+  };
+  return { readers: { greenhouse: counted }, bodyCalls, pageReads };
+}
+
+// Breaks if two-phase is decided per platform (`reader.body !== undefined`):
+// board B would get the floor pass, have `body` called, get null back, and
+// have its stored workplace written over with null.
+test("judgeAll: another board on a platform wrapped for a detail read stays one-phase, with no body call and its workplace kept", async () => {
+  const store = memoryStore({
+    companies: [WRAPPED_ACME],
+    postings: [
+      posting({
+        key: "greenhouse/board-b::b1",
+        company: "Acme",
+        board: BOARD_B.id,
+        title: "Senior Backend Engineer",
+        workplace: "hybrid",
+      }),
+    ],
+    criteria: [criteria()],
+  });
+  const { readers, bodyCalls } = wrappedForBoardA([]);
+
+  const judging = await judgeAll(store, readers);
+
+  assert.deepEqual(judging.errors, []);
+  assert.equal(judging.judged, 1);
+  assert.deepEqual(bodyCalls, []);
+  const [row] = await store.select<Posting>("postings", { key: "greenhouse/board-b::b1" });
+  assert.equal(row?.kept, false);
+  assert.deepEqual(row?.reasons, ["level"]);
+  assert.equal(row?.workplace, "hybrid");
+});
+
+// Breaks if the floor pass stays with native two-phase platforms: board A's
+// Senior listing, stripped of pay by the wrapper, would be refused on level
+// before the judge could read the page that states its pay.
+test("ingest then judgeAll: a Senior listing with no pay on the detail-read board is stored and its page read once", async () => {
+  const store = memoryStore({ companies: [WRAPPED_ACME], criteria: [criteria()] });
+  const { readers, bodyCalls, pageReads } = wrappedForBoardA([
+    listing("a1", { title: "Senior Backend Engineer", body: "Listing text." }),
+  ]);
+
+  const result = await ingest(store, readers, { today: MONDAY });
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.recorded, 1);
+
+  const judging = await judgeAll(store, readers);
+
+  assert.deepEqual(judging.errors, []);
+  assert.deepEqual(bodyCalls, ["board-a/a1"]);
+  assert.deepEqual(pageReads, ["a1"]);
+  const [row] = await store.select<Posting>("postings", { key: "greenhouse/board-a::a1" });
+  assert.equal(row?.comp_high, 300_000);
+  assert.equal(row?.workplace, "remote");
+  assert.equal(row?.kept, true);
+});
+
+// Breaks if `prunable` decides the floor pass per platform: board A's stored
+// Senior posting with no pay, not listed this run, would be deleted.
+test("ingest: a stored Senior posting with no pay on the detail-read board is not pruned", async () => {
+  const store = memoryStore({
+    companies: [WRAPPED_ACME],
+    postings: [
+      posting({
+        key: "greenhouse/board-a::a1",
+        company: "Acme",
+        board: BOARD_A.id,
+        title: "Senior Backend Engineer",
+        kept: false,
+        judged_with: "2026-09-14T00:00:00Z",
+      }),
+    ],
+    criteria: [criteria()],
+  });
+  const { readers } = wrappedForBoardA([]);
+
+  const result = await ingest(store, readers, { now: tickingClock(), today: MONDAY });
+
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.pruned, 0);
+  const rows = await store.select<Posting>("postings");
+  assert.deepEqual(
+    rows.map((row) => row.key),
+    ["greenhouse/board-a::a1"],
+  );
 });
 
 // A two-phase board stating pay only on its detail: `nopay` states none,
