@@ -250,19 +250,19 @@ const QUEUE_FLOOR = 150_000;
 const QUEUE_NOW = Date.parse("2026-09-15T12:00:00Z");
 
 test("orderedQueue with a floor sorts by score: a fresh band over the floor beats a stale richer one", () => {
-  // Top 300k = full pay 70, 120 days old = no freshness: 70.
+  // Top 300k = full pay 50, 120 days old = no freshness: 50.
   const staleRich = posting("a::1", {
     comp_low: 300_000,
     comp_high: 300_000,
     posted_at: "2026-05-18",
   });
-  // Top 180k = 28 pay, posted today = 30: 58.
+  // Top 180k = 40 pay, posted today = 15: 55.
   const freshModest = posting("b::1", {
     comp_low: 120_000,
     comp_high: 180_000,
     posted_at: "2026-09-15",
   });
-  // 70 + 30 = 100.
+  // 50 + 15 = 65.
   const freshRich = posting("c::1", {
     comp_low: 300_000,
     comp_high: 300_000,
@@ -270,12 +270,12 @@ test("orderedQueue with a floor sorts by score: a fresh band over the floor beat
   });
   assert.deepEqual(
     orderedQueue([freshModest, staleRich, freshRich], QUEUE_FLOOR, QUEUE_NOW).map((p) => p.key),
-    ["c::1", "a::1", "b::1"],
+    ["c::1", "b::1", "a::1"],
   );
 });
 
 test("orderedQueue with a floor breaks a score tie by midpoint, then posted_at", () => {
-  // Both 100; the wider band has the lower midpoint.
+  // Both 65; the wider band has the lower midpoint.
   const wide = posting("a::1", { comp_low: 150_000, comp_high: 225_000, posted_at: "2026-09-15" });
   const narrow = posting("b::1", {
     comp_low: 200_000,
@@ -295,19 +295,20 @@ test("orderedQueue with a floor puts a fresh unpriced posting under a fresh pric
     comp_high: 165_000,
     posted_at: "2026-09-15",
   });
-  // 20 + 30 = 50 against 14 + 30 = 44; at 180k (28 + 30) it would not win.
+  // 5 + 15 = 20 against 20 + 15 = 35: a band just over the floor outranks no band.
   assert.deepEqual(
     orderedQueue([unpriced, priced], QUEUE_FLOOR, QUEUE_NOW).map((p) => p.key),
-    ["a::1", "b::1"],
+    ["b::1", "a::1"],
   );
-  const pricedHigher = posting("c::1", {
+  // A band whose top is the floor scores no pay, under the unpriced 5.
+  const atFloor = posting("c::1", {
     comp_low: 150_000,
-    comp_high: 180_000,
+    comp_high: 150_000,
     posted_at: "2026-09-15",
   });
   assert.deepEqual(
-    orderedQueue([unpriced, pricedHigher], QUEUE_FLOOR, QUEUE_NOW).map((p) => p.key),
-    ["c::1", "a::1"],
+    orderedQueue([atFloor, unpriced], QUEUE_FLOOR, QUEUE_NOW).map((p) => p.key),
+    ["a::1", "c::1"],
   );
 });
 
@@ -573,34 +574,34 @@ test("appliedCountsByCompany counts a company's postings with a status, and excl
 const FLOOR = 150_000;
 const TODAY = Date.parse("2026-09-15T12:00:00Z");
 
-test("scoreOf at the floor, posted today, is the freshness alone: 30", () => {
+test("scoreOf at the floor, posted today, is the freshness alone: 15", () => {
   const p = posting("a::1", { comp_low: FLOOR, comp_high: FLOOR, posted_at: "2026-09-15" });
-  assert.equal(scoreOf(p, FLOOR, TODAY), 30);
+  assert.equal(scoreOf(p, FLOOR, TODAY), 15);
 });
 
-test("scoreOf at half again over the floor, 90 days old, is the pay alone: 70", () => {
-  const p = posting("a::1", { comp_low: 225_000, comp_high: 225_000, posted_at: "2026-06-17" });
-  assert.equal(scoreOf(p, FLOOR, TODAY), 70);
-});
-
-test("scoreOf at twice the floor, posted today, is still 100: pay is capped", () => {
-  const p = posting("a::1", { comp_low: 300_000, comp_high: 300_000, posted_at: "2026-09-15" });
-  assert.equal(scoreOf(p, FLOOR, TODAY), 100);
-});
-
-test("scoreOf halfway to full pay, 45 days old, is 35 + 15 = 50", () => {
-  const p = posting("a::1", { comp_low: 187_500, comp_high: 187_500, posted_at: "2026-08-01" });
+test("scoreOf at a quarter again over the floor, 90 days old, is the pay alone: 50", () => {
+  const p = posting("a::1", { comp_low: 187_500, comp_high: 187_500, posted_at: "2026-06-17" });
   assert.equal(scoreOf(p, FLOOR, TODAY), 50);
 });
 
-test("scoreOf with no band gets 20 of the pay marks, so 90 days old is 20", () => {
+test("scoreOf at twice the floor, posted today, is still 65 without a product title: pay is capped", () => {
+  const p = posting("a::1", { comp_low: 300_000, comp_high: 300_000, posted_at: "2026-09-15" });
+  assert.equal(scoreOf(p, FLOOR, TODAY), 65);
+});
+
+test("scoreOf halfway to full pay, 60 days old, is 25 + 5 = 30", () => {
+  const p = posting("a::1", { comp_low: 168_750, comp_high: 168_750, posted_at: "2026-07-17" });
+  assert.equal(scoreOf(p, FLOOR, TODAY), 30);
+});
+
+test("scoreOf with no band gets 5 of the pay marks, so 90 days old is 5", () => {
   const p = posting("a::1", {
     comp_low: null,
     comp_high: null,
     posted_at: null,
     first_seen: "2026-06-17T00:00:00Z",
   });
-  assert.equal(scoreOf(p, FLOOR, TODAY), 20);
+  assert.equal(scoreOf(p, FLOOR, TODAY), 5);
 });
 
 test("scoreOf reads age from first_seen when posted_at is missing", () => {
@@ -610,33 +611,38 @@ test("scoreOf reads age from first_seen when posted_at is missing", () => {
     posted_at: null,
     first_seen: "2026-09-05T00:00:00Z",
   });
-  // 30 × (1 − 10/90) = 26.67, rounded to 27.
-  assert.equal(scoreOf(p, FLOOR, TODAY), 27);
+  // 15 × (1 − 10/90) = 13.33, rounded to 13.
+  assert.equal(scoreOf(p, FLOOR, TODAY), 13);
 });
 
 test("scoreOf reads a top over full reach as full pay: the band is capped, not a bonus", () => {
   const p = posting("a::1", { comp_low: 200_000, comp_high: 250_000, posted_at: "2026-09-15" });
-  // Top 250k is past floor × 1.5: 70 + 30.
-  assert.equal(scoreOf(p, FLOOR, TODAY), 100);
+  // Top 250k is past floor × 1.25: 50 + 15.
+  assert.equal(scoreOf(p, FLOOR, TODAY), 65);
 });
 
 test("scoreOf reads the band's top, so a band straddling the floor scores its reach above it", () => {
   const p = posting("a::1", { comp_low: 120_000, comp_high: 180_000, posted_at: "2026-09-15" });
   // Midpoint 150k is the floor and would score 0; top 180k is 30k of the
-  // 75k reach: 70 × 0.4 = 28, plus 30 fresh.
-  assert.equal(scoreOf(p, FLOOR, TODAY), 58);
+  // 37.5k reach: 50 × 0.8 = 40, plus 15 fresh.
+  assert.equal(scoreOf(p, FLOOR, TODAY), 55);
 });
 
 test("scoreOf takes a lone comp_low as the band's top", () => {
   const p = posting("a::1", { comp_low: 180_000, comp_high: null, posted_at: "2026-09-15" });
-  assert.equal(scoreOf(p, FLOOR, TODAY), 58);
+  assert.equal(scoreOf(p, FLOOR, TODAY), 55);
 });
 
-// An empty product-words list (the column's seed) must change nothing.
-test("scoreOf with an empty product-words list equals today's score", () => {
-  const p = posting("a::1", { comp_low: 300_000, comp_high: 300_000, posted_at: "2026-09-15" });
+// An empty product-words list (the column's seed) adds no bonus.
+test("scoreOf with an empty product-words list is pay plus freshness", () => {
+  const p = posting("a::1", {
+    title: "Senior Product Engineer",
+    comp_low: 300_000,
+    comp_high: 300_000,
+    posted_at: "2026-09-15",
+  });
   assert.equal(scoreOf(p, FLOOR, TODAY, []), scoreOf(p, FLOOR, TODAY));
-  assert.equal(scoreOf(p, FLOOR, TODAY, []), 100);
+  assert.equal(scoreOf(p, FLOOR, TODAY, []), 65);
 });
 
 test("scoreOf with the list, a product title scores SHAPE_WEIGHT above the same posting with a non-product title", () => {
@@ -680,26 +686,14 @@ test("scoreOf matches a product word whole-word only, not as a substring of a lo
   );
 });
 
-test("scoreOf with a non-empty product-words list, base 70 fixture, product title scores 75", () => {
-  const productWords = ["product"];
+test("scoreOf with full pay, posted today and a product title is 50 + 15 + 35 = 100", () => {
   const p = posting("a::1", {
     title: "Senior Product Engineer",
     comp_low: 225_000,
     comp_high: 225_000,
-    posted_at: "2026-06-17",
+    posted_at: "2026-09-15",
   });
-  assert.equal(scoreOf(p, FLOOR, TODAY, productWords), 75);
-});
-
-test("scoreOf with a non-empty product-words list, base 70 fixture, non-product title scores 60", () => {
-  const productWords = ["product"];
-  const p = posting("a::1", {
-    title: "Senior Backend Engineer",
-    comp_low: 225_000,
-    comp_high: 225_000,
-    posted_at: "2026-06-17",
-  });
-  assert.equal(scoreOf(p, FLOOR, TODAY, productWords), 60);
+  assert.equal(scoreOf(p, FLOOR, TODAY, ["product"]), 100);
 });
 
 test("a card with no floor to read shows no score; one with a floor shows the tile", async () => {
