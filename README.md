@@ -160,9 +160,11 @@ his repository.
 
 Two ways, and both write the same single row.
 
-- `npm run criteria:load -- <file>` again. It replaces the row rather than
-  merging into it, so the file is the whole of your criteria every time.
 - The Criteria tab in the list. The next run reads the row the page wrote.
+- `npm run criteria:load -- --replace <file>`. It replaces the row rather
+  than merging into it, so the file is the whole of your criteria every time.
+  Without `--replace` the load refuses once a row exists: a file kept beside
+  the Criteria tab goes stale, and loading it would undo the tab's edits.
 
 Either way, every posting is re-judged against the current criteria on the
 next run. There is no backfill to run and no migration to write. A posting's
