@@ -284,10 +284,40 @@ test("remote: '- Remote (US)' affirms once the bullet is stripped", () => {
   assert.equal(remote.verdict, "in");
 });
 
-test("remote: 'work from home' affirms even in a bare benefits line", () => {
-  // An unconditional affirmation is read before anything else, so a line
-  // with no sentence shape to it still affirms.
-  assert.equal(remoteVerdict("Work from home equipment allowance").verdict, "in");
+test("remote: 'work from home' affirms on a line with no sentence shape", () => {
+  assert.equal(remoteVerdict("Work from home, anywhere in the US").verdict, "in");
+});
+
+test("remote: an allowance line is a perk, not the role's arrangement", () => {
+  // A hybrid posting listing "- Work from home allowance" among its
+  // benefits was kept on that line alone.
+  for (const body of ["- Work from home allowance", "Work from home equipment allowance"]) {
+    const remote = remoteVerdict(body);
+    assert.equal(remote.verdict, "out", body);
+    assert.equal(remote.detail, "body says nothing about remote", body);
+  }
+});
+
+test("remote: a hybrid role or office days stay a requirement when remote is only some days", () => {
+  // Hybrid postings were kept on the remote days alone.
+  const bodies = [
+    "This is a hybrid role based in Springfield, with 3+ days per week onsite and the option to work remotely on remaining days.",
+    "This role can be based in any of our US office locations and is a hybrid role with the flexibility to work remotely 2 days a week.",
+    "We expect three days a week in the office, and you can work remotely two days a week.",
+  ];
+  for (const body of bodies) {
+    const remote = remoteVerdict(body);
+    assert.equal(remote.verdict, "out", body);
+    assert.match(remote.detail, /^body requires office attendance/, body);
+  }
+});
+
+test("remote: remote with a hybrid option stays remote", () => {
+  // Remote is the role; the office is the option, and no day count follows "remote".
+  const remote = remoteVerdict(
+    "This is a remote role with the option to work hybrid if a commutable distance from our offices.",
+  );
+  assert.equal(remote.verdict, "in");
 });
 
 test("remote: 'work from the Office' sits one word from the affirmation phrase and states nothing", () => {
