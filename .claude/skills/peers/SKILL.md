@@ -20,10 +20,22 @@ through nothing else. Run every command from the repository root.
 **Nothing is recorded until James has chosen.** Step 5 is a stop: do not
 run `record`, and do not write the record file, before he answers.
 
+Every file this run writes, including any scratch file of your own, goes in
+one directory of its own, made before anything else:
+
+```sh
+mktemp -d /tmp/peers-$(date +%Y%m%d-%H%M%S)-XXXX
+```
+
+It prints the directory; `<run>` below is that path, written out in full in
+every command, since the shell keeps no variable between commands. Never
+write a fixed `/tmp` name: another session running this skill at the same
+time would overwrite it, and `record` would write that session's peers.
+
 ## 1. Read the seeds
 
 ```sh
-npm run --silent peers -- seeds > /tmp/peers-seeds.json
+npm run --silent peers -- seeds > <run>/seeds.json
 ```
 
 A nonzero exit stops here: show James its stderr. The file holds:
@@ -39,7 +51,7 @@ A nonzero exit stops here: show James its stderr. The file holds:
 resolved to a company, thousands of them, so do not read the file whole. Print the rest:
 
 ```sh
-node -e 'const file = require("/tmp/peers-seeds.json"); console.log(JSON.stringify(file.seeds, null, 2)); console.log(`known: ${file.known.length} names`)'
+node -e 'const file = require("<run>/seeds.json"); console.log(JSON.stringify(file.seeds, null, 2)); console.log(`known: ${file.known.length} names`)'
 ```
 
 When `seeds` is empty, say so and stop. When the skill was given a count
@@ -82,11 +94,11 @@ A peer with no `careers` field has `careers: null`.
 
 ## 4. Filter
 
-Write every peer name, in seed order, to `/tmp/peers-found.json` as a JSON
+Write every peer name, in seed order, to `<run>/found.json` as a JSON
 array of strings, then print the ones already known:
 
 ```sh
-node -e 'const key = (name) => name.toLowerCase().replace(/[^a-z0-9]/g, ""); const known = new Set(require("/tmp/peers-seeds.json").known.map(key)); for (const name of require("/tmp/peers-found.json")) if (known.has(key(name))) console.log(name)'
+node -e 'const key = (name) => name.toLowerCase().replace(/[^a-z0-9]/g, ""); const known = new Set(require("<run>/seeds.json").known.map(key)); for (const name of require("<run>/found.json")) if (known.has(key(name))) console.log(name)'
 ```
 
 Drop every peer that command prints. Then drop a peer whose name, compared
@@ -100,10 +112,10 @@ the one in the seeds file, exactly.
 
 Then look up the boards the researcher could not find. Write every
 remaining peer whose `url` is null and whose `careers` is not, as
-`[{ "name", "careers" }]`, to `/tmp/peers-lookup.json`, and run:
+`[{ "name", "careers" }]`, to `<run>/lookup.json`, and run:
 
 ```sh
-npm run --silent peers -- boards /tmp/peers-lookup.json
+npm run --silent peers -- boards <run>/lookup.json
 ```
 
 It reads each careers page as raw HTML and prints
@@ -147,7 +159,7 @@ An unresearched seed is never marked.
 
 ## 6. Record
 
-Write `/tmp/peers-record-<YYYYMMDD-HHMMSS>.json`:
+Write `<run>/record.json`:
 
 ```json
 {
@@ -159,7 +171,7 @@ Write `/tmp/peers-record-<YYYYMMDD-HHMMSS>.json`:
 Then:
 
 ```sh
-npm run --silent peers -- record /tmp/peers-record-<YYYYMMDD-HHMMSS>.json
+npm run --silent peers -- record <run>/record.json
 ```
 
 Relay its output verbatim. What it can say:
