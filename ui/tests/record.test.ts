@@ -196,7 +196,6 @@ test("RecordView shows the empty state when nothing is kept at all", async () =>
 });
 
 test("orderedRecord puts acted-on postings first, most recent act first, then the untouched by the queue's order", () => {
-  const now = Date.parse("2026-09-15T12:00:00Z");
   const oldAct = posting("a::1", { status: "applied", status_at: "2026-09-01T00:00:00Z" });
   const newAct = posting("b::1", { status: "closed", status_at: "2026-09-14T00:00:00Z" });
   const richUntouched = posting("c::1", {
@@ -210,13 +209,12 @@ test("orderedRecord puts acted-on postings first, most recent act first, then th
     posted_at: "2026-09-15",
   });
   assert.deepEqual(
-    orderedRecord([modestUntouched, oldAct, richUntouched, newAct], 150_000, now).map((p) => p.key),
+    orderedRecord([modestUntouched, oldAct, richUntouched, newAct], 150_000).map((p) => p.key),
     ["b::1", "a::1", "c::1", "d::1"],
   );
 });
 
 test("orderedRecord sorts every row by score or by posted date when asked, acted-on or not", () => {
-  const now = Date.parse("2026-09-15T12:00:00Z");
   const richActed = posting("a::1", {
     status: "applied",
     status_at: "2026-09-01T00:00:00Z",
@@ -230,19 +228,18 @@ test("orderedRecord sorts every row by score or by posted date when asked, acted
     posted_at: "2026-09-15",
   });
   assert.deepEqual(
-    orderedRecord([modestNew, richActed], null, now, [], "score").map((p) => p.key),
+    orderedRecord([modestNew, richActed], null, [], "score").map((p) => p.key),
     ["a::1", "b::1"],
     "the richer band leads whatever its status",
   );
   assert.deepEqual(
-    orderedRecord([richActed, modestNew], null, now, [], "posted").map((p) => p.key),
+    orderedRecord([richActed, modestNew], null, [], "posted").map((p) => p.key),
     ["b::1", "a::1"],
     "the newer posting leads whatever its status",
   );
 });
 
 test("orderedRecord in the company view keeps every row, companies in the order their first row earned", () => {
-  const now = Date.parse("2026-09-15T12:00:00Z");
   const acmeOld = posting("acme::1", {
     company: "Acme",
     status: "applied",
@@ -260,7 +257,7 @@ test("orderedRecord in the company view keeps every row, companies in the order 
   });
   const acmeWaiting = posting("acme::3", { company: "Acme" });
   assert.deepEqual(
-    orderedRecord([acmeOld, bevel, acmeWaiting, acmeNew], null, now, [], "acted", "company").map(
+    orderedRecord([acmeOld, bevel, acmeWaiting, acmeNew], null, [], "acted", "company").map(
       (p) => p.key,
     ),
     ["acme::2", "acme::1", "acme::3", "bevel::1"],

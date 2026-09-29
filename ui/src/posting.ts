@@ -122,50 +122,45 @@ export function midpoint(posting: PostingSummary): number | null {
 }
 
 /*
- * Weights set from James's decisions (2026-09-29: 41 applied, 118 closed).
+ * Weights set from James's decisions (2026-09-29: 40 applied, 118 closed).
  * Pay alone ranks an applied posting over a closed one 67% of the time, a
- * product word in the title 61%, freshness 54%. Freshness is near constant:
- * the processor drops postings past `max_age_days` (35), so every row keeps
- * most of its marks. Full pay at 1.25 × floor: the apply rate climbs to 48%
- * between 1.25 and 1.5 × floor, but the shorter reach separates the rows just
- * above the floor, and ranked better (72% against 70%). The three weights
- * add up to 100; the score is their plain sum.
+ * product word in the title 61%. Age does not rank at all: James decides
+ * within a week and the processor drops postings past `max_age_days`, so
+ * freshness scored the same at weight 0, 15 or 30 (73%); the "By posted"
+ * sort covers age. Full pay at 1.25 × floor: the apply rate climbs to 48%
+ * between 1.25 and 1.5 × floor, but the shorter reach separates the rows
+ * just above the floor, and ranked better (72% against 70%). The two
+ * weights add up to 100; the score is their plain sum.
  */
-export const PAY_WEIGHT = 50;
-export const FRESHNESS_WEIGHT = 15;
-export const FRESH_DAYS = 90;
+export const PAY_WEIGHT = 60;
 /** Full pay marks at floor × (1 + PAY_REACH). */
 export const PAY_REACH = 0.25;
 /** Low: most unpriced rows are aggregator listings James closes (1 applied of 23). */
-export const UNPOSTED_PAY = 5;
+export const UNPOSTED_PAY = 6;
 /** A product word in the title: James applied to 38% of such rows, 19% of the rest. */
-export const SHAPE_WEIGHT = 35;
+export const SHAPE_WEIGHT = 40;
 
 /**
  * Score out of 100, shown on the card and the queue's default order.
  * `pay = PAY_WEIGHT × clamp((top − floor) / (floor × PAY_REACH), 0, 1)`,
- * UNPOSTED_PAY with no band; `freshness = FRESHNESS_WEIGHT × max(0, 1 −
- * ageDays / FRESH_DAYS)`; plus SHAPE_WEIGHT when the title carries a product
- * word whole-word. The top of the band, not the midpoint: the processor
- * admits a band when its top clears the floor, so a midpoint would score an
- * admitted band that straddles the floor at 0. Title only: the score orders,
- * never excludes.
+ * UNPOSTED_PAY with no band, plus SHAPE_WEIGHT when the title carries a
+ * product word whole-word. The top of the band, not the midpoint: the
+ * processor admits a band when its top clears the floor, so a midpoint would
+ * score an admitted band that straddles the floor at 0. Title only: the
+ * score orders, never excludes.
  */
 export function scoreOf(
   posting: PostingSummary,
   compFloor: number,
-  nowMs: number,
   productWords: readonly string[] = [],
 ): number {
   const pay = posting.comp_high ?? posting.comp_low;
   // A floor of 0 makes the ratio meaningless (0/0 is NaN); score it at the floor.
   const ratio = pay === null || compFloor <= 0 ? 0 : (pay - compFloor) / (compFloor * PAY_REACH);
   const payScore = pay === null ? UNPOSTED_PAY : PAY_WEIGHT * Math.max(0, Math.min(1, ratio));
-  const ageDays = daysBetween(posting.posted_at ?? posting.first_seen, nowMs);
-  const freshness = FRESHNESS_WEIGHT * Math.max(0, 1 - ageDays / FRESH_DAYS);
   const title = posting.title ?? "";
   const namesProduct = productWords.some((word) => findWholeWord(title, word) !== null);
-  return Math.round(payScore + freshness + (namesProduct ? SHAPE_WEIGHT : 0));
+  return Math.round(payScore + (namesProduct ? SHAPE_WEIGHT : 0));
 }
 
 export function formatComp(value: number): string {
@@ -366,9 +361,7 @@ export const PostingCard = defineComponent({
     const evidence = computed(() => evidenceLines(props.posting.evidence));
     const comp = computed(() => compLabel(props.posting));
     const score = computed(() =>
-      props.compFloor === null
-        ? null
-        : scoreOf(props.posting, props.compFloor, Date.now(), props.productWords),
+      props.compFloor === null ? null : scoreOf(props.posting, props.compFloor, props.productWords),
     );
     const age = computed(() => {
       // From the decision where there is one, from first_seen where not.
@@ -512,7 +505,7 @@ export const PostingCard = defineComponent({
             <span class="age" :title="ageTitle" v-if="age">{{ age }}</span>
             <span class="age posted-age" title="How long ago the board posted this" v-if="postedAge">{{ postedAge }}</span>
           </span>
-          <span class="score" v-if="score !== null" title="Pay against the floor, freshness, and whether the title names product work — out of 100">{{ score }}</span>
+          <span class="score" v-if="score !== null" title="Pay against the floor, and whether the title names product work — out of 100">{{ score }}</span>
         </button>
         <span class="acts">
           <a

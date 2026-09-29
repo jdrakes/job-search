@@ -247,35 +247,34 @@ test("decidedOutcome carries the posting's key and company and the whole patch j
 });
 
 const QUEUE_FLOOR = 150_000;
-const QUEUE_NOW = Date.parse("2026-09-15T12:00:00Z");
 
-test("orderedQueue with a floor sorts by score: a fresh band over the floor beats a stale richer one", () => {
-  // Top 300k = full pay 50, 120 days old = no freshness: 50.
+test("orderedQueue with a floor sorts by score, not age: a stale richer band beats a fresh modest one", () => {
+  // Top 300k = full pay: 60, however old.
   const staleRich = posting("a::1", {
     comp_low: 300_000,
     comp_high: 300_000,
     posted_at: "2026-05-18",
   });
-  // Top 180k = 40 pay, posted today = 15: 55.
+  // Top 180k = 48, posted today.
   const freshModest = posting("b::1", {
     comp_low: 120_000,
     comp_high: 180_000,
     posted_at: "2026-09-15",
   });
-  // 50 + 15 = 65.
+  // 60, tied with staleRich: the tie goes to the newer posting.
   const freshRich = posting("c::1", {
     comp_low: 300_000,
     comp_high: 300_000,
     posted_at: "2026-09-15",
   });
   assert.deepEqual(
-    orderedQueue([freshModest, staleRich, freshRich], QUEUE_FLOOR, QUEUE_NOW).map((p) => p.key),
-    ["c::1", "b::1", "a::1"],
+    orderedQueue([freshModest, staleRich, freshRich], QUEUE_FLOOR).map((p) => p.key),
+    ["c::1", "a::1", "b::1"],
   );
 });
 
 test("orderedQueue with a floor breaks a score tie by midpoint, then posted_at", () => {
-  // Both 65; the wider band has the lower midpoint.
+  // Both 60; the wider band has the lower midpoint.
   const wide = posting("a::1", { comp_low: 150_000, comp_high: 225_000, posted_at: "2026-09-15" });
   const narrow = posting("b::1", {
     comp_low: 200_000,
@@ -283,7 +282,7 @@ test("orderedQueue with a floor breaks a score tie by midpoint, then posted_at",
     posted_at: "2026-09-15",
   });
   assert.deepEqual(
-    orderedQueue([wide, narrow], QUEUE_FLOOR, QUEUE_NOW).map((p) => p.key),
+    orderedQueue([wide, narrow], QUEUE_FLOOR).map((p) => p.key),
     ["b::1", "a::1"],
   );
 });
@@ -295,19 +294,19 @@ test("orderedQueue with a floor puts a fresh unpriced posting under a fresh pric
     comp_high: 165_000,
     posted_at: "2026-09-15",
   });
-  // 5 + 15 = 20 against 20 + 15 = 35: a band just over the floor outranks no band.
+  // 6 against 24: a band just over the floor outranks no band.
   assert.deepEqual(
-    orderedQueue([unpriced, priced], QUEUE_FLOOR, QUEUE_NOW).map((p) => p.key),
+    orderedQueue([unpriced, priced], QUEUE_FLOOR).map((p) => p.key),
     ["b::1", "a::1"],
   );
-  // A band whose top is the floor scores no pay, under the unpriced 5.
+  // A band whose top is the floor scores 0, under the unpriced 6.
   const atFloor = posting("c::1", {
     comp_low: 150_000,
     comp_high: 150_000,
     posted_at: "2026-09-15",
   });
   assert.deepEqual(
-    orderedQueue([atFloor, unpriced], QUEUE_FLOOR, QUEUE_NOW).map((p) => p.key),
+    orderedQueue([atFloor, unpriced], QUEUE_FLOOR).map((p) => p.key),
     ["a::1", "c::1"],
   );
 });
@@ -316,7 +315,7 @@ test("orderedQueue without a floor sorts by comp-band midpoint, highest first", 
   const low = posting("a::1", { comp_low: 100_000, comp_high: 100_000 });
   const high = posting("b::1", { comp_low: 300_000, comp_high: 300_000 });
   assert.deepEqual(
-    orderedQueue([low, high], null, QUEUE_NOW).map((p) => p.key),
+    orderedQueue([low, high], null).map((p) => p.key),
     ["b::1", "a::1"],
   );
 });
@@ -333,7 +332,7 @@ test("orderedQueue without a floor breaks a midpoint tie by posted_at, most rece
     posted_at: "2026-09-10T00:00:00Z",
   });
   assert.deepEqual(
-    orderedQueue([older, newer], null, QUEUE_NOW).map((p) => p.key),
+    orderedQueue([older, newer], null).map((p) => p.key),
     ["b::1", "a::1"],
   );
 });
@@ -346,7 +345,7 @@ test("orderedQueue without a floor sinks a posting with no comp band to the floo
   });
   const modest = posting("b::1", { comp_low: 1, comp_high: 1, posted_at: "2020-01-01T00:00:00Z" });
   assert.deepEqual(
-    orderedQueue([noBand, modest], null, QUEUE_NOW).map((p) => p.key),
+    orderedQueue([noBand, modest], null).map((p) => p.key),
     ["b::1", "a::1"],
   );
 });
@@ -357,7 +356,7 @@ test("orderedQueue with order 'posted' sorts newest first and sinks a posting wi
   const noDate = posting("c::1", { posted_at: null, comp_low: 500_000, comp_high: 500_000 });
   // A richer band on the undated row must not move it off the bottom.
   assert.deepEqual(
-    orderedQueue([older, noDate, newer], null, QUEUE_NOW, [], "posted").map((p) => p.key),
+    orderedQueue([older, noDate, newer], null, [], "posted").map((p) => p.key),
     ["b::1", "a::1", "c::1"],
   );
   // Same day falls back to the (floorless) score order.
@@ -372,7 +371,7 @@ test("orderedQueue with order 'posted' sorts newest first and sinks a posting wi
     comp_high: 300_000,
   });
   assert.deepEqual(
-    orderedQueue([sameDayLow, sameDayHigh], null, QUEUE_NOW, [], "posted").map((p) => p.key),
+    orderedQueue([sameDayLow, sameDayHigh], null, [], "posted").map((p) => p.key),
     ["e::1", "d::1"],
   );
 });
@@ -420,12 +419,12 @@ const CIRRUS_APPLIED = posting("cirrus::applied", {
 test("orderedQueue in the company view pulls a company's rows together under the place its best posting earned", () => {
   const scattered = [ACME_LOW, BEVEL_MID, ACME_TOP];
   assert.deepEqual(
-    orderedQueue(scattered, null, QUEUE_NOW).map((p) => p.key),
+    orderedQueue(scattered, null).map((p) => p.key),
     ["acme::top", "bevel::mid", "acme::low"],
     "the score order interleaves the two companies",
   );
   assert.deepEqual(
-    orderedQueue(scattered, null, QUEUE_NOW, [], "score", "company").map((p) => p.key),
+    orderedQueue(scattered, null, [], "score", "company").map((p) => p.key),
     ["acme::top", "acme::low", "bevel::mid"],
     "Acme leads on its best posting, and its own rows stay in score order",
   );
@@ -433,20 +432,13 @@ test("orderedQueue in the company view pulls a company's rows together under the
 
 test("orderedQueue in the company view returns one flat array holding every posting exactly once", () => {
   // The flat array is what `resolveSelection`/`nextSelection` index into.
-  const grouped = orderedQueue(
-    [ACME_LOW, BEVEL_MID, ACME_TOP],
-    null,
-    QUEUE_NOW,
-    [],
-    "score",
-    "company",
-  );
+  const grouped = orderedQueue([ACME_LOW, BEVEL_MID, ACME_TOP], null, [], "score", "company");
   assert.deepEqual([...grouped].map((p) => p.key).sort(), ["acme::low", "acme::top", "bevel::mid"]);
 });
 
 test("orderedQueue in the company view follows a company's waiting rows with its history, most recent act first", () => {
   assert.deepEqual(
-    orderedQueue([ACME_LOW, BEVEL_MID, ACME_TOP], null, QUEUE_NOW, [], "score", "company", [
+    orderedQueue([ACME_LOW, BEVEL_MID, ACME_TOP], null, [], "score", "company", [
       ACME_APPLIED,
       ACME_CLOSED,
     ]).map((p) => p.key),
@@ -457,10 +449,9 @@ test("orderedQueue in the company view follows a company's waiting rows with its
 
 test("orderedQueue in the company view leaves out a company with nothing waiting, however much history it holds", () => {
   assert.deepEqual(
-    orderedQueue([BEVEL_MID], null, QUEUE_NOW, [], "score", "company", [
-      CIRRUS_APPLIED,
-      ACME_APPLIED,
-    ]).map((p) => p.key),
+    orderedQueue([BEVEL_MID], null, [], "score", "company", [CIRRUS_APPLIED, ACME_APPLIED]).map(
+      (p) => p.key,
+    ),
     ["bevel::mid"],
     "neither Cirrus nor Acme opens a group of its own",
   );
@@ -469,9 +460,7 @@ test("orderedQueue in the company view leaves out a company with nothing waiting
 test("orderedQueue reads the acted-on postings in the company order alone", () => {
   for (const order of ["score", "posted"] as const) {
     assert.deepEqual(
-      orderedQueue([ACME_TOP], null, QUEUE_NOW, [], order, "list", [ACME_APPLIED]).map(
-        (p) => p.key,
-      ),
+      orderedQueue([ACME_TOP], null, [], order, "list", [ACME_APPLIED]).map((p) => p.key),
       ["acme::top"],
       `the ${order} order shows no history`,
     );
@@ -572,77 +561,75 @@ test("appliedCountsByCompany counts a company's postings with a status, and excl
 });
 
 const FLOOR = 150_000;
-const TODAY = Date.parse("2026-09-15T12:00:00Z");
 
-test("scoreOf at the floor, posted today, is the freshness alone: 15", () => {
+test("scoreOf at the floor is 0: no pay marks, and age is not scored", () => {
   const p = posting("a::1", { comp_low: FLOOR, comp_high: FLOOR, posted_at: "2026-09-15" });
-  assert.equal(scoreOf(p, FLOOR, TODAY), 15);
+  assert.equal(scoreOf(p, FLOOR), 0);
 });
 
-test("scoreOf at a quarter again over the floor, 90 days old, is the pay alone: 50", () => {
+test("scoreOf at a quarter again over the floor is full pay: 60", () => {
   const p = posting("a::1", { comp_low: 187_500, comp_high: 187_500, posted_at: "2026-06-17" });
-  assert.equal(scoreOf(p, FLOOR, TODAY), 50);
+  assert.equal(scoreOf(p, FLOOR), 60);
 });
 
-test("scoreOf at twice the floor, posted today, is still 65 without a product title: pay is capped", () => {
+test("scoreOf at twice the floor is still 60 without a product title: pay is capped", () => {
   const p = posting("a::1", { comp_low: 300_000, comp_high: 300_000, posted_at: "2026-09-15" });
-  assert.equal(scoreOf(p, FLOOR, TODAY), 65);
+  assert.equal(scoreOf(p, FLOOR), 60);
 });
 
-test("scoreOf halfway to full pay, 60 days old, is 25 + 5 = 30", () => {
+test("scoreOf halfway to full pay is 30", () => {
   const p = posting("a::1", { comp_low: 168_750, comp_high: 168_750, posted_at: "2026-07-17" });
-  assert.equal(scoreOf(p, FLOOR, TODAY), 30);
+  assert.equal(scoreOf(p, FLOOR), 30);
 });
 
-test("scoreOf with no band gets 5 of the pay marks, so 90 days old is 5", () => {
+test("scoreOf with no band gets 6 of the pay marks", () => {
   const p = posting("a::1", {
     comp_low: null,
     comp_high: null,
     posted_at: null,
     first_seen: "2026-06-17T00:00:00Z",
   });
-  assert.equal(scoreOf(p, FLOOR, TODAY), 5);
+  assert.equal(scoreOf(p, FLOOR), 6);
 });
 
-test("scoreOf reads age from first_seen when posted_at is missing", () => {
-  const p = posting("a::1", {
-    comp_low: FLOOR,
-    comp_high: FLOOR,
-    posted_at: null,
-    first_seen: "2026-09-05T00:00:00Z",
+test("scoreOf ignores age: an old posting scores the same as a new one", () => {
+  const old = posting("a::1", { comp_low: 180_000, comp_high: 180_000, posted_at: "2020-01-01" });
+  const recent = posting("a::1", {
+    comp_low: 180_000,
+    comp_high: 180_000,
+    posted_at: "2026-09-15",
   });
-  // 15 × (1 − 10/90) = 13.33, rounded to 13.
-  assert.equal(scoreOf(p, FLOOR, TODAY), 13);
+  assert.equal(scoreOf(old, FLOOR), scoreOf(recent, FLOOR));
 });
 
 test("scoreOf reads a top over full reach as full pay: the band is capped, not a bonus", () => {
   const p = posting("a::1", { comp_low: 200_000, comp_high: 250_000, posted_at: "2026-09-15" });
-  // Top 250k is past floor × 1.25: 50 + 15.
-  assert.equal(scoreOf(p, FLOOR, TODAY), 65);
+  // Top 250k is past floor × 1.25.
+  assert.equal(scoreOf(p, FLOOR), 60);
 });
 
 test("scoreOf reads the band's top, so a band straddling the floor scores its reach above it", () => {
   const p = posting("a::1", { comp_low: 120_000, comp_high: 180_000, posted_at: "2026-09-15" });
   // Midpoint 150k is the floor and would score 0; top 180k is 30k of the
-  // 37.5k reach: 50 × 0.8 = 40, plus 15 fresh.
-  assert.equal(scoreOf(p, FLOOR, TODAY), 55);
+  // 37.5k reach: 60 × 0.8 = 48.
+  assert.equal(scoreOf(p, FLOOR), 48);
 });
 
 test("scoreOf takes a lone comp_low as the band's top", () => {
   const p = posting("a::1", { comp_low: 180_000, comp_high: null, posted_at: "2026-09-15" });
-  assert.equal(scoreOf(p, FLOOR, TODAY), 55);
+  assert.equal(scoreOf(p, FLOOR), 48);
 });
 
 // An empty product-words list (the column's seed) adds no bonus.
-test("scoreOf with an empty product-words list is pay plus freshness", () => {
+test("scoreOf with an empty product-words list is the pay alone", () => {
   const p = posting("a::1", {
     title: "Senior Product Engineer",
     comp_low: 300_000,
     comp_high: 300_000,
     posted_at: "2026-09-15",
   });
-  assert.equal(scoreOf(p, FLOOR, TODAY, []), scoreOf(p, FLOOR, TODAY));
-  assert.equal(scoreOf(p, FLOOR, TODAY, []), 65);
+  assert.equal(scoreOf(p, FLOOR, []), scoreOf(p, FLOOR));
+  assert.equal(scoreOf(p, FLOOR, []), 60);
 });
 
 test("scoreOf with the list, a product title scores SHAPE_WEIGHT above the same posting with a non-product title", () => {
@@ -651,16 +638,14 @@ test("scoreOf with the list, a product title scores SHAPE_WEIGHT above the same 
     title: "Senior Product Engineer",
     comp_low: 225_000,
     comp_high: 225_000,
-    posted_at: "2026-06-17",
   });
   const nonProduct = posting("a::1", {
     title: "Senior Backend Engineer",
     comp_low: 225_000,
     comp_high: 225_000,
-    posted_at: "2026-06-17",
   });
   assert.equal(
-    scoreOf(product, FLOOR, TODAY, productWords) - scoreOf(nonProduct, FLOOR, TODAY, productWords),
+    scoreOf(product, FLOOR, productWords) - scoreOf(nonProduct, FLOOR, productWords),
     SHAPE_WEIGHT,
   );
 });
@@ -672,28 +657,25 @@ test("scoreOf matches a product word whole-word only, not as a substring of a lo
     title: "Production Engineer",
     comp_low: 225_000,
     comp_high: 225_000,
-    posted_at: "2026-06-17",
   });
   const wholeWord = posting("a::1", {
     title: "Product Engineer",
     comp_low: 225_000,
     comp_high: 225_000,
-    posted_at: "2026-06-17",
   });
   assert.equal(
-    scoreOf(wholeWord, FLOOR, TODAY, productWords) - scoreOf(substring, FLOOR, TODAY, productWords),
+    scoreOf(wholeWord, FLOOR, productWords) - scoreOf(substring, FLOOR, productWords),
     SHAPE_WEIGHT,
   );
 });
 
-test("scoreOf with full pay, posted today and a product title is 50 + 15 + 35 = 100", () => {
+test("scoreOf with full pay and a product title is 60 + 40 = 100", () => {
   const p = posting("a::1", {
     title: "Senior Product Engineer",
     comp_low: 225_000,
     comp_high: 225_000,
-    posted_at: "2026-09-15",
   });
-  assert.equal(scoreOf(p, FLOOR, TODAY, ["product"]), 100);
+  assert.equal(scoreOf(p, FLOOR, ["product"]), 100);
 });
 
 test("a card with no floor to read shows no score; one with a floor shows the tile", async () => {
@@ -1171,7 +1153,7 @@ test("QueueView renders in score order when it has a floor", async () => {
     accessToken: ACCESS_TOKEN,
     compFloor: 150_000,
   });
-  assert.ok(html.indexOf("Fresh") < html.indexOf("Stale"), "fresh first by score");
+  assert.ok(html.indexOf("Fresh") < html.indexOf("Stale"), "a score tie goes to the newer posting");
 });
 
 test("QueueView renders in midpoint order with an unposted band at the floor when there is no floor", async () => {
@@ -1416,9 +1398,7 @@ test("the company view with 'Newest first' orders companies by their newest wait
   const acmeNew = posting("acme::new", { company: "Acme", posted_at: "2026-09-10" });
   const bevelMid = posting("bevel::mid", { company: "Bevel", posted_at: "2026-09-05" });
   assert.deepEqual(
-    orderedQueue([acmeOld, bevelMid, acmeNew], null, QUEUE_NOW, [], "posted", "company").map(
-      (p) => p.key,
-    ),
+    orderedQueue([acmeOld, bevelMid, acmeNew], null, [], "posted", "company").map((p) => p.key),
     ["acme::new", "acme::old", "bevel::mid"],
   );
 });
@@ -1611,13 +1591,13 @@ test("the pane's successor after a decision is the row the grouped list reads ne
   // need a real `classList` the object-tree renderer has none of.
   const postings = [ACME_LOW, BEVEL_MID, ACME_TOP];
   const grouped = useMasterDetail(
-    computed(() => orderedQueue(postings, null, QUEUE_NOW, [], "score", "company")),
+    computed(() => orderedQueue(postings, null, [], "score", "company")),
   );
   grouped.selectedKey.value = "acme::top";
   grouped.advanceSelection("acme::top");
   assert.equal(grouped.selectedKey.value, "acme::low");
 
-  const byScore = useMasterDetail(computed(() => orderedQueue(postings, null, QUEUE_NOW)));
+  const byScore = useMasterDetail(computed(() => orderedQueue(postings, null)));
   byScore.selectedKey.value = "acme::top";
   byScore.advanceSelection("acme::top");
   assert.equal(byScore.selectedKey.value, "bevel::mid", "where the score order would have gone");
@@ -1628,9 +1608,7 @@ test("deciding a company's last waiting row sends the pane to that company's his
   // moves Applied to Interviewing on.
   const grouped = useMasterDetail(
     computed(() =>
-      orderedQueue([ACME_LOW, BEVEL_MID, ACME_TOP], null, QUEUE_NOW, [], "score", "company", [
-        ACME_APPLIED,
-      ]),
+      orderedQueue([ACME_LOW, BEVEL_MID, ACME_TOP], null, [], "score", "company", [ACME_APPLIED]),
     ),
   );
   grouped.selectedKey.value = "acme::low";
@@ -2443,7 +2421,7 @@ test("narrowing composes: the rows the queue would show are the ordering of what
     ["acme::top", "acme::low"],
   );
 
-  const rows = queueRows(orderedQueue(matching, null, Date.now(), [], "score", "company"), true);
+  const rows = queueRows(orderedQueue(matching, null, [], "score", "company"), true);
   const heads = rows.filter((row) => row.head !== null).map((row) => row.head?.company);
   assert.deepEqual(heads, ["Acme"], "only the matching company opens a group");
   assert.equal(
@@ -2528,9 +2506,7 @@ test("a company's group closes when its last waiting row is decided, taking its 
   });
   const other = posting("bevel::1", { company: "Bevel", title: "Bevel role" });
 
-  const before = orderedQueue([waiting, other], null, Date.now(), [], "score", "company", [
-    history,
-  ]);
+  const before = orderedQueue([waiting, other], null, [], "score", "company", [history]);
   assert.deepEqual(
     before.map((each) => each.key),
     ["acme::last", "acme::done", "bevel::1"],
@@ -2539,7 +2515,7 @@ test("a company's group closes when its last waiting row is decided, taking its 
   assert.equal(nextSelection(before, "acme::last"), "acme::done");
 
   // Acme has nothing waiting, so the whole group goes.
-  const after = orderedQueue([other], null, Date.now(), [], "score", "company", [history]);
+  const after = orderedQueue([other], null, [], "score", "company", [history]);
   assert.deepEqual(
     after.map((each) => each.key),
     ["bevel::1"],

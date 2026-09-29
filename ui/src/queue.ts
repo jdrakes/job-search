@@ -55,12 +55,11 @@ function compareMidpoint(a: PostingSummary, b: PostingSummary): number {
 function compareByScore(
   postings: readonly PostingSummary[],
   compFloor: number | null,
-  nowMs: number,
   productWords: readonly string[],
 ): (a: PostingSummary, b: PostingSummary) => number {
   if (compFloor === null) return compareMidpoint;
   const scores = new Map(
-    postings.map((posting) => [posting.key, scoreOf(posting, compFloor, nowMs, productWords)]),
+    postings.map((posting) => [posting.key, scoreOf(posting, compFloor, productWords)]),
   );
   return (a, b) => {
     const diff = (scores.get(b.key) ?? 0) - (scores.get(a.key) ?? 0);
@@ -82,10 +81,9 @@ export function sortedPostings(
   postings: readonly PostingSummary[],
   sort: Sort,
   compFloor: number | null,
-  nowMs: number,
   productWords: readonly string[] = [],
 ): PostingSummary[] {
-  const byScore = compareByScore(postings, compFloor, nowMs, productWords);
+  const byScore = compareByScore(postings, compFloor, productWords);
   if (sort === "score") return [...postings].sort(byScore);
   if (sort === "acted") {
     const acted = postings.filter((posting) => posting.status_at !== null).sort(byMostRecentAct);
@@ -125,13 +123,12 @@ export function groupedByCompany(
 export function orderedQueue(
   postings: readonly PostingSummary[],
   compFloor: number | null,
-  nowMs: number,
   productWords: readonly string[] = [],
   sort: Sort = "score",
   view: ListView = "list",
   acted: readonly PostingSummary[] = [],
 ): PostingSummary[] {
-  const sorted = sortedPostings(postings, sort, compFloor, nowMs, productWords);
+  const sorted = sortedPostings(postings, sort, compFloor, productWords);
   return view === "company" ? groupedByCompany(sorted, acted) : sorted;
 }
 
@@ -371,7 +368,6 @@ export const QueueView = defineComponent({
       orderedQueue(
         waiting.value,
         props.compFloor,
-        Date.now(),
         props.productWords,
         sort.value,
         view.value,
