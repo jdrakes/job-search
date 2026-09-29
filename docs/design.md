@@ -219,7 +219,11 @@ elsewhere.
     a number. A referral, sign-on or retention bonus is not pay and does
     not count.
   - Required languages he does not have: a posting that requires one is
-    out; one that merely welcomes it is in.
+    out; one that merely welcomes it is in. A sentence that also names a
+    language he has requires none of the others in it, whatever its
+    wording: a stack described, a choice offered, or work spread across
+    several languages is in, since he brings one of them. A language
+    offered only as a bonus ("ideally also Python") is not one he brings.
 - The queue is ordered by each posting's score (see List), highest first;
   ties by the comp band's midpoint, unposted pay at the floor. James can
   sort it by posting date instead, newest first, to reach new postings
