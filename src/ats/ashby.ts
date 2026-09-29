@@ -79,11 +79,23 @@ const HOSTED_BOARD_QUERY =
   "jobBoard: jobBoardWithTeams(organizationHostedJobsPageName: $organizationHostedJobsPageName) " +
   "{ jobPostings { id title locationName workplaceType compensationTierSummary } } }";
 
-// The hosted board's postings as listings; null when the hosted page has no
-// such board. A reply with no `data` at all is an error, not an absent
-// board. The summary states the band ("$190K – $270K • Offers Equity").
+// The first message of a GraphQL reply's `errors`; null when it has none.
+// Ashby's error replies carry `data: null` or a null field beside `errors`,
+// so a null field means nothing until this is checked.
+function graphqlError(record: Record<string, unknown>): string | null {
+  const errors = asArray(record["errors"]);
+  if (errors.length === 0) return null;
+  return asText(asRecord(errors[0])["message"]) ?? "error with no message";
+}
+
+// The hosted board's postings as listings; null only when a reply with no
+// errors has a null board, which is how the hosted page says it has no such
+// board. A reply carrying errors, or with no `data` at all, throws. The
+// summary states the band ("$190K – $270K • Offers Equity").
 export function parseHostedBoard(reply: unknown, boardId: string): Listing[] | null {
   const record = asRecord(reply);
+  const error = graphqlError(record);
+  if (error !== null) throw new Error(`ashby hosted board: ${error}`);
   if (!("data" in record)) throw new Error("ashby hosted board: reply has no data");
   const jobBoard = asRecord(record["data"])["jobBoard"];
   if (jobBoard === null || jobBoard === undefined) return null;
@@ -114,11 +126,15 @@ const HOSTED_POSTING_QUERY =
   "jobPosting(organizationHostedJobsPageName: $organizationHostedJobsPageName, jobPostingId: $jobPostingId) " +
   "{ id title locationName workplaceType descriptionHtml compensationTierSummary } }";
 
-// One hosted posting as a listing; null when the posting has closed. A reply
-// with no `data` at all is an error, so the judge retries next run. The
-// summary's band wins over a band in the prose.
+// One hosted posting as a listing; null only when a reply with no errors
+// has a null posting, which is how a closed posting reads. A reply carrying
+// errors, or with no `data` at all, throws, so the judge retries next run
+// rather than judging the posting without text. The summary's band wins
+// over a band in the prose.
 export function parseHostedPosting(reply: unknown, boardId: string): Listing | null {
   const record = asRecord(reply);
+  const error = graphqlError(record);
+  if (error !== null) throw new Error(`ashby hosted posting: ${error}`);
   if (!("data" in record)) throw new Error("ashby hosted posting: reply has no data");
   const jobPosting = asRecord(record["data"])["jobPosting"];
   if (jobPosting === null || jobPosting === undefined) return null;

@@ -99,7 +99,16 @@ test("parseHostedBoard: each posting with an id, its band from the summary, no b
 
 test("parseHostedBoard: null for a board the hosted page lacks, a throw for a reply with no data", () => {
   assert.equal(parseHostedBoard({ data: { jobBoard: null } }, "contoso"), null);
-  assert.throws(() => parseHostedBoard({ errors: [{ message: "bad" }] }, "contoso"));
+  assert.throws(() => parseHostedBoard({}, "contoso"), /ashby hosted board: reply has no data/);
+});
+
+// Breaks if a GraphQL error reply with a null board reads as an absent
+// board: the 404 would stand and a live board would be marked gone.
+test("parseHostedBoard: a reply carrying errors throws with the first message", () => {
+  assert.throws(
+    () => parseHostedBoard({ data: { jobBoard: null }, errors: [{ message: "x" }] }, "contoso"),
+    /^Error: ashby hosted board: x$/,
+  );
 });
 
 // Breaks if a board whose public API is off is reported gone while its
@@ -192,9 +201,19 @@ test("parseHostedPosting: no summary falls back to the band in the text", () => 
 // with no data reads as closed (it would be judged without text).
 test("parseHostedPosting: null for a closed posting, a throw for a reply with no data", () => {
   assert.equal(parseHostedPosting({ data: { jobPosting: null } }, "contoso"), null);
+  assert.throws(() => parseHostedPosting({}, "contoso"), /ashby hosted posting: reply has no data/);
+});
+
+// Breaks if a GraphQL error reply reads as a closed posting: the judge
+// would judge it without text and never retry.
+test("parseHostedPosting: a reply carrying errors throws with the first message, data null or not", () => {
   assert.throws(
-    () => parseHostedPosting({ errors: [{ message: "bad" }] }, "contoso"),
-    /ashby hosted posting: reply has no data/,
+    () => parseHostedPosting({ data: null, errors: [{ message: "x" }] }, "contoso"),
+    /^Error: ashby hosted posting: x$/,
+  );
+  assert.throws(
+    () => parseHostedPosting({ data: { jobPosting: null }, errors: [{ message: "x" }] }, "contoso"),
+    /^Error: ashby hosted posting: x$/,
   );
 });
 
