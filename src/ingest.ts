@@ -161,11 +161,20 @@ function toRow(
   // nothing to compare against, or the comparison cannot be trusted.
   // `platform` and `board` are not compared: `key` is built from them.
   // `locations` is already deterministically sorted and deduped
-  // (`dedupeOffices`), so the same office set always serializes identically
-  // and a plain string comparison is sufficient — no need for a deep-equal
-  // helper.
+  // (`dedupeOffices`), so the same office set is always in the same order.
+  // Comparison is still element-by-element, not `JSON.stringify`: Postgres
+  // jsonb does not preserve object key order (it normalizes by key length
+  // then alphabetically), so a `{name, url}` object read back from a real
+  // row can come back as `{url, name}`, and a string comparison would never
+  // match once a row has round-tripped through the store.
   const sameLocations =
-    stored !== undefined && JSON.stringify(stored.locations) === JSON.stringify(fields.locations);
+    stored !== undefined &&
+    stored.locations.length === fields.locations.length &&
+    stored.locations.every(
+      (office, index) =>
+        office.name === fields.locations[index]?.name &&
+        office.url === fields.locations[index]?.url,
+    );
   const fieldsChanged =
     stored === undefined ||
     stored.company !== company ||

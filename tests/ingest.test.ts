@@ -12,7 +12,15 @@ import {
   type IngestResult,
 } from "../src/ingest.ts";
 import { HttpError } from "../src/net/http.ts";
-import type { Candidate, Company, Criteria, Platform, Posting, Table } from "../src/schema.ts";
+import type {
+  Candidate,
+  Company,
+  Criteria,
+  Office,
+  Platform,
+  Posting,
+  Table,
+} from "../src/schema.ts";
 import { memoryStore } from "../src/store/memory.ts";
 import type { Store } from "../src/store/store.ts";
 
@@ -4011,6 +4019,21 @@ test("ingest: a re-listed posting whose locations alone changed is written", asy
   assert.deepEqual(written?.["locations"], [
     { name: "Remote, US", url: "https://example.com/same" },
   ]);
+});
+
+// Breaks if `sameLocations` goes back to `JSON.stringify` equality: Postgres
+// jsonb does not preserve object key order, so a stored office can come back
+// with its keys in a different order than `toRow` would produce. The
+// in-memory store returns objects exactly as written, so this is the only
+// way to catch that class of bug.
+test("ingest: a stored office with its keys in the opposite order is not treated as changed", async () => {
+  const reorderedOffice = { url: "https://example.com/same", name: "Remote, US" } as Office;
+  const { written } = await relist(
+    [unchangedStored({ locations: [reorderedOffice] })],
+    unchangedListing(),
+  );
+
+  assert.equal(written, undefined);
 });
 
 // Breaks if `toRow` stops writing `locations` from the grouped listing, or
