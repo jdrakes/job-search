@@ -28,6 +28,7 @@ import {
   type Candidate,
   type Company,
   type Criteria,
+  type Office,
   type Platform,
   type Posting,
   type Status,
@@ -685,13 +686,6 @@ interface ListedCompany {
   readonly rejected: ReadonlySet<string>;
   readonly errors: readonly string[];
   readonly gone: readonly GoneBoard[];
-}
-
-// One office a requisition is posted under: its board-stated name (usually
-// a location) and its own apply link.
-export interface Office {
-  readonly name: string | null;
-  readonly url: string | null;
 }
 
 // `null` sorts last; two `null`s (or two equal strings) keep their relative

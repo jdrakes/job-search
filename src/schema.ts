@@ -51,6 +51,15 @@ export function postingKey(board: Board, id: string): string {
   return `${board.platform}/${board.id}::${id}`;
 }
 
+// One office a requisition is posted under: its board-stated name (usually
+// a location) and its own apply link. Lifted out of ingest.ts (which builds
+// these) so the UI can also name the shape a `postings.locations` row
+// carries, without a second, drifting declaration.
+export interface Office {
+  readonly name: string | null;
+  readonly url: string | null;
+}
+
 // snake_case, matching the columns one for one: the same array is checked
 // against this interface's keys and the migration's column list.
 export interface Posting {
@@ -81,6 +90,10 @@ export interface Posting {
   // When a board's successful read first stopped listing the posting; null
   // while its latest successful read lists it (`listCompany`, ingest.ts).
   readonly gone_at: string | null;
+  // Every office the primary's requisition is posted under (`groupByRequisition`,
+  // ingest.ts); a singleton array for a posting with no requisition concept
+  // (every platform but Greenhouse) or a Greenhouse req posted once.
+  readonly locations: readonly Office[];
 }
 
 export const POSTING_FIELDS = [
@@ -107,6 +120,7 @@ export const POSTING_FIELDS = [
   "body_hash",
   "workplace",
   "gone_at",
+  "locations",
 ] as const satisfies readonly (keyof Posting)[];
 
 // Never the body: most of the bytes, on a page that renders the evidence.
