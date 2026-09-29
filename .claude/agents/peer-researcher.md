@@ -141,6 +141,7 @@ after it, no code fence.
 
   and `Pay: not stated` when no posting there states it. Do not name the
   seed in `evidence`; the skill adds it.
+
 - For a peer whose board you could not find, `evidence` is exactly:
 
   `Peer: <same market, stage or customer, in a few words> (<url>). Board: not found; role, remote and pay not verified`
