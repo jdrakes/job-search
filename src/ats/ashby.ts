@@ -3,7 +3,14 @@
 // widest range across every annual-US-dollar `Salary` component of every
 // tier; which figure is base and which on-target is the processor's
 // judgment. Another currency or period is not read (`isUsd`, ats.ts).
-import { getJson, htmlToText, type HttpOptions } from "../net/http.ts";
+//
+// A company can turn the public API off (it answers 404) while its hosted
+// board stays up. That board is read through the GraphQL endpoint the hosted
+// page itself calls, list only: one request per board. The list states no
+// description and no date, so these postings are judged without text (issue
+// #47 tracks whether they need a per-posting read). A board the hosted page
+// does not have either keeps the API's 404, so it is still `gone`.
+import { getJson, HttpError, htmlToText, postJson, type HttpOptions } from "../net/http.ts";
 import type { Board } from "../schema.ts";
 import {
   asArray,
@@ -63,11 +70,73 @@ export function parseAshby(data: unknown): Listing[] {
   return asArray(asRecord(data)["jobs"]).map(toListing);
 }
 
-async function list(board: Board, options?: HttpOptions): Promise<Listing[]> {
-  const data = await getJson<unknown>(
-    `https://api.ashbyhq.com/posting-api/job-board/${board.id}?includeCompensation=true`,
+const HOSTED_GRAPHQL = "https://jobs.ashbyhq.com/api/non-user-graphql";
+
+const HOSTED_BOARD_QUERY =
+  "query ApiJobBoardWithTeams($organizationHostedJobsPageName: String!) { " +
+  "jobBoard: jobBoardWithTeams(organizationHostedJobsPageName: $organizationHostedJobsPageName) " +
+  "{ jobPostings { id title locationName workplaceType compensationTierSummary } } }";
+
+// The hosted board's postings as listings; null when the hosted page has no
+// such board. A reply with no `data` at all is an error, not an absent
+// board. The summary states the band ("$190K – $270K • Offers Equity").
+export function parseHostedBoard(reply: unknown, boardId: string): Listing[] | null {
+  const record = asRecord(reply);
+  if (!("data" in record)) throw new Error("ashby hosted board: reply has no data");
+  const jobBoard = asRecord(record["data"])["jobBoard"];
+  if (jobBoard === null || jobBoard === undefined) return null;
+  const listings: Listing[] = [];
+  for (const raw of asArray(asRecord(jobBoard)["jobPostings"])) {
+    const posting = asRecord(raw);
+    const id = asText(posting["id"]);
+    if (id === null) continue;
+    const comp = compInText(asText(posting["compensationTierSummary"]) ?? "");
+    listings.push({
+      id,
+      title: asText(posting["title"]),
+      url: `https://jobs.ashbyhq.com/${boardId}/${id}`,
+      location: asText(posting["locationName"]),
+      compLow: comp?.compLow ?? null,
+      compHigh: comp?.compHigh ?? null,
+      postedAt: null,
+      body: null,
+      workplace: workplaceOf(posting["workplaceType"]),
+      requisitionId: null,
+    });
+  }
+  return listings;
+}
+
+async function listHosted(
+  board: Board,
+  refused: HttpError,
+  options?: HttpOptions,
+): Promise<Listing[]> {
+  const reply = await postJson<unknown>(
+    `${HOSTED_GRAPHQL}?op=ApiJobBoardWithTeams`,
+    {
+      operationName: "ApiJobBoardWithTeams",
+      variables: { organizationHostedJobsPageName: board.id },
+      query: HOSTED_BOARD_QUERY,
+    },
     options,
   );
+  const listings = parseHostedBoard(reply, board.id);
+  if (listings === null) throw refused;
+  return listings;
+}
+
+async function list(board: Board, options?: HttpOptions): Promise<Listing[]> {
+  let data: unknown;
+  try {
+    data = await getJson<unknown>(
+      `https://api.ashbyhq.com/posting-api/job-board/${board.id}?includeCompensation=true`,
+      options,
+    );
+  } catch (err) {
+    if (err instanceof HttpError && err.status === 404) return listHosted(board, err, options);
+    throw err;
+  }
   return parseAshby(data);
 }
 
