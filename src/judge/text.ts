@@ -75,6 +75,7 @@ const PERK_SIGNALS = [
   "paid time off",
   "pto",
   "insurance",
+  "allowance",
 ] as const;
 
 const UNCONDITIONAL_REMOTE_AFFIRMATIONS = ["work from home", "work from anywhere"] as const;
@@ -109,7 +110,9 @@ const RECRUITER_REMOTE_TAG = /#LI[\s-]?remote\b/i;
 
 function affirmsRemoteRole(sentence: string): boolean {
   const stripped = sentence.startsWith("- ") ? sentence.slice(2) : sentence;
-  if (matchesAny(sentence, UNCONDITIONAL_REMOTE_AFFIRMATIONS) !== null) return true;
+  // "Work from home allowance" is a perk, not the role's arrangement.
+  const unconditional = matchesAny(sentence, UNCONDITIONAL_REMOTE_AFFIRMATIONS);
+  if (unconditional !== null && matchesAny(sentence, PERK_SIGNALS) === null) return true;
   if (RECRUITER_REMOTE_TAG.test(stripped)) return true;
   if (ROLE_REMOTE_AFFIRMATIONS.some((pattern) => pattern.test(stripped))) return true;
   // The two positional patterns read where "remote" sits, not its grammar,
@@ -186,10 +189,30 @@ function blankOffTopic(sentence: string): string {
 // remote or hybrid role" still states one.
 const REMOTE_CATEGORY_LIST = /\bremote, or\b/i;
 
+// "A hybrid role ... with the flexibility to work remotely 2 days a week":
+// remote for some days is the office requirement's remainder, not an answer
+// to it. Scored with `npm run score:remote`: no remote posting lost.
+const HYBRID_ROLE = /\b(?:is an? hybrid|hybrid (?:role|position|schedule|work model))\b/i;
+const PARTIAL_REMOTE =
+  /\bremote(?:ly)?\b[^.]{0,40}\b(?:remaining days|\d+ days?|(?:one|two|three|four) days?|weeks? (?:per|a) year)\b/i;
+
+function partialRemoteWithOffice(sentence: string): string | null {
+  if (!PARTIAL_REMOTE.test(sentence)) return null;
+  const hybrid = HYBRID_ROLE.exec(sentence);
+  if (hybrid !== null) return hybrid[0];
+  for (const pattern of OFFICE_DAYS_PATTERNS) {
+    const match = pattern.exec(sentence);
+    if (match !== null) return match[0];
+  }
+  return null;
+}
+
 // The office requirement this clause states, or null: a clause that says the
 // role is remote is answering the question, and a perks clause is not a
 // requirement.
 function officeRequirement(sentence: string): string | null {
+  const partial = partialRemoteWithOffice(sentence);
+  if (partial !== null) return partial;
   if (affirmsRemoteRole(sentence)) return null;
   if (matchesAny(sentence, PERK_SIGNALS) !== null) return null;
   const folded = foldApostrophes(sentence);
