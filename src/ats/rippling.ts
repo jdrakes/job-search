@@ -45,6 +45,7 @@ function fromListingGroup(group: readonly Record<string, unknown>[]): Listing {
     postedAt: null,
     body: null,
     workplace: ripplingWorkplace(location),
+    requisitionId: null,
   };
 }
 
@@ -117,6 +118,7 @@ export function parseRipplingDetail(raw: unknown): Listing {
     postedAt: null,
     body: body === "" ? null : body,
     workplace: ripplingWorkplace(location),
+    requisitionId: null,
   };
 }
 

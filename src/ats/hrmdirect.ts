@@ -74,6 +74,7 @@ function fromRow(row: string, reqId: string, board: string): Listing | null {
     postedAt: null,
     body: null,
     workplace: null,
+    requisitionId: null,
   };
 }
 
@@ -146,6 +147,7 @@ export function parseHrmdirectDetail(html: string, id: string): Listing {
     postedAt: null,
     body: body === "" ? null : body,
     workplace: null,
+    requisitionId: null,
   };
 }
 

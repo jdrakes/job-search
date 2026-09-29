@@ -89,6 +89,7 @@ function fromRowChunk(chunk: string, slug: string): Listing | null {
     postedAt: null,
     body: null,
     workplace: location !== null ? jazzhrWorkplace(location) : null,
+    requisitionId: null,
   };
 }
 
@@ -185,6 +186,7 @@ export function parseJazzhrDetail(html: string, id: string): Listing {
     postedAt: null,
     body: body === "" ? null : body,
     workplace: null,
+    requisitionId: null,
   };
 }
 

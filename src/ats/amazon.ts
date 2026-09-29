@@ -71,6 +71,7 @@ export function parseAmazon(data: unknown): Listing[] {
       postedAt: amazonDate(job["posted_date"]),
       body: body === "" ? null : body,
       workplace: null,
+      requisitionId: null,
     };
   });
 }

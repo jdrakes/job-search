@@ -138,6 +138,7 @@ export function parseEightfoldJob(raw: unknown, host: string): Listing {
     postedAt: isoDate(p["t_update"] ?? p["postedTs"]),
     body: body === "" ? null : body,
     workplace: null,
+    requisitionId: null,
   };
 }
 

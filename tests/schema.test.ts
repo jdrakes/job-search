@@ -131,7 +131,12 @@ test("the migration's candidates columns match CANDIDATE_FIELDS, in order", () =
 });
 
 test("the migrations' ADD COLUMN statements append to POSTING_FIELDS in order", () => {
-  assert.deepEqual(columnsOf("postings").slice(-3), ["body_hash", "workplace", "gone_at"]);
+  assert.deepEqual(columnsOf("postings").slice(-4), [
+    "body_hash",
+    "workplace",
+    "gone_at",
+    "locations",
+  ]);
 });
 
 test("the gone_at migration's DROP COLUMN statements remove postings.last_seen and live", () => {

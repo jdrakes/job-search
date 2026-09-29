@@ -31,6 +31,7 @@ function fromListingEntry(raw: unknown): Listing {
     postedAt: isoDate(job["releasedDate"]),
     body: null,
     workplace: location["remote"] === true ? "remote" : null,
+    requisitionId: null,
   };
 }
 
@@ -61,6 +62,7 @@ export function parseSmartRecruitersDetail(raw: unknown): Listing {
     postedAt: isoDate(job["releasedDate"]),
     body: asText(body),
     workplace: location["remote"] === true ? "remote" : null,
+    requisitionId: null,
   };
 }
 

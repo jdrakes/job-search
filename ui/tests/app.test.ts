@@ -199,7 +199,7 @@ test("AppRoot shows the sign-in form with the reason when a link is spent", asyn
 
 test("AppRoot opens on the Queue tab when signed in", async () => {
   const { fetchImpl } = recordingFetch([
-    jsonReply([{ key: "acme::1", company: "Acme", evidence: {} }]),
+    jsonReply([{ key: "acme::1", company: "Acme", evidence: {}, locations: [] }]),
     jsonReply([]),
     jsonReply([]),
     jsonReply([CRITERIA_ROW]),
@@ -219,9 +219,9 @@ test("AppRoot's header puts the queue's depth on the Queue tab, not in the h1", 
       // `loadQueue` only ever returns `status.is.null` rows; the pill now
       // counts what is waiting, so the fixture carries that field rather
       // than leaving it implicitly undefined.
-      { key: "acme::1", company: "Acme", evidence: {}, status: null },
-      { key: "beta::1", company: "Beta", evidence: {}, status: null },
-      { key: "gamma::1", company: "Gamma", evidence: {}, status: null },
+      { key: "acme::1", company: "Acme", evidence: {}, status: null, locations: [] },
+      { key: "beta::1", company: "Beta", evidence: {}, status: null, locations: [] },
+      { key: "gamma::1", company: "Gamma", evidence: {}, status: null, locations: [] },
     ]),
     jsonReply([]),
     jsonReply([]),
@@ -243,6 +243,7 @@ const QUEUE_ROW = {
   title: "Staff Engineer",
   url: null,
   location: null,
+  locations: [],
   comp_low: 300_000,
   comp_high: 300_000,
   posted_at: "2026-09-15",

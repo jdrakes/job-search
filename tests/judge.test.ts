@@ -34,6 +34,7 @@ function posting(overrides: Partial<Posting> = {}): Posting {
     title: null,
     url: null,
     location: null,
+    locations: [],
     comp_low: null,
     comp_high: null,
     posted_at: null,

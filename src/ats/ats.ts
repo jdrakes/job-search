@@ -16,6 +16,8 @@ export interface Listing {
   readonly body: string | null;
   // The board's own word for its workplace; null where it states none.
   readonly workplace: Workplace | null;
+  // The ATS's internal identifier for the requisition; only Greenhouse populates this.
+  readonly requisitionId: string | null;
 }
 
 export interface Reader {

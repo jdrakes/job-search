@@ -55,6 +55,7 @@ function toListing(raw: unknown): Listing {
     postedAt: isoDate(job["publishedAt"]),
     body: asText(body),
     workplace: workplaceOf(job["workplaceType"]),
+    requisitionId: null,
   };
 }
 

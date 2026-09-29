@@ -43,6 +43,7 @@ function fromListingEntry(raw: unknown): Listing {
     postedAt: isoDate(job["published_on"]),
     body: null,
     workplace: job["telecommuting"] === true ? "remote" : null,
+    requisitionId: null,
   };
 }
 
@@ -90,6 +91,7 @@ export function parseWorkableDetail(raw: unknown): Listing {
     postedAt: isoDate(job["published"]),
     body: body === "" ? null : body,
     workplace: workableWorkplace(job["workplace"]),
+    requisitionId: null,
   };
 }
 

@@ -21,6 +21,7 @@ const LISTING: Listing = {
   postedAt: "2026-09-01",
   body: "Build products.",
   workplace: null,
+  requisitionId: null,
 };
 
 const PAGE: Listing = {

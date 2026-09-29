@@ -493,6 +493,7 @@ export const PostingCard = defineComponent({
       iconOf,
       toneOf,
       changeIcon: CHANGE_ICON,
+      postingHref,
     };
   },
   template: `
@@ -553,6 +554,15 @@ export const PostingCard = defineComponent({
         <div class="note" v-if="posting.status === 'closed' && posting.note">
           <p class="note-label">Closed because</p>
           <p class="note-body">{{ posting.note }}</p>
+        </div>
+        <div class="offices" v-if="posting.locations.length > 1">
+          <p class="note-label">Offices</p>
+          <ul>
+            <li v-for="office in posting.locations" :key="(office.name ?? '') + '|' + (office.url ?? '')">
+              <a v-if="postingHref(office.url)" :href="postingHref(office.url)" target="_blank" rel="noreferrer">{{ office.name ?? "Unnamed office" }}</a>
+              <span v-else>{{ office.name ?? "Unnamed office" }}</span>
+            </li>
+          </ul>
         </div>
         <dl class="evidence" v-if="evidence.length > 0">
           <template v-for="line in evidence" :key="line.fact">

@@ -28,6 +28,7 @@ import {
   type Candidate,
   type Company,
   type Criteria,
+  type Office,
   type Platform,
   type Posting,
   type Status,
@@ -95,7 +96,15 @@ export interface IngestOptions {
 // change nothing is not written at all; see `toRow`.
 type ListedFields = Pick<
   Posting,
-  "key" | "company" | "platform" | "board" | "title" | "url" | "location" | "posted_at"
+  | "key"
+  | "company"
+  | "platform"
+  | "board"
+  | "title"
+  | "url"
+  | "location"
+  | "posted_at"
+  | "locations"
 >;
 
 // The rest of what a re-list can write; `toRow` leaves each out where there
@@ -130,7 +139,7 @@ function bodyHash(body: string): string {
 function toRow(
   company: string,
   board: Board,
-  listing: Listing,
+  listing: Listing & { readonly locations: readonly Office[] },
   timestamp: string,
   stored: StoredListing | undefined,
   criteria: Criteria | undefined,
@@ -144,19 +153,36 @@ function toRow(
     url: listing.url,
     location: listing.location,
     posted_at: listing.postedAt,
+    locations: listing.locations,
   };
   // `null` below means the upsert would rewrite the row with what it already
   // holds, so there is no write. `stored === undefined` (never recorded, or
   // the pre-run sweep's read failed) always counts as changed: there is
   // nothing to compare against, or the comparison cannot be trusted.
   // `platform` and `board` are not compared: `key` is built from them.
+  // `locations` is already deterministically sorted and deduped
+  // (`dedupeOffices`), so the same office set is always in the same order.
+  // Comparison is still element-by-element, not `JSON.stringify`: Postgres
+  // jsonb does not preserve object key order (it normalizes by key length
+  // then alphabetically), so a `{name, url}` object read back from a real
+  // row can come back as `{url, name}`, and a string comparison would never
+  // match once a row has round-tripped through the store.
+  const sameLocations =
+    stored !== undefined &&
+    stored.locations.length === fields.locations.length &&
+    stored.locations.every(
+      (office, index) =>
+        office.name === fields.locations[index]?.name &&
+        office.url === fields.locations[index]?.url,
+    );
   const fieldsChanged =
     stored === undefined ||
     stored.company !== company ||
     stored.title !== listing.title ||
     stored.url !== listing.url ||
     stored.location !== listing.location ||
-    stored.posted_at !== listing.postedAt;
+    stored.posted_at !== listing.postedAt ||
+    !sameLocations;
   const statesWorkplace = listing.body !== null || listing.workplace !== null;
   // A posting on record as gone that this read lists again: back, and its
   // last verdict (reached on its absence) is judged again.
@@ -687,6 +713,78 @@ interface ListedCompany {
   readonly gone: readonly GoneBoard[];
 }
 
+// `null` sorts last; two `null`s (or two equal strings) keep their relative
+// order from `dedupeOffices`'s stable sort.
+function compareNullable(a: string | null, b: string | null): number {
+  if (a === b) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  return a.localeCompare(b);
+}
+
+// Distinct `(name, url)` pairs, sorted by name then url (nulls last), so the
+// same office set always serializes the same way regardless of the read
+// order the board answered in.
+function dedupeOffices(offices: readonly Office[]): readonly Office[] {
+  const seen = new Map<string, Office>();
+  for (const office of offices) {
+    const key = `${office.name ?? ""}\u0000${office.url ?? ""}`;
+    if (!seen.has(key)) seen.set(key, office);
+  }
+  return [...seen.values()].sort(
+    (a, b) => compareNullable(a.name, b.name) || compareNullable(a.url, b.url),
+  );
+}
+
+// Collapses same-requisition, multi-office listings (Greenhouse today; every
+// other reader leaves `requisitionId` null, so this is a no-op for them)
+// into one entry per requisition. The primary listing (the one every other
+// field comes from) is whichever group member's id already has a stored
+// `postings` row (`storedIds`), so a row James has decided on stays the
+// primary across re-lists even if the board later drops specifically that
+// office; falling back to the lowest numeric id only when no member is on
+// file yet (a brand new group, or a caller such as the backfill script that
+// has no stored rows to prefer). Recomputing the lowest id from scratch on
+// every run, with no such preference, would silently mint a fresh,
+// undecided row and orphan the one James acted on. A `null` requisitionId
+// is its own singleton group: keyed by the listing object itself, not its
+// id, so two listings that happen to share an id (an empty id, or a genuine
+// duplicate-id bug on the board) still pass through as separate entries; the
+// existing per-listing loop's own id-refusal and last-wins dedup keep
+// handling that, unchanged.
+export function groupByRequisition(
+  listings: readonly Listing[],
+  storedIds: ReadonlySet<string> = new Set(),
+): readonly (Listing & { readonly locations: readonly Office[] })[] {
+  const groups = new Map<string | Listing, Listing[]>();
+  for (const listing of listings) {
+    // A bare `requisitionId` is free text a company's recruiters type in;
+    // a placeholder value ("N/A", "TBD", "0") can be reused across
+    // genuinely different roles on the same board. A legitimate
+    // same-requisition, multi-office listing always carries the identical
+    // title, so keying on the pair merges only the real case and never two
+    // different roles that happen to share a requisition id.
+    const key =
+      listing.requisitionId === null ? listing : `${listing.requisitionId}\u0000${listing.title}`;
+    const group = groups.get(key);
+    if (group === undefined) groups.set(key, [listing]);
+    else group.push(listing);
+  }
+  return [...groups.values()].map((group) => {
+    const onFile = group.filter((listing) => storedIds.has(listing.id));
+    // Strict `<` keeps the first-seen listing on a tie, as ties should not
+    // occur (equal ids would already collide as the same stored row).
+    let primary = onFile[0] ?? group[0]!;
+    for (const listing of onFile.length > 0 ? onFile : group) {
+      if (Number(listing.id) < Number(primary.id)) primary = listing;
+    }
+    const locations = dedupeOffices(
+      group.map((listing) => ({ name: listing.location, url: listing.url })),
+    );
+    return { ...primary, locations };
+  });
+}
+
 async function listCompany(
   store: Store,
   readers: Partial<Record<Platform, Reader>>,
@@ -724,9 +822,9 @@ async function listCompany(
     }
 
     const label = `${company.name} ${board.platform}/${board.id}`;
-    let listings: readonly Listing[];
+    let rawListings: readonly Listing[];
     try {
-      listings = await reader.list(board);
+      rawListings = await reader.list(board);
     } catch (err) {
       // The error line is the log of a gone answer too; the board itself is
       // handed back, not written.
@@ -734,6 +832,14 @@ async function listCompany(
       if (isGone(board.platform, err)) gone.push({ company: company.name, board });
       continue;
     }
+    // The ids this board already has a stored row for, so `groupByRequisition`
+    // can keep the row James decided on as the primary even if the board
+    // later drops specifically that office (see its own comment).
+    const prefix = storedPrefix(board);
+    const storedIds = new Set(
+      [...(storedByBoard.get(prefix)?.keys() ?? [])].map((key) => key.slice(prefix.length + 2)),
+    );
+    const listings = groupByRequisition(rawListings, storedIds);
     listed += listings.length;
 
     const seenKeys = new Set<string>();
@@ -813,6 +919,7 @@ interface StoredListing {
   readonly url: string | null;
   readonly location: string | null;
   readonly posted_at: string | null;
+  readonly locations: readonly Office[];
   readonly body_hash: string | null;
   readonly comp_low: number | null;
   readonly comp_high: number | null;
@@ -830,6 +937,7 @@ const STORED_LISTING_COLUMNS = [
   "url",
   "location",
   "posted_at",
+  "locations",
   "body_hash",
   "comp_low",
   "comp_high",
@@ -857,6 +965,7 @@ async function storedListings(store: Store): Promise<Map<string, StoredListing>>
         url: row.url,
         location: row.location,
         posted_at: row.posted_at,
+        locations: row.locations,
         body_hash: row.body_hash,
         comp_low: row.comp_low,
         comp_high: row.comp_high,
