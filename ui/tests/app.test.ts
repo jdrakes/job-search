@@ -28,7 +28,7 @@ import {
   type TreeNode,
 } from "./render-tree.ts";
 
-// Replays responses in the order the five reads issue them: `loadAll`
+// Replays responses in the order the five reads issue them: `readRound`
 // fires all five with `Promise.all`, and each makes exactly one request
 // before its first `await`, so the call order matches the array order.
 
@@ -466,7 +466,7 @@ test("LoadingShell draws the requested tab as current", async () => {
   assert.match(html, /id="tab-record"[^>]*aria-selected="true"/);
 });
 
-test("saveReads and loadReads round-trip a round; a broken or wrong-shaped entry reads as none", () => {
+test("saveReads and loadReads round-trip a round; a broken entry reads as none, a wrong-shaped read is left out", () => {
   const store = memoryStore();
   assert.equal(loadReads(store), null);
   const reads = {
@@ -482,9 +482,10 @@ test("saveReads and loadReads round-trip a round; a broken or wrong-shaped entry
   assert.equal(loadReads(store), null);
   assert.equal(store.getItem(READS_KEY), null);
   store.setItem(READS_KEY, JSON.stringify({ queue: "no" }));
-  assert.equal(loadReads(store), null);
+  assert.equal(loadReads(store), null, "nothing well-shaped is left, so there is no entry");
   store.setItem(READS_KEY, JSON.stringify({ ...reads, candidates: "no" }));
-  assert.equal(loadReads(store), null, "candidates must be an array too, not just the other three");
+  const { candidates: _candidates, ...rest } = reads;
+  assert.deepEqual(loadReads(store), rest, "a read of the wrong shape is dropped, not the others");
   saveReads(store, reads);
   clearReads(store);
   assert.equal(loadReads(store), null);
@@ -595,12 +596,12 @@ test("a successful round is written to the cache; sign-out would clear it", asyn
 
   const cached = loadReads(store);
   assert.ok(cached !== null, "the round was cached");
-  assert.equal(cached.queue.length, 1);
+  assert.equal(cached.queue?.length, 1);
   assert.equal(cached.criteria?.comp_floor, 150_000);
   assert.deepEqual(cached.candidates, [CANDIDATE_ROW], "the fifth read's rows reach the cache too");
 });
 
-test("a failed candidates read is not cached, the same as any other read in the round", async () => {
+test("a failed read is not cached, and does not hold back the reads that succeeded", async () => {
   const { fetchImpl } = recordingFetch([
     jsonReply([QUEUE_ROW]),
     jsonReply([QUEUE_ROW]),
@@ -611,11 +612,16 @@ test("a failed candidates read is not cached, the same as any other read in the 
   const store = memoryStore({ [SESSION_KEY]: sessionJson() });
 
   await render({ config: CONFIG, store, httpFetch: fetchImpl, now: () => NOW });
+  await settled();
 
-  assert.equal(loadReads(store), null, "a failed candidates read holds back the whole round");
+  const cached = loadReads(store);
+  assert.ok(cached !== null);
+  assert.equal(cached.candidates, undefined, "the failed read is not cached");
+  assert.equal(cached.queue?.length, 1, "the queue read that succeeded is");
+  assert.equal(cached.criteria?.comp_floor, 150_000);
 });
 
-test("a round with a failed read is not cached, so the next reload does not open on a half-empty page", async () => {
+test("a failed read leaves that read's last cached rows in place, so the next reload is not half-empty", async () => {
   const { fetchImpl } = recordingFetch([
     jsonReply([QUEUE_ROW]),
     () => new Response("nope", { status: 500 }),
@@ -624,10 +630,15 @@ test("a round with a failed read is not cached, so the next reload does not open
     jsonReply([]),
   ]);
   const store = memoryStore({ [SESSION_KEY]: sessionJson() });
+  saveReads(store, { postings: [QUEUE_ROW, { ...QUEUE_ROW, key: "acme::2" }] });
 
   await render({ config: CONFIG, store, httpFetch: fetchImpl, now: () => NOW });
+  await settled();
 
-  assert.equal(loadReads(store), null);
+  assert.deepEqual(
+    loadReads(store)?.postings?.map((posting) => posting.key),
+    ["acme::1", "acme::2"],
+  );
 });
 
 test("every tab renders the panel it claims to control, named by that tab and with no heading of its own", async () => {
@@ -868,8 +879,8 @@ test("a refresh in flight when the user signs out does not resurrect the session
 
 test("reads in flight when the user signs out are not written back to the reads cache", async () => {
   // The session is fresh, so refresh() passes its token check at once and
-  // goes straight to loadAll's four reads. Holding those open, signing out
-  // (which runs clearReads), then landing them is the race loadAll's own
+  // goes straight to its five reads. Holding those open, signing out
+  // (which runs clearReads), then landing them is the race readOne's own
   // refreshStillApplies check closes: without it, saveReads would put the
   // signed-out account's rows back in storage.
   const restoreDom = stubDom();
@@ -1570,6 +1581,106 @@ test("an add is pruned by a candidates read that succeeded while another read fa
   } finally {
     app.unmount();
     restoreFetch();
+    restoreDom();
+  }
+});
+
+/**
+ * Answers each read by the table and filter its URL names rather than by
+ * the order it was issued in; a read named in `held` waits until `land`.
+ */
+function routedFetch(
+  replies: Record<"queue" | "postings" | "companies" | "criteria" | "candidates", () => Response>,
+  held: ReadonlySet<string>,
+): { fetchImpl: typeof fetch; land: () => void } {
+  const waiting: (() => void)[] = [];
+  const fetchImpl: typeof fetch = (input) => {
+    const url = String(input);
+    const table = new URL(url).pathname.split("/").pop() ?? "";
+    const name =
+      table === "postings" ? (url.includes("status=is.null") ? "queue" : "postings") : table;
+    const reply = replies[name as keyof typeof replies];
+    if (reply === undefined) throw new Error(`unexpected request ${url}`);
+    if (!held.has(name)) return Promise.resolve(reply());
+    return new Promise<Response>((resolve) => waiting.push(() => resolve(reply())));
+  };
+  return {
+    fetchImpl,
+    land: () => {
+      for (const resume of waiting.splice(0, waiting.length)) resume();
+    },
+  };
+}
+
+const ROUTED_REPLIES = {
+  queue: jsonReply([QUEUE_ROW]),
+  postings: jsonReply([
+    QUEUE_ROW,
+    { ...QUEUE_ROW, key: "cirrus::1", company: "Cirrus", status: "applied" },
+  ]),
+  companies: jsonReply([]),
+  criteria: jsonReply([CRITERIA_ROW]),
+  candidates: jsonReply([]),
+};
+
+test("with nothing cached, the Queue draws once its own reads land, not the other tabs'", async () => {
+  const { fetchImpl } = routedFetch(
+    ROUTED_REPLIES,
+    new Set(["postings", "companies", "candidates"]),
+  );
+
+  const html = await render(signedInProps(fetchImpl));
+
+  assert.match(html, /Acme/);
+  assert.match(html, /class="score"/, "the criteria read, which the Queue scores by, is in");
+  assert.doesNotMatch(html, /Reading the store/);
+});
+
+test("a tab whose reads are still out shows the skeleton, then its rows when they land", async () => {
+  const restoreDom = stubDom();
+  const round = routedFetch(ROUTED_REPLIES, new Set(["postings"]));
+  const app = mountRoot({
+    config: CONFIG,
+    store: memoryStore({ [SESSION_KEY]: sessionJson() }),
+    httpFetch: round.fetchImpl,
+    now: () => NOW,
+  });
+  try {
+    await settled();
+    assert.match(textOf(app.root), /Acme/, "the Queue drew without the postings read");
+
+    click(tabButton(app.root, "record"));
+    await nextTick();
+    assert.equal(elementsWithClass(app.root, "skeleton").length, 1, "the Record waits on it");
+    assert.doesNotMatch(textOf(app.root), /Cirrus/);
+
+    round.land();
+    await settled();
+    assert.equal(elementsWithClass(app.root, "skeleton").length, 0);
+    assert.match(textOf(app.root), /Cirrus/, "the Record drew once its read landed");
+  } finally {
+    app.unmount();
+    restoreDom();
+  }
+});
+
+test("a tab whose read already landed behind the open one switches with no wait", async () => {
+  const restoreDom = stubDom();
+  const { fetchImpl } = routedFetch(ROUTED_REPLIES, new Set());
+  const app = mountRoot({
+    config: CONFIG,
+    store: memoryStore({ [SESSION_KEY]: sessionJson() }),
+    httpFetch: fetchImpl,
+    now: () => NOW,
+  });
+  try {
+    await settled();
+    click(tabButton(app.root, "record"));
+    await nextTick();
+    assert.equal(elementsWithClass(app.root, "skeleton").length, 0);
+    assert.match(textOf(app.root), /Cirrus/);
+  } finally {
+    app.unmount();
     restoreDom();
   }
 });
