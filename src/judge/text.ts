@@ -515,14 +515,20 @@ const LANGUAGE_NAMES = [
 ] as const;
 
 // A language name this clause offers that `missing_languages` does not
-// carry. The `(?![+#])` guard: `\bC\b` matches the C of "C++", so without
-// it "C++14/17 or later" reads as a list offering C. The boundary comes from
+// carry: one he has. A sentence naming one requires none of the others in
+// it, whatever its wording (a stack, a choice, work across several
+// languages), since he brings that one. The `(?![+#])` and `(?!\/c\+\+)`
+// guards: `\bC\b` matches the C of "C++" and of "C/C++", so without them
+// "C++14/17 or later" and "C/C++" read as offering C. A name after
+// "ideally" is only a bonus, not one he brings. The boundary comes from
 // `wholeWordPattern` so a punctuation-edged name (".net", "c#") is
 // recognised here the same way it is as a requirement.
 function acceptedLanguage(sentence: string, criteria: Criteria): string | null {
+  const ideally = matchesAny(sentence, ["ideally"]);
+  const offered = ideally === null ? sentence : sentence.slice(0, ideally.index);
   for (const name of LANGUAGE_NAMES) {
     if (criteria.missing_languages.some((missing) => missing.toLowerCase() === name)) continue;
-    if (!new RegExp(`${wholeWordPattern(name)}(?![+#])`, "i").test(sentence)) continue;
+    if (!new RegExp(`${wholeWordPattern(name)}(?![+#])(?!\\/c\\+\\+)`, "i").test(offered)) continue;
     return name;
   }
   return null;
@@ -568,25 +574,6 @@ function ideallyBefore(sentence: string, mentionIndex: number): boolean {
   const ideally = matchesAny(sentence, ["ideally"]);
   return ideally !== null && ideally.index < mentionIndex;
 }
-
-// A clause that offers a choice of languages rather than naming one
-// ("languages like Python or Kotlin", "such as COBOL, Delphi, or Python").
-// These welcome only when the choice includes a language he has
-// (`acceptedLanguage`); a bare "or" is a cue on its own, what it gets wrong
-// is glued bullet blobs, which `splitSentences`'s newline boundary
-// separates.
-const ALTERNATIVES_CUES = [
-  "and/or",
-  "at least one",
-  "at least two",
-  "e.g",
-  "etc",
-  "like",
-  "one of",
-  "or",
-  "or equivalent",
-  "such as",
-] as const;
 
 // A heading that opens a list of what the company runs on; the languages
 // under it are what the team uses, not what the posting asks of a
@@ -672,12 +659,7 @@ function judgeMissingLanguages(body: string, criteria: Criteria): Reason {
       if (matchesAny(sentence, WELCOME_SIGNALS) !== null) continue;
       if (ideallyBefore(sentence, mentionIndex)) continue;
       if (opensLanguageAlternatives(sentence) && !LANGUAGE_FAMILY.test(sentence)) continue;
-      if (
-        matchesAny(sentence, ALTERNATIVES_CUES) !== null &&
-        acceptedLanguage(sentence, criteria) !== null
-      ) {
-        continue;
-      }
+      if (acceptedLanguage(sentence, criteria) !== null) continue;
       return {
         criterion: "missing_languages",
         verdict: "out",

@@ -680,6 +680,32 @@ test("missing languages: an alternatives list offering only languages he lacks s
   );
 });
 
+// A sentence that also names a language he has requires none of the others
+// in it, whatever its wording: he brings the one he has.
+test("missing languages: a stack line naming a language he has is in", () => {
+  assert.equal(missingLanguagesVerdict("- Stack: TypeScript / React, Go, AWS.", GO_MISSING), "in");
+});
+
+test("missing languages: 'any of' a list naming a language he has is in", () => {
+  assert.equal(
+    missingLanguagesVerdict(
+      "- Experience with any of the technologies the product runs on: Go, Typescript, React, Kubernetes, Postgres.",
+      GO_MISSING,
+    ),
+    "in",
+  );
+});
+
+test("missing languages: work across several languages, one of them his, is in", () => {
+  assert.equal(
+    missingLanguagesVerdict(
+      "Design, ship, and operate core distributed microservices written in Go and Python.",
+      GO_MISSING,
+    ),
+    "in",
+  );
+});
+
 // `\bC\b` matched the C of "C++" and read a C++ requirement as a list
 // offering C. Only a name ending in "+" reproduces this, so the test names
 // the language itself rather than the shared criteria helper carrying it.
@@ -689,6 +715,18 @@ const CSHARP_MISSING: Partial<Criteria> = { missing_languages: ["c#"] };
 test("missing languages: the C of 'C++14/17 or later' is not a language he has", () => {
   assert.equal(
     missingLanguagesVerdict("Deep experience with C++14/17 or later.", CPLUSPLUS_MISSING),
+    "out",
+  );
+});
+
+// "C/C++" names one family, not C beside C++: read as a list offering C, it
+// would let every C++ requirement through.
+test("missing languages: the C of 'C/C++' is not a language he has", () => {
+  assert.equal(
+    missingLanguagesVerdict(
+      "Hands on experience in C/C++, comfortable debugging at the compilation and linking level.",
+      CPLUSPLUS_MISSING,
+    ),
     "out",
   );
 });
