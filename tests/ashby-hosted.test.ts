@@ -1,7 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { ashbyReader, parseHostedBoard } from "../src/ats/ashby.ts";
+import {
+  ashbyReader,
+  hostedDetailRead,
+  parseHostedBoard,
+  parseHostedPosting,
+} from "../src/ats/ashby.ts";
 import { isGone } from "../src/companies.ts";
 
 // Written from the hosted board's GraphQL reply, not captured: the envelope
@@ -94,7 +99,16 @@ test("parseHostedBoard: each posting with an id, its band from the summary, no b
 
 test("parseHostedBoard: null for a board the hosted page lacks, a throw for a reply with no data", () => {
   assert.equal(parseHostedBoard({ data: { jobBoard: null } }, "contoso"), null);
-  assert.throws(() => parseHostedBoard({ errors: [{ message: "bad" }] }, "contoso"));
+  assert.throws(() => parseHostedBoard({}, "contoso"), /ashby hosted board: reply has no data/);
+});
+
+// Breaks if a GraphQL error reply with a null board reads as an absent
+// board: the 404 would stand and a live board would be marked gone.
+test("parseHostedBoard: a reply carrying errors throws with the first message", () => {
+  assert.throws(
+    () => parseHostedBoard({ data: { jobBoard: null }, errors: [{ message: "x" }] }, "contoso"),
+    /^Error: ashby hosted board: x$/,
+  );
 });
 
 // Breaks if a board whose public API is off is reported gone while its
@@ -139,4 +153,90 @@ test("ashbyReader: a board the public API reads asks nothing of the hosted page"
     ["j-1"],
   );
   assert.deepEqual(requests, ["posting-api"]);
+});
+
+const POSTING = {
+  data: {
+    jobPosting: {
+      id: "p-1",
+      title: "Staff Software Engineer, Payments",
+      locationName: "San Francisco, CA",
+      workplaceType: "Remote",
+      descriptionHtml: "<p>Build payments.</p><p>Pay range $100,000 - $120,000.</p>",
+      compensationTierSummary: "$190K – $270K • Offers Equity",
+    },
+  },
+};
+
+// Breaks if a field is misread, the prose band beats the summary's, or the
+// text is left as HTML.
+test("parseHostedPosting: every field, the summary band winning over the prose", () => {
+  assert.deepEqual(parseHostedPosting(POSTING, "contoso"), {
+    id: "p-1",
+    title: "Staff Software Engineer, Payments",
+    url: "https://jobs.ashbyhq.com/contoso/p-1",
+    location: "San Francisco, CA",
+    compLow: 190_000,
+    compHigh: 270_000,
+    postedAt: null,
+    body: "Build payments.\nPay range $100,000 - $120,000.",
+    workplace: "remote",
+    requisitionId: null,
+  });
+});
+
+// Breaks if a band in the prose is ignored when the summary is empty.
+test("parseHostedPosting: no summary falls back to the band in the text", () => {
+  const reply = {
+    data: {
+      jobPosting: { ...POSTING.data.jobPosting, compensationTierSummary: null },
+    },
+  };
+  const listing = parseHostedPosting(reply, "contoso");
+  assert.equal(listing?.compLow, 100_000);
+  assert.equal(listing?.compHigh, 120_000);
+});
+
+// Breaks if a closed posting throws (it would retry forever) or a reply
+// with no data reads as closed (it would be judged without text).
+test("parseHostedPosting: null for a closed posting, a throw for a reply with no data", () => {
+  assert.equal(parseHostedPosting({ data: { jobPosting: null } }, "contoso"), null);
+  assert.throws(() => parseHostedPosting({}, "contoso"), /ashby hosted posting: reply has no data/);
+});
+
+// Breaks if a GraphQL error reply reads as a closed posting: the judge
+// would judge it without text and never retry.
+test("parseHostedPosting: a reply carrying errors throws with the first message, data null or not", () => {
+  assert.throws(
+    () => parseHostedPosting({ data: null, errors: [{ message: "x" }] }, "contoso"),
+    /^Error: ashby hosted posting: x$/,
+  );
+  assert.throws(
+    () => parseHostedPosting({ data: { jobPosting: null }, errors: [{ message: "x" }] }, "contoso"),
+    /^Error: ashby hosted posting: x$/,
+  );
+});
+
+// Breaks if the read asks for the wrong board or posting, or makes more
+// than one request.
+test("hostedDetailRead: one ApiJobPosting request carrying the board and posting id", async () => {
+  const bodies: unknown[] = [];
+  const requests: string[] = [];
+  const fetchImpl: typeof fetch = async (input, init) => {
+    requests.push(String(input));
+    bodies.push(JSON.parse(String(init?.body)));
+    return json(POSTING);
+  };
+  const options = { fetchImpl, sleep: async () => {}, userAgent: TEST_USER_AGENT };
+
+  const listing = await hostedDetailRead("contoso").body("p-1", options);
+
+  assert.equal(listing?.id, "p-1");
+  assert.deepEqual(requests, ["https://jobs.ashbyhq.com/api/non-user-graphql?op=ApiJobPosting"]);
+  const sent = bodies[0] as { operationName: string; variables: unknown };
+  assert.equal(sent.operationName, "ApiJobPosting");
+  assert.deepEqual(sent.variables, {
+    organizationHostedJobsPageName: "contoso",
+    jobPostingId: "p-1",
+  });
 });

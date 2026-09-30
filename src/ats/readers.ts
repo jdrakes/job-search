@@ -63,6 +63,7 @@ function withDetailRead(reader: Reader, reads: readonly DetailRead[]): Reader {
       if (read !== null) return read.body(id, options);
       return reader.body === undefined ? null : reader.body(board, id, options);
     },
+    readsDetail: (board) => readFor(board) !== null,
   };
 }
 

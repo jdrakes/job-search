@@ -7,9 +7,10 @@
 // A company can turn the public API off (it answers 404) while its hosted
 // board stays up. That board is read through the GraphQL endpoint the hosted
 // page itself calls, list only: one request per board. The list states no
-// description and no date, so these postings are judged without text (issue
-// #47 tracks whether they need a per-posting read). A board the hosted page
-// does not have either keeps the API's 404, so it is still `gone`.
+// description and no date, so a hosted board's text comes from
+// `hostedDetailRead`, once the operator's settings name the board. A board
+// the hosted page does not have either keeps the API's 404, so it is still
+// `gone`.
 import { getJson, HttpError, htmlToText, postJson, type HttpOptions } from "../net/http.ts";
 import type { Board } from "../schema.ts";
 import {
@@ -20,6 +21,7 @@ import {
   isoDate,
   isUsd,
   workplaceOf,
+  type DetailRead,
   type Listing,
   type Reader,
 } from "./ats.ts";
@@ -77,11 +79,23 @@ const HOSTED_BOARD_QUERY =
   "jobBoard: jobBoardWithTeams(organizationHostedJobsPageName: $organizationHostedJobsPageName) " +
   "{ jobPostings { id title locationName workplaceType compensationTierSummary } } }";
 
-// The hosted board's postings as listings; null when the hosted page has no
-// such board. A reply with no `data` at all is an error, not an absent
-// board. The summary states the band ("$190K – $270K • Offers Equity").
+// The first message of a GraphQL reply's `errors`; null when it has none.
+// Ashby's error replies carry `data: null` or a null field beside `errors`,
+// so a null field means nothing until this is checked.
+function graphqlError(record: Record<string, unknown>): string | null {
+  const errors = asArray(record["errors"]);
+  if (errors.length === 0) return null;
+  return asText(asRecord(errors[0])["message"]) ?? "error with no message";
+}
+
+// The hosted board's postings as listings; null only when a reply with no
+// errors has a null board, which is how the hosted page says it has no such
+// board. A reply carrying errors, or with no `data` at all, throws. The
+// summary states the band ("$190K – $270K • Offers Equity").
 export function parseHostedBoard(reply: unknown, boardId: string): Listing[] | null {
   const record = asRecord(reply);
+  const error = graphqlError(record);
+  if (error !== null) throw new Error(`ashby hosted board: ${error}`);
   if (!("data" in record)) throw new Error("ashby hosted board: reply has no data");
   const jobBoard = asRecord(record["data"])["jobBoard"];
   if (jobBoard === null || jobBoard === undefined) return null;
@@ -105,6 +119,62 @@ export function parseHostedBoard(reply: unknown, boardId: string): Listing[] | n
     });
   }
   return listings;
+}
+
+const HOSTED_POSTING_QUERY =
+  "query ApiJobPosting($organizationHostedJobsPageName: String!, $jobPostingId: String!) { " +
+  "jobPosting(organizationHostedJobsPageName: $organizationHostedJobsPageName, jobPostingId: $jobPostingId) " +
+  "{ id title locationName workplaceType descriptionHtml compensationTierSummary } }";
+
+// One hosted posting as a listing; null only when a reply with no errors
+// has a null posting, which is how a closed posting reads. A reply carrying
+// errors, or with no `data` at all, throws, so the judge retries next run
+// rather than judging the posting without text. The summary's band wins
+// over a band in the prose.
+export function parseHostedPosting(reply: unknown, boardId: string): Listing | null {
+  const record = asRecord(reply);
+  const error = graphqlError(record);
+  if (error !== null) throw new Error(`ashby hosted posting: ${error}`);
+  if (!("data" in record)) throw new Error("ashby hosted posting: reply has no data");
+  const jobPosting = asRecord(record["data"])["jobPosting"];
+  if (jobPosting === null || jobPosting === undefined) return null;
+  const posting = asRecord(jobPosting);
+  const id = asText(posting["id"]) ?? "";
+  const body = asText(htmlToText(asText(posting["descriptionHtml"]) ?? ""));
+  const comp =
+    compInText(asText(posting["compensationTierSummary"]) ?? "") ?? compInText(body ?? "");
+  return {
+    id,
+    title: asText(posting["title"]),
+    url: `https://jobs.ashbyhq.com/${boardId}/${id}`,
+    location: asText(posting["locationName"]),
+    compLow: comp?.compLow ?? null,
+    compHigh: comp?.compHigh ?? null,
+    postedAt: null,
+    body,
+    workplace: workplaceOf(posting["workplaceType"]),
+    requisitionId: null,
+  };
+}
+
+// The per-posting read for a hosted board, named by the operator's settings.
+export function hostedDetailRead(board: string): DetailRead {
+  return {
+    platform: "ashby",
+    board,
+    async body(id, options) {
+      const reply = await postJson<unknown>(
+        `${HOSTED_GRAPHQL}?op=ApiJobPosting`,
+        {
+          operationName: "ApiJobPosting",
+          variables: { organizationHostedJobsPageName: board, jobPostingId: id },
+          query: HOSTED_POSTING_QUERY,
+        },
+        options,
+      );
+      return parseHostedPosting(reply, board);
+    },
+  };
 }
 
 async function listHosted(
