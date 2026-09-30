@@ -4,4 +4,4 @@
 calls) is run once by hand against a real deployment, on the branch rebased
 on current main, and its log read before the PR merges. The run writes to
 the live store, so a branch behind main undoes what main has fixed. Tests
-do not reach the live ATSs or the two stores; the run does.
+do not reach the live ATSs or the store; the run does.
