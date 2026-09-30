@@ -1,6 +1,9 @@
 /**
  * The mounted application: sign-in, then five tabs sharing one round of
- * reads. A read that fails leaves the other tabs with what they had.
+ * reads. The five reads go out together, but the page waits only on the
+ * ones the open tab draws (`TAB_READS`) and draws each of the rest as it
+ * lands; a tab whose reads are still out shows the skeleton. A read that
+ * fails leaves the other tabs with what they had.
  *
  * `AppRoot`'s `setup()` is async, which is why `mountApp` wraps it in
  * `<Suspense>`: Vue requires that in the browser, though `renderToString`
@@ -50,7 +53,14 @@ import { parseConfig, type AppConfig } from "./config.ts";
 import { CriteriaView } from "./criteria.ts";
 import type { DecidedOutcome } from "./posting.ts";
 import { QueueView } from "./queue.ts";
-import { clearReads, loadReads, saveReads } from "./reads-cache.ts";
+import {
+  clearReads,
+  loadReads,
+  READ_NAMES,
+  saveRead,
+  type ReadName,
+  type Reads,
+} from "./reads-cache.ts";
 import { RecordView } from "./record.ts";
 import { SignIn, type SignInStage } from "./sign-in.ts";
 import { TabBar, TABS, type TabId } from "./tabs.ts";
@@ -92,11 +102,20 @@ export async function runRefresh(flag: Ref<boolean>, round: () => Promise<void>)
 }
 
 /**
- * A round's rows wearing what James has decided since it was read. Both
- * reads go through it: `loadPostings` returns every queue row too, so a
- * posting decided on this page must read the same in the Queue and the
- * Record.
+ * The reads each tab cannot draw without; the page waits on these alone.
+ * The Queue's company view also lays the postings read's acted rows under
+ * each company as history, but it draws without them and takes them in
+ * when that read lands. The Queue tab's count is the queue read's whatever
+ * tab is open, and says it is still coming with the ring.
  */
+export const TAB_READS: Readonly<Record<TabId, readonly ReadName[]>> = {
+  queue: ["queue", "criteria"],
+  record: ["postings", "criteria"],
+  companies: ["companies", "queue", "candidates"],
+  candidates: ["candidates"],
+  criteria: ["criteria"],
+};
+
 /**
  * The same idea for companies: the round's rows wearing the drops James has
  * committed since it was read. A separate four lines rather than one
@@ -114,6 +133,12 @@ function droppedWith(
   });
 }
 
+/**
+ * A round's rows wearing what James has decided since it was read. Both
+ * reads go through it: `loadPostings` returns every queue row too, so a
+ * posting decided on this page must read the same in the Queue and the
+ * Record.
+ */
 function patchedWith(
   postings: readonly PostingSummary[],
   decided: ReadonlyMap<string, StatusPatch>,
@@ -124,9 +149,24 @@ function patchedWith(
   });
 }
 
+/** Five grey rows standing in for a list whose read is still out. */
+export const SkeletonList = defineComponent({
+  name: "SkeletonList",
+  template: `
+    <div class="list skeleton" role="status" aria-label="Reading the store…">
+      <div class="card skeleton-row" v-for="n in 5" :key="n">
+        <span class="skeleton-bar bar-company"></span>
+        <span class="skeleton-bar bar-role"></span>
+        <span class="skeleton-bar bar-comp"></span>
+      </div>
+    </div>
+  `,
+});
+
 export const AppRoot = defineComponent({
   name: "AppRoot",
   components: {
+    SkeletonList,
     SignIn,
     TabBar,
     QueueView,
@@ -177,14 +217,29 @@ export const AppRoot = defineComponent({
     const candidatesResult = ref<ReadResult<Candidate[]> | null>(null);
 
     const refreshing = ref(false);
+    // A queue read is out: the tab pill's number is the last one read until
+    // it lands, so the ring stands in its place.
+    const recounting = ref(false);
+
+    const results: { [K in ReadName]: Ref<ReadResult<Reads[K]> | null> } = {
+      queue: queueResult,
+      postings: postingsResult,
+      companies: companiesResult,
+      criteria: criteriaResult,
+      candidates: candidatesResult,
+    };
 
     // What James has decided on this page, laid over both reads until a
     // round comes back carrying it. It lives here rather than in the views
     // so a decision survives the tab switch that unmounts the one he made
     // it in, and so the Queue and the Record never disagree about a row.
+    // `unread` holds, per decided key, which of the two reads has not yet
+    // come back carrying it; the overlay goes once neither is left.
     const decided = ref<ReadonlyMap<string, StatusPatch>>(new Map());
+    const unread = new Map<string, Set<ReadName>>();
     function onDecided(outcome: DecidedOutcome): void {
       decided.value = new Map(decided.value).set(outcome.key, outcome.patch);
+      unread.set(outcome.key, new Set<ReadName>(["queue", "postings"]));
     }
 
     const dropped = ref<ReadonlyMap<string, CompanyDropPatch>>(new Map());
@@ -202,59 +257,109 @@ export const AppRoot = defineComponent({
       added.value = [candidate, ...added.value];
     }
 
-    async function loadAll(readFor: Session): Promise<void> {
-      // Taken before the reads are issued: a decision made while they are in
-      // flight is not in their response, so dropping the whole map on
-      // success would put the old status back on screen.
-      const applied = new Set(decided.value.keys());
-      const committed = new Set(dropped.value.keys());
-      const accessToken = readFor.accessToken;
-      const [queue, postings, companies, criteria, candidates] = await Promise.all([
-        loadQueue(props.config, accessToken, props.httpFetch),
-        loadPostings(props.config, accessToken, {}, props.httpFetch),
-        loadCompanies(props.config, accessToken, props.httpFetch),
-        loadCriteria(props.config, accessToken, props.httpFetch),
-        loadCandidates(props.config, accessToken, props.httpFetch),
-      ]);
-      // The same race as `refresh()`'s token check, one await later: a
-      // sign-out on this tab while the five reads are in flight has already
-      // run `clearReads`, and these rows belong to the account that just
-      // left. Neither the screen nor the reads cache may take them.
-      if (!refreshStillApplies(readFor, session.value)) return;
-      queueResult.value = queue;
-      postingsResult.value = postings;
-      companiesResult.value = companies;
-      criteriaResult.value = criteria;
-      candidatesResult.value = candidates;
-      // Pruned against any candidates read that succeeded, not only a clean
-      // round: an add is gone from the overlay once a read carries its row,
-      // whatever the other four reads did. Keyed on presence rather than on
-      // what was outstanding when the round was issued, so an insert that
-      // lands while a round is in flight is dropped if that round saw it and
-      // kept if it did not.
-      if (candidates.ok) {
-        const read = new Set(candidates.value.map((candidate) => candidate.id));
-        added.value = added.value.filter((candidate) => !read.has(candidate.id));
-      }
-      if (queue.ok && postings.ok && companies.ok && criteria.ok && candidates.ok) {
-        saveReads(props.store, {
-          queue: queue.value,
-          postings: postings.value,
-          companies: companies.value,
-          criteria: criteria.value,
-          candidates: candidates.value,
-        });
+    function readerFor<K extends ReadName>(
+      name: K,
+      accessToken: string,
+    ): Promise<ReadResult<Reads[K]>> {
+      const { config, httpFetch } = props;
+      const readers: { [N in ReadName]: () => Promise<ReadResult<Reads[N]>> } = {
+        queue: () => loadQueue(config, accessToken, httpFetch),
+        postings: () => loadPostings(config, accessToken, {}, httpFetch),
+        companies: () => loadCompanies(config, accessToken, httpFetch),
+        criteria: () => loadCriteria(config, accessToken, httpFetch),
+        candidates: () => loadCandidates(config, accessToken, httpFetch),
+      };
+      return readers[name]();
+    }
+
+    // The round each read last issued. A read that lands after a later
+    // round of the same read was issued is dropped: the later one carries
+    // at least as much, and it must not be overwritten by the older answer.
+    const issued: Record<ReadName, number> = {
+      queue: 0,
+      postings: 0,
+      companies: 0,
+      criteria: 0,
+      candidates: 0,
+    };
+
+    // Takes an overlay entry out once a read issued after it was made has
+    // come back: the read's rows now carry it. Compared by the patch
+    // itself, so a key decided again while the read was out stays.
+    function pruneOverlays(
+      name: ReadName,
+      decidedAtIssue: ReadonlyMap<string, StatusPatch>,
+      droppedAtIssue: ReadonlyMap<string, CompanyDropPatch>,
+      value: Reads[ReadName],
+    ): void {
+      if (name === "queue" || name === "postings") {
         const outstanding = new Map(decided.value);
-        for (const key of applied) outstanding.delete(key);
+        for (const [key, patch] of decidedAtIssue) {
+          if (outstanding.get(key) !== patch) continue;
+          const left = unread.get(key);
+          left?.delete(name);
+          if (left === undefined || left.size === 0) {
+            outstanding.delete(key);
+            unread.delete(key);
+          }
+        }
         decided.value = outstanding;
+      } else if (name === "companies") {
         const stillDropped = new Map(dropped.value);
-        for (const name of committed) stillDropped.delete(name);
+        for (const [company, patch] of droppedAtIssue) {
+          if (stillDropped.get(company) === patch) stillDropped.delete(company);
+        }
         dropped.value = stillDropped;
+      } else if (name === "candidates") {
+        // Keyed on presence rather than on what was outstanding when the
+        // read was issued, so an insert that lands while a read is in
+        // flight is dropped if that read saw it and kept if it did not.
+        const read = new Set((value as Candidate[]).map((candidate) => candidate.id));
+        added.value = added.value.filter((candidate) => !read.has(candidate.id));
       }
     }
 
-    // Awaited when the page has nothing to show yet; run behind the last
-    // round's rows when there is one (`reads-cache.ts`).
+    async function readOne<K extends ReadName>(name: K, readFor: Session): Promise<void> {
+      issued[name] += 1;
+      const round = issued[name];
+      if (name === "queue") recounting.value = true;
+      // Taken before the read is issued: a decision made while it is in
+      // flight is not in its response, so it must outlive this read.
+      const decidedAtIssue = new Map(decided.value);
+      const droppedAtIssue = new Map(dropped.value);
+      const result = await readerFor(name, readFor.accessToken);
+      // The same race as `refresh()`'s token check, one await later: a
+      // sign-out on this tab while the read is in flight has already run
+      // `clearReads`, and these rows belong to the account that just left.
+      // Neither the screen nor the reads cache may take them.
+      if (!refreshStillApplies(readFor, session.value)) return;
+      if (round !== issued[name]) return;
+      if (name === "queue") recounting.value = false;
+      results[name].value = result;
+      if (!result.ok) return;
+      saveRead(props.store, name, result.value);
+      pruneOverlays(name, decidedAtIssue, droppedAtIssue, result.value);
+    }
+
+    /**
+     * Issues all five reads at once and resolves when the open tab's have
+     * landed; the others keep going and each is drawn when it lands.
+     */
+    async function readRound(readFor: Session): Promise<void> {
+      const reads = new Map(READ_NAMES.map((name) => [name, readOne(name, readFor)]));
+      await Promise.all(TAB_READS[tab.value].map((name) => reads.get(name)));
+    }
+
+    function forgetReads(): void {
+      for (const name of READ_NAMES) {
+        issued[name] += 1;
+        results[name].value = null;
+      }
+      recounting.value = false;
+    }
+
+    // Awaited when the open tab has nothing to show yet; run behind the
+    // last rows read when it has (`reads-cache.ts`).
     async function refresh(): Promise<void> {
       if (session.value === null) return;
       const startedFor = session.value;
@@ -267,15 +372,16 @@ export const AppRoot = defineComponent({
       // the same check keeps the old answer from clobbering it. Another
       // tab's sign-in never interrupts a refresh on its own:
       // `adoptSessionFromOtherTab` does nothing while this tab has a
-      // session. `loadAll` repeats the check after its reads.
+      // session. `readOne` repeats the check after its read.
       if (!refreshStillApplies(startedFor, session.value)) return;
       if (fresh.ok) {
         session.value = fresh.value;
         saveSession(props.store, fresh.value);
-        await loadAll(fresh.value);
+        await readRound(fresh.value);
       } else {
         clearSession(props.store);
         clearReads(props.store);
+        forgetReads();
         session.value = null;
       }
     }
@@ -304,21 +410,22 @@ export const AppRoot = defineComponent({
       }
     }
 
-    // Shows the last saved round immediately if the store has one, refreshing
-    // behind it; otherwise blocks on a fresh one. Shared by the startup path
-    // below and by `adoptSessionFromOtherTab`, which runs the same instant
-    // this tab first has a `session` to show anything for.
+    // Shows the last saved rows immediately and refreshes behind them if the
+    // open tab has all it needs among them; otherwise blocks on the open
+    // tab's reads. Shared by the startup path below and by
+    // `adoptSessionFromOtherTab`, which runs the same instant this tab first
+    // has a `session` to show anything for.
     async function loadInitialRound(): Promise<void> {
       const cached = session.value === null ? null : loadReads(props.store);
       if (cached !== null) {
-        queueResult.value = { ok: true, value: cached.queue };
-        postingsResult.value = { ok: true, value: cached.postings };
-        companiesResult.value = { ok: true, value: cached.companies };
-        criteriaResult.value =
-          cached.criteria === null
-            ? { ok: false, reason: "No criteria row in the last round." }
-            : { ok: true, value: cached.criteria };
-        candidatesResult.value = { ok: true, value: cached.candidates };
+        for (const name of READ_NAMES) {
+          const value = cached[name];
+          if (value !== undefined) {
+            (results[name] as Ref<ReadResult<unknown> | null>).value = { ok: true, value };
+          }
+        }
+      }
+      if (TAB_READS[tab.value].every((name) => results[name].value !== null)) {
         void runRefresh(refreshing, refresh);
       } else {
         await refresh();
@@ -370,6 +477,7 @@ export const AppRoot = defineComponent({
     function onSignOut(): void {
       clearSession(props.store);
       clearReads(props.store);
+      forgetReads();
       session.value = null;
     }
 
@@ -434,10 +542,18 @@ export const AppRoot = defineComponent({
       return errorByTab[tab.value];
     });
 
+    // The open tab's reads are still out; its panel is the skeleton until
+    // they land. Any read that has answered, failed or not, ends it.
+    const tabLoading = computed(() =>
+      TAB_READS[tab.value].some((name) => results[name].value === null),
+    );
+
     return {
       tab,
       session,
       refreshing,
+      recounting,
+      tabLoading,
       signInStage,
       email,
       signInBusy,
@@ -478,9 +594,9 @@ export const AppRoot = defineComponent({
         <TabBar
           :current="tab"
           :counts="{ queue: waitingPostings.length }"
-          :busy="refreshing"
+          :busy="recounting"
           @select="selectTab" />
-        <p class="sr-only" role="status">{{ refreshing ? "Recounting the queue" : "" }}</p>
+        <p class="sr-only" role="status">{{ recounting ? "Recounting the queue" : "" }}</p>
         <div class="top-actions">
           <button type="button" class="ghost refresh" :disabled="refreshing" @click="onRetry">{{ refreshing ? "Refreshing…" : "Refresh" }}</button>
           <button type="button" class="ghost sign-out" @click="onSignOut">Sign out</button>
@@ -488,6 +604,8 @@ export const AppRoot = defineComponent({
       </div>
       <div>
         <p class="error" v-if="tabError">{{ tabError }} <button type="button" class="ghost" :disabled="refreshing" @click="onRetry">Try again</button></p>
+        <SkeletonList v-if="tabLoading && !tabError" />
+        <template v-else>
         <QueueView
           v-if="tab === 'queue'"
           :postings="queuePostings"
@@ -530,6 +648,7 @@ export const AppRoot = defineComponent({
           :criteria="criteria"
           :config="config"
           :access-token="session.accessToken" />
+        </template>
       </div>
     </template>
   `,
@@ -542,7 +661,7 @@ export const AppRoot = defineComponent({
  */
 export const LoadingShell = defineComponent({
   name: "LoadingShell",
-  components: { TabBar },
+  components: { TabBar, SkeletonList },
   props: {
     tab: { type: String as PropType<TabId>, default: "queue" },
   },
@@ -551,13 +670,7 @@ export const LoadingShell = defineComponent({
       <h1>Job search</h1>
       <TabBar :current="tab" />
     </div>
-    <div class="list skeleton" role="status" aria-label="Reading the store…">
-      <div class="card skeleton-row" v-for="n in 5" :key="n">
-        <span class="skeleton-bar bar-company"></span>
-        <span class="skeleton-bar bar-role"></span>
-        <span class="skeleton-bar bar-comp"></span>
-      </div>
-    </div>
+    <SkeletonList />
   `,
 });
 
