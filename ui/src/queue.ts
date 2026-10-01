@@ -296,8 +296,21 @@ export const NULL_STORE: SessionStore = {
 };
 
 /**
- * Every posting this view should show as history, grouped by company.
- * Normally `history` is all of it: both reads return a queue row, so a
+ * The statuses a company's history in the Queue shows: the roles still live
+ * for James. Rejected and closed are ends; under a company he is deciding on
+ * they are roles that will not move again, and they read as noise beside the
+ * ones that can (2026-10-01). The Record keeps every status: it is the
+ * record.
+ */
+export const ACTIVE_STATUSES: ReadonlySet<string> = new Set(["applied", "interviewing", "offer"]);
+
+export function isActive(posting: PostingSummary): boolean {
+  return posting.status !== null && ACTIVE_STATUSES.has(posting.status);
+}
+
+/**
+ * Every posting this view should show as history, grouped by company: the
+ * active ones only (`isActive`). Normally `history` is all of it: both reads return a queue row, so a
  * posting decided on this page comes back from the record read wearing its
  * new status. But when the record read fails `history` is empty while the
  * queue read is fine, and a row James just decided would then be in neither
@@ -315,7 +328,7 @@ function actedWith(
   return [
     ...history,
     ...postings.filter((posting) => posting.status !== null && !known.has(posting.key)),
-  ];
+  ].filter(isActive);
 }
 
 export const QueueView = defineComponent({
