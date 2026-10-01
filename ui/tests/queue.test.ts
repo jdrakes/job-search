@@ -46,6 +46,7 @@ import {
   companyHeadLabel,
   headAt,
   headOf,
+  isActive,
   matchesQuery,
   orderedQueue,
   queueRows,
@@ -1545,9 +1546,10 @@ test("a grouped company's history row offers the outcomes its own status allows,
 });
 
 test("the filtered count counts what is waiting on James, not the rows the grouped order puts on screen", async () => {
-  // Grouped, it reads three of three with five rows and two headers on
-  // screen: a company's acted-on history is appended to its group whatever
-  // the box says, and none of it is waiting on him.
+  // Grouped, it reads three of three with four rows and two headers on
+  // screen: a company's active history is appended to its group whatever
+  // the box says, and none of it is waiting on him. The closed row is not
+  // active, so it is not among the four.
   const restoreDom = stubDom();
   const app = mountTree(QueueView, {
     postings: [ACME_LOW, BEVEL_MID, ACME_TOP],
@@ -1562,7 +1564,7 @@ test("the filtered count counts what is waiting on James, not the rows the group
     await nextTick();
     const list = elementsWithClass(app.root, "list")[0];
     assert.ok(list !== undefined);
-    assert.equal(elementsWithClass(list, "card").length, 5, "five rows are on screen");
+    assert.equal(elementsWithClass(list, "card").length, 4, "four rows are on screen");
     assert.equal(textOf(matchedLine(app.root)!), "3 of 3");
   } finally {
     app.unmount();
@@ -2534,4 +2536,35 @@ test("useCollapsedCompanies folds a company on the first toggle, unfolds it on t
   assert.equal(isCollapsed("Bevel"), false);
   toggleCompany("Acme");
   assert.equal(isCollapsed("Acme"), false);
+});
+
+test("the Queue's company history shows applied, interviewing and offer, and leaves rejected and closed out", async () => {
+  const acted = (status: Posting["status"]): Posting =>
+    posting(`acme::${status}`, {
+      company: "Acme",
+      title: `Role ${status}`,
+      status,
+      status_at: "2026-09-20T00:00:00Z",
+    });
+  const html = await render(QueueView, {
+    postings: [ACME_TOP],
+    config: CONFIG,
+    accessToken: ACCESS_TOKEN,
+    compFloor: null,
+    store: memoryStore({ [viewKey("queue")]: "company" }),
+    history: STATUSES.map(acted),
+  });
+  for (const status of ["applied", "interviewing", "offer"]) {
+    assert.match(html, new RegExp(`Role ${status}`), `${status} is still live, so it shows`);
+  }
+  for (const status of ["rejected", "closed"]) {
+    assert.doesNotMatch(html, new RegExp(`Role ${status}`), `${status} is an end, so it does not`);
+  }
+});
+
+test("isActive is true for applied, interviewing and offer, and false for no status, rejected and closed", () => {
+  assert.deepEqual(
+    [null, ...STATUSES].map((status) => isActive(posting("a::1", { status }))),
+    [false, true, true, false, true, false],
+  );
 });
