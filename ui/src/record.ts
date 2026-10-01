@@ -23,10 +23,12 @@ import { useMasterDetail } from "./master-detail.ts";
 import { labelOf, outcomeToastText, PostingCard, type DecidedOutcome } from "./posting.ts";
 import {
   companyHeadLabel,
+  FOLD_ICON,
   groupedByCompany,
   NULL_STORE,
   queueRows,
   sortedPostings,
+  useCollapsedCompanies,
 } from "./queue.ts";
 import { contains } from "./text-match.ts";
 import { Toast, useToast } from "./toast.ts";
@@ -149,6 +151,7 @@ export const RecordView = defineComponent({
       ),
     );
     const rows = computed(() => queueRows(filtered.value, view.value === "company", false));
+    const { isCollapsed, toggleCompany } = useCollapsedCompanies();
     // The reveal belongs to the view: this list drops and remounts a row
     // whenever a filter stops matching it. The Record never removes a row
     // live on decide, so `resolveSelection`'s own fallback handles a
@@ -208,6 +211,9 @@ export const RecordView = defineComponent({
       onRevealed,
       onListKeydown,
       toast,
+      isCollapsed,
+      toggleCompany,
+      FOLD_ICON,
     };
   },
   template: `
@@ -249,8 +255,9 @@ export const RecordView = defineComponent({
       <div class="master-detail" v-else>
         <div class="list" :class="{ grouped: view === 'company' }" @keydown="onListKeydown">
           <template v-for="row in rows" :key="row.posting.key">
-            <h2 v-if="row.head !== null" class="company-head"><span class="company">{{ row.head.company }}</span> &mdash; {{ companyHeadLabel(row.head) }}</h2>
+            <h2 v-if="row.head !== null" class="company-head"><button type="button" class="company-toggle" :aria-expanded="!isCollapsed(row.head.company)" @click="toggleCompany(row.head.company)"><svg class="fold" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path :d="FOLD_ICON" /></svg><span class="company">{{ row.head.company }}</span> &mdash; {{ companyHeadLabel(row.head) }}</button></h2>
             <PostingCard
+              v-if="!isCollapsed(row.posting.company)"
               :posting="row.posting"
               :config="config"
               :access-token="accessToken"

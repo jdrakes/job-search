@@ -1096,19 +1096,54 @@ textarea:focus-visible {
   position: sticky;
   top: var(--top-height);
   z-index: 1;
-  display: flex;
-  /* The name is a size up from the counts on a phone: one baseline, not one
-     top edge. */
-  align-items: baseline;
-  column-gap: 0.25em;
   margin: 0;
-  padding: var(--s-2) var(--s-4) var(--s-2) calc(var(--s-4) + 3px);
   background: var(--ground);
   font-size: var(--text-sm);
   font-weight: 400;
   letter-spacing: normal;
   white-space: nowrap;
   color: var(--muted);
+}
+
+/*
+ * The whole band is the fold toggle (`useCollapsedCompanies`,
+ * `ui/src/queue.ts`), so the padding lives on the button and the target is
+ * the band's full height and width, not the name's line box. Everything a
+ * global `button` sets is taken back off: the band reads as the header it
+ * was, with a chevron in front saying it folds.
+ */
+.company-toggle {
+  display: flex;
+  /* The name is a size up from the counts on a phone: one baseline, not one
+     top edge. */
+  align-items: baseline;
+  column-gap: 0.25em;
+  width: 100%;
+  min-height: 0;
+  padding: var(--s-2) var(--s-4) var(--s-2) calc(var(--s-4) + 3px);
+  border: 0;
+  border-radius: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.company-toggle:hover {
+  background: none;
+  color: var(--ink-2);
+}
+
+/* An SVG's baseline is its bottom edge; centred, it sits on the text. */
+.company-toggle .fold {
+  flex: none;
+  align-self: center;
+  transition: transform var(--ease);
+}
+
+.company-toggle[aria-expanded="true"] .fold {
+  transform: rotate(90deg);
 }
 
 /* The name is the only thing in the header at full strength; its size and
@@ -1130,11 +1165,13 @@ textarea:focus-visible {
  * the hairline above, unchanged. Opening a company, the palette's heavier
  * line plus the band's own edge. `.card + .company-head` is `.card + .card`'s
  * adjacency idiom: the list's first header opens the surface itself and needs
- * no rule over it. Nothing under the header: the ground-to-paper edge is the
+ * no rule over it; a folded company leaves its header against the next one,
+ * which takes the same rule. Nothing under the header: the ground-to-paper edge is the
  * boundary between a company and its first row, and a line there as well
  * would say the header and its rows are two things.
  */
-.card + .company-head {
+.card + .company-head,
+.company-head + .company-head {
   border-top: 1px solid var(--line-strong);
 }
 
@@ -1612,7 +1649,7 @@ textarea:focus-visible {
      the two company names keep the one x (the note above `.company-head`).
      The name takes the size the flat stack's company line takes on a phone;
      the clause after it stays the chrome size. */
-  .company-head {
+  .company-toggle {
     padding: var(--s-2) var(--s-3) var(--s-2) calc(var(--s-3) + 3px);
   }
 

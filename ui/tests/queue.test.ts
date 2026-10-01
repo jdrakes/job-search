@@ -50,6 +50,7 @@ import {
   orderedQueue,
   queueRows,
   QueueView,
+  useCollapsedCompanies,
   waitingLabel,
 } from "../src/queue.ts";
 import {
@@ -2523,4 +2524,14 @@ test("a company's group closes when its last waiting row is decided, taking its 
   );
   // Index 0 is now Bevel's row.
   assert.equal(after[0]?.key, "bevel::1");
+});
+
+test("useCollapsedCompanies folds a company on the first toggle, unfolds it on the second, and leaves the others open", () => {
+  const { isCollapsed, toggleCompany } = useCollapsedCompanies();
+  assert.equal(isCollapsed("Acme"), false, "every company starts open");
+  toggleCompany("Acme");
+  assert.equal(isCollapsed("Acme"), true);
+  assert.equal(isCollapsed("Bevel"), false);
+  toggleCompany("Acme");
+  assert.equal(isCollapsed("Acme"), false);
 });

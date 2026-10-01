@@ -218,6 +218,34 @@ export function companyHeadLabel(head: CompanyHead): string {
   return parts.length > 0 ? parts.join(" · ") : `${head.closed} closed`;
 }
 
+/**
+ * Which companies' groups are folded to their header. Not remembered, like
+ * the search box: a fold restored tomorrow would hide the roles that arrived
+ * overnight under a header he no longer remembers closing. A folded company
+ * keeps its header and counts, so what is under it is still said; only its
+ * rows leave the list, and with them the arrow-key scan, which reads the
+ * rendered `.card .head`s.
+ */
+export function useCollapsedCompanies(): {
+  isCollapsed(company: string): boolean;
+  toggleCompany(company: string): void;
+} {
+  const collapsed = ref<ReadonlySet<string>>(new Set());
+  function toggleCompany(company: string): void {
+    const next = new Set(collapsed.value);
+    if (!next.delete(company)) next.add(company);
+    collapsed.value = next;
+  }
+  return { isCollapsed: (company) => collapsed.value.has(company), toggleCompany };
+}
+
+/**
+ * The header's chevron: pointing right folded, turned down open by CSS on
+ * the button's `aria-expanded`, so the one attribute drives both what a
+ * screen reader hears and what the eye sees.
+ */
+export const FOLD_ICON = "M6 4l4 4-4 4";
+
 /** Company or title, not both: which of the two a word hit is not a fact James wants back. */
 export function matchesQuery(posting: PostingSummary, query: string): boolean {
   if (query.trim() === "") return true;
@@ -375,6 +403,7 @@ export const QueueView = defineComponent({
       ),
     );
     const rows = computed(() => queueRows(visible.value, view.value === "company"));
+    const { isCollapsed, toggleCompany } = useCollapsedCompanies();
     // An empty queue and an empty result are different facts.
     const emptyText = computed(() =>
       query.value.trim() === "" ? "Nothing waiting on you." : "Nothing matches.",
@@ -434,6 +463,9 @@ export const QueueView = defineComponent({
       QUEUE_SORTS,
       query,
       emptyText,
+      isCollapsed,
+      toggleCompany,
+      FOLD_ICON,
     };
   },
   template: `
@@ -447,8 +479,9 @@ export const QueueView = defineComponent({
       <div class="master-detail" v-else ref="listRef">
         <TransitionGroup tag="div" name="list" class="list" :class="{ grouped: view === 'company' }" @keydown="onListKeydown">
           <template v-for="row in rows" :key="row.posting.key">
-            <h2 v-if="row.head !== null" class="company-head"><span class="company">{{ row.head.company }}</span> &mdash; {{ companyHeadLabel(row.head) }}</h2>
+            <h2 v-if="row.head !== null" class="company-head"><button type="button" class="company-toggle" :aria-expanded="!isCollapsed(row.head.company)" @click="toggleCompany(row.head.company)"><svg class="fold" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path :d="FOLD_ICON" /></svg><span class="company">{{ row.head.company }}</span> &mdash; {{ companyHeadLabel(row.head) }}</button></h2>
             <PostingCard
+              v-if="!isCollapsed(row.posting.company)"
               :class="{ history: row.history }"
               :posting="row.posting"
               :config="config"
