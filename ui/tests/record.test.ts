@@ -27,6 +27,7 @@ import {
   allNodes,
   click,
   elementsWithClass,
+  hasClass,
   mountTree,
   patchBody,
   patchedOne,
@@ -760,6 +761,57 @@ test("a Record filter says how many of its postings matched, and no filter says 
       textOf(elementsWithClass(app.root, "matched")[0]!),
       "",
       "clearing it takes the number away and leaves the region",
+    );
+  } finally {
+    app.unmount();
+  }
+});
+
+test("folding a company in the company view keeps its header and counts and takes its rows out of the list", async () => {
+  const app = mountTree(RecordView, {
+    postings: [
+      posting("acme::1", { company: "Acme", status: "applied", status_at: "2026-09-01" }),
+      posting("acme::2", { company: "Acme" }),
+      posting("bevel::1", { company: "Bevel" }),
+    ],
+    config: CONFIG,
+    accessToken: ACCESS_TOKEN,
+    compFloor: null,
+    store: memoryStore({ [viewKey("record")]: "company" }),
+  });
+  try {
+    const list = (): TreeNode => {
+      const found = elementsWithClass(app.root, "list")[0];
+      assert.ok(found !== undefined);
+      return found;
+    };
+    const shape = (): string[] =>
+      list()
+        .children.filter((child) => hasClass(child, "company-head") || hasClass(child, "card"))
+        .map((child) => (hasClass(child, "company-head") ? `head:${textOf(child)}` : "card"));
+    const acmeToggle = elementsWithClass(app.root, "company-toggle").find((button) =>
+      textOf(button).includes("Acme"),
+    );
+    assert.ok(acmeToggle !== undefined, "Acme's header is a button");
+    assert.equal(acmeToggle.props["aria-expanded"], true, "a group opens unfolded");
+
+    click(acmeToggle);
+    await settled();
+    assert.deepEqual(
+      shape(),
+      ["head:Acme — 1 waiting · 1 applied", "head:Bevel — 1 waiting", "card"],
+      "Acme's header and counts stay; its two rows go; Bevel is untouched",
+    );
+    const folded = elementsWithClass(app.root, "company-toggle")[0];
+    assert.equal(folded?.props["aria-expanded"], false);
+
+    assert.ok(folded !== undefined);
+    click(folded);
+    await settled();
+    assert.equal(
+      shape().filter((part) => part === "card").length,
+      3,
+      "unfolding brings both rows back",
     );
   } finally {
     app.unmount();
