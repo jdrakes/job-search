@@ -126,7 +126,8 @@ export async function explainPosting(
   );
   const representative = representativeByKey(postings, criteria);
 
-  const readsPage = twoPhase(row.platform, row.board, readers[row.platform]);
+  const reader = row.platform === null ? undefined : readers[row.platform];
+  const readsPage = twoPhase(row.platform, row.board, reader);
   const judgedBody: JudgedBody = !readsPage ? "listing" : row.body === null ? "absent" : "stored";
 
   const { kept, reasons } = fullJudgment(

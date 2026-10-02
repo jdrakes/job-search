@@ -437,7 +437,7 @@ export async function judgeAll(
     const judgedAt = now();
     if (!needsJudging(row, criteria, judgedAt, boards, representative)) continue;
 
-    const reader = readers[row.platform];
+    const reader = row.platform === null ? undefined : readers[row.platform];
 
     // A posting the listing criteria dropped is judged without a body and
     // the text criteria never run on it.
@@ -453,6 +453,7 @@ export async function judgeAll(
       body = await storedBody(store, row.key);
       if (
         body === null &&
+        row.platform !== null &&
         row.board !== null &&
         twoPhase(row.platform, row.board, reader) &&
         reader?.body !== undefined
@@ -607,12 +608,14 @@ function nativeTwoPhase(platform: Platform): boolean {
 // A board is two-phase when its platform's own reader is, or when the
 // operator gave this board a detail read. Another board on a wrapped
 // platform is one-phase, as it would be unwrapped. A row with no board is
-// decided by its platform alone.
+// decided by its platform alone; a hand-added row with no platform has no
+// detail to read.
 export function twoPhase(
-  platform: Platform,
+  platform: Platform | null,
   board: string | null,
   reader: Reader | undefined,
 ): boolean {
+  if (platform === null) return false;
   if (nativeTwoPhase(platform)) return true;
   return board !== null && reader?.readsDetail?.({ platform, id: board }) === true;
 }
@@ -650,7 +653,8 @@ function prunable(
   const keys: string[] = [];
   for (const [key, row] of stored) {
     if (row.kept === true || row.status !== null || admitted.has(key)) continue;
-    const readsPage = twoPhase(row.platform, row.board, readers[row.platform]);
+    const reader = row.platform === null ? undefined : readers[row.platform];
+    const readsPage = twoPhase(row.platform, row.board, reader);
     if (rejected.has(key) || !admits(row, readsPage, criteria)) keys.push(key);
   }
   return keys;
@@ -938,7 +942,7 @@ interface StoredListing {
   readonly company: string;
   // With `board`, whether `prunable` gives the posting the floor pass
   // (`twoPhase`).
-  readonly platform: Platform;
+  readonly platform: Platform | null;
   readonly board: string | null;
   readonly title: string | null;
   readonly url: string | null;

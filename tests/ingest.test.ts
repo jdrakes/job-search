@@ -1758,6 +1758,41 @@ test("judgeAll: a listing id carrying the key's own separator is fetched whole",
   assert.deepEqual(bodyCalls, ["swe::1"]);
 });
 
+// The store's `platform` column is nullable: rows hand-added before the
+// rebuild carry neither platform nor board. One such row due a re-judge
+// once threw in `twoPhase` and ended the whole judging pass.
+test("judgeAll: a hand-added posting with no platform is judged without a body fetch", async () => {
+  const store = memoryStore({
+    companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "acme-gh" }] })],
+    postings: [
+      posting({
+        key: "Acme::legacy-e092fd160bf7",
+        company: "Acme",
+        platform: null,
+        board: null,
+        title: "Staff Backend Engineer",
+        status: "closed",
+      }),
+    ],
+    criteria: [criteria()],
+  });
+
+  const readers: Partial<Record<Platform, Reader>> = {
+    greenhouse: {
+      platform: "greenhouse",
+      list: async () => [],
+      body: async () => {
+        assert.fail("a posting with no platform has no detail to fetch");
+      },
+    },
+  };
+
+  const judging = await judgeAll(store, readers);
+
+  assert.equal(judging.judged, 1);
+  assert.deepEqual(judging.errors, []);
+});
+
 // Workday stands in for the three two-phase boards.
 function twoPhaseReader(body: string): Reader {
   return {

@@ -65,7 +65,7 @@ export interface Office {
 export interface Posting {
   readonly key: string;
   readonly company: string;
-  readonly platform: Platform;
+  readonly platform: Platform | null;
   readonly board: string | null;
   readonly title: string | null;
   readonly url: string | null;

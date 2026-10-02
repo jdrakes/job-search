@@ -362,7 +362,7 @@ export function unwatchedBy(
   posting: Pick<Posting, "company" | "platform" | "board">,
   boards: BoardIndex,
 ): boolean {
-  if (posting.board === null) return false;
+  if (posting.platform === null || posting.board === null) return false;
   if (!boards.named.has(posting.company)) return false;
   if (boards.dropped.has(posting.company)) return true;
   if (boards.boardless.has(posting.company)) return true;
@@ -373,7 +373,7 @@ function judgeUnwatched(
   posting: Pick<Posting, "company" | "platform" | "board">,
   boards: BoardIndex,
 ): Reason {
-  if (posting.board === null) {
+  if (posting.platform === null || posting.board === null) {
     return { criterion: "unwatched", verdict: "in", detail: "posting names no board" };
   }
   if (!boards.named.has(posting.company)) {

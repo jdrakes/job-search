@@ -134,6 +134,7 @@ export function scoreRemote(
 ): RemoteScore {
   const byPlatform: Partial<Record<Platform, Score>> = {};
   for (const platform of new Set(rows.map((row) => row.platform))) {
+    if (platform === null) continue;
     byPlatform[platform] = scoreRows(
       rows.filter((row) => row.platform === platform),
       judge,
