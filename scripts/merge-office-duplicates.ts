@@ -111,7 +111,7 @@ export interface MergeRun {
 function boardsToCheck(rows: readonly StoredRow[]): readonly Board[] {
   const boards = new Map<string, Board>();
   for (const row of rows) {
-    if (row.status !== null || row.board === null) continue;
+    if (row.status !== null || row.platform === null || row.board === null) continue;
     const board = { platform: row.platform, id: row.board };
     boards.set(`${board.platform}/${board.id}`, board);
   }
