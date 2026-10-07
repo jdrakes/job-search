@@ -2866,6 +2866,48 @@ test("judgeAll: a refused flush is one error line, not a thrown run, and its row
   assert.equal(eng1?.judged_with, null, "a failed flush leaves every posting in it untouched");
 });
 
+test("judgeAll: a failed stored-body read is one error line, and the sweep judges the next posting", async () => {
+  const inner = memoryStore({
+    companies: [company("Acme", { boards: [{ platform: "greenhouse", id: "acme-gh" }] })],
+    criteria: [criteria()],
+  });
+
+  const readers: Partial<Record<Platform, Reader>> = {
+    greenhouse: {
+      platform: "greenhouse",
+      list: async () => [
+        listing("swe1", { title: "Staff Backend Engineer" }),
+        listing("swe2", { title: "Staff Backend Engineer" }),
+      ],
+      body: async (_board, id) =>
+        listing(id, { body: "This is a fully remote position, open to anyone in the US." }),
+    },
+  };
+
+  await ingest(inner, readers, { today: MONDAY });
+
+  const store: Store = {
+    select: (table, eq, columns) =>
+      eq?.key === "greenhouse/acme-gh::swe1"
+        ? Promise.reject(new Error("read ETIMEDOUT"))
+        : inner.select(table, eq, columns),
+    upsert: (table, rows) => inner.upsert(table, rows),
+    update: (table, key, patch) => inner.update(table, key, patch),
+    delete: (table, keys) => inner.delete(table, keys),
+  };
+
+  const judging = await judgeAll(store, readers);
+
+  assert.equal(judging.errors.length, 1);
+  assert.match(judging.errors[0] ?? "", /judge stored body read: read ETIMEDOUT/);
+  assert.equal(judging.judged, 1);
+
+  const [swe1] = await inner.select<Posting>("postings", { key: "greenhouse/acme-gh::swe1" });
+  const [swe2] = await inner.select<Posting>("postings", { key: "greenhouse/acme-gh::swe2" });
+  assert.equal(swe1?.judged_with, null, "a failed read leaves the posting for the next run");
+  assert.notEqual(swe2?.judged_with, null);
+});
+
 test("judgeAll: a flush mid-loop empties the buffer and the remainder lands in a second flush", async () => {
   const { store, upserts } = recording(
     memoryStore({

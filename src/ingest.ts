@@ -310,9 +310,18 @@ const JUDGING_COLUMNS = [
 
 type JudgingRow = Pick<Posting, (typeof JUDGING_COLUMNS)[number]>;
 
-async function storedBody(store: Store, key: string): Promise<string | null> {
-  const rows = await store.select<Pick<Posting, "body">>("postings", { key }, ["body"]);
-  return rows[0]?.body ?? null;
+// A failed read is returned, not thrown: one store timeout mid-sweep would
+// otherwise end the judging pass and lose the unflushed verdicts.
+async function storedBody(
+  store: Store,
+  key: string,
+): Promise<{ ok: true; value: string | null } | { ok: false; reason: string }> {
+  try {
+    const rows = await store.select<Pick<Posting, "body">>("postings", { key }, ["body"]);
+    return { ok: true, value: rows[0]?.body ?? null };
+  } catch (err) {
+    return { ok: false, reason: describeError(err) };
+  }
 }
 
 // Postgres builds the INSERT tuple before it finds the conflict, so every
@@ -450,7 +459,13 @@ export async function judgeAll(
     // happened, or when the detail is gone.
     let detail: Listing | null = null;
     if (wantsBody(row, criteria, judgedAt, reader, boards, representative)) {
-      body = await storedBody(store, row.key);
+      const stored = await storedBody(store, row.key);
+      if (!stored.ok) {
+        // `judged_with` stays as it was, so `needsJudging` tries again next run.
+        errors.push(`${row.company} ${row.key}: judge stored body read: ${stored.reason}`);
+        continue;
+      }
+      body = stored.value;
       if (
         body === null &&
         row.platform !== null &&
