@@ -48,6 +48,8 @@ import {
   headOf,
   isActive,
   matchesQuery,
+  meetsMinScore,
+  MIN_SCORES,
   orderedQueue,
   queueRows,
   QueueView,
@@ -2567,4 +2569,92 @@ test("isActive is true for applied, interviewing and offer, and false for no sta
     [null, ...STATUSES].map((status) => isActive(posting("a::1", { status }))),
     [false, true, true, false, true, false],
   );
+});
+
+/** The queue's minimum-score select, or undefined when it is not rendered. */
+function minScoreSelect(root: TreeNode): TreeNode | undefined {
+  return allNodes(root).find((node) => node.tag === "select");
+}
+
+function chooseMinScore(target: TreeNode, value: string): void {
+  const handler = target.props["onChange"];
+  if (typeof handler !== "function") throw new Error(`<${target.tag}> has no @change handler`);
+  (handler as (event: object) => void)({ target: { value } });
+}
+
+test("meetsMinScore keeps a row at or above the minimum and drops one below", () => {
+  // Floor 200k: Acme top (300k) scores 60, Bevel (200k) scores 0.
+  assert.equal(meetsMinScore(ACME_TOP, 60, 200_000), true, "at the minimum is kept");
+  assert.equal(meetsMinScore(ACME_TOP, 70, 200_000), false);
+  assert.equal(meetsMinScore(BEVEL_MID, 10, 200_000), false);
+  assert.equal(meetsMinScore(BEVEL_MID, null, 200_000), true, "no minimum keeps everything");
+});
+
+test("meetsMinScore filters nothing with no floor, since there is no score to compare", () => {
+  assert.equal(meetsMinScore(BEVEL_MID, 90, null), true);
+});
+
+test("meetsMinScore counts the product word toward the score", () => {
+  // Bevel's pay scores 0; "Mid role" carries the product word "role", worth SHAPE_WEIGHT.
+  assert.equal(meetsMinScore(BEVEL_MID, SHAPE_WEIGHT, 200_000, ["role"]), true);
+  assert.equal(meetsMinScore(BEVEL_MID, SHAPE_WEIGHT, 200_000, []), false);
+});
+
+test("the score filter offers Any and every step, in ascending order", async () => {
+  const html = await render(QueueView, {
+    postings: [ACME_TOP],
+    config: CONFIG,
+    accessToken: ACCESS_TOKEN,
+    compFloor: 200_000,
+  });
+  assert.match(html, /<span>Min score<\/span>/);
+  assert.match(html, /<option value(="")?>Any<\/option>/);
+  for (const step of MIN_SCORES) assert.match(html, new RegExp(`>${step}\\+</option>`));
+  assert.deepEqual(
+    [...MIN_SCORES],
+    [...MIN_SCORES].sort((a, b) => a - b),
+  );
+});
+
+test("with no floor the queue renders no score filter, since no card shows a score", async () => {
+  const html = await render(QueueView, {
+    postings: [ACME_TOP],
+    config: CONFIG,
+    accessToken: ACCESS_TOKEN,
+    compFloor: null,
+  });
+  assert.doesNotMatch(html, /Min score/);
+  assert.doesNotMatch(html, /<select/);
+});
+
+test("choosing a minimum score narrows the queue and says how many it kept", async () => {
+  const restoreDom = stubDom();
+  const app = mountTree(QueueView, {
+    postings: [ACME_TOP, BEVEL_MID, ACME_LOW],
+    config: CONFIG,
+    accessToken: ACCESS_TOKEN,
+    compFloor: 200_000,
+  });
+  try {
+    const select = minScoreSelect(app.root);
+    assert.ok(select !== undefined);
+    chooseMinScore(select, "50");
+    await nextTick();
+    assert.equal(textOf(matchedLine(app.root)!), "1 of 3");
+    const text = textOf(app.root);
+    assert.match(text, /Top role/);
+    assert.doesNotMatch(text, /Mid role/);
+    assert.doesNotMatch(text, /Low role/);
+
+    chooseMinScore(minScoreSelect(app.root)!, "90");
+    await nextTick();
+    assert.match(textOf(app.root), /Nothing matches\./, "an empty result, not an empty queue");
+
+    chooseMinScore(minScoreSelect(app.root)!, "");
+    await nextTick();
+    assert.equal(textOf(matchedLine(app.root)!), "", "Any is no filter");
+  } finally {
+    app.unmount();
+    restoreDom();
+  }
 });

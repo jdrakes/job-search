@@ -3,7 +3,8 @@
  * `posted_at`, or newest first. With no criteria row there is no score and
  * the midpoint order stands alone. In the company view it also shows each
  * company's acted-on postings as history. The number waiting is the Queue
- * tab's count; a filtered count sits beside the search box that narrowed it.
+ * tab's count; a filtered count sits beside the search box and score filter
+ * that narrowed it.
  */
 import { computed, defineComponent, nextTick, ref, type PropType } from "vue";
 
@@ -252,6 +253,24 @@ export function matchesQuery(posting: PostingSummary, query: string): boolean {
   return contains(posting.company, query) || contains(posting.title, query);
 }
 
+/** The floors the score filter offers; "Any" is the empty option before them. */
+export const MIN_SCORES = [10, 20, 30, 40, 50, 60, 70, 80, 90] as const;
+
+/**
+ * At or above `minScore`. With no floor there is no score, so nothing is
+ * filtered out: the control is hidden then, and a choice made before the
+ * criteria read failed must not empty the queue on a number it cannot show.
+ */
+export function meetsMinScore(
+  posting: PostingSummary,
+  minScore: number | null,
+  compFloor: number | null,
+  productWords: readonly string[] = [],
+): boolean {
+  if (minScore === null || compFloor === null) return true;
+  return scoreOf(posting, compFloor, productWords) >= minScore;
+}
+
 /**
  * The rows only: above the master-detail breakpoint the pane renders the
  * selected posting as a `.card` in the same container. `Array.from`, not
@@ -381,6 +400,14 @@ export const QueueView = defineComponent({
     // `@input` rather than `v-model`, as in the Record: `v-model` drops input
     // events during a composition, and iOS marks autocorrect candidates as one.
     const query = ref("");
+    // Not remembered either, for the same reason as the box.
+    const minScore = ref<number | null>(null);
+    function setMinScore(value: string): void {
+      minScore.value = value === "" ? null : Number(value);
+    }
+    const filtering = computed(
+      () => query.value.trim() !== "" || (minScore.value !== null && props.compFloor !== null),
+    );
     /** Waiting on James: no status, whether the store wrote it or he just did. */
     const isWaiting = (posting: PostingSummary): boolean => posting.status === null;
     // What the filtered count is measured against, and the one predicate both
@@ -391,7 +418,11 @@ export const QueueView = defineComponent({
     // grouped headers follow the box: a group only opens for a company with
     // something waiting.
     const waiting = computed(() =>
-      waitingTotal.value.filter((posting) => matchesQuery(posting, query.value)),
+      waitingTotal.value.filter(
+        (posting) =>
+          matchesQuery(posting, query.value) &&
+          meetsMinScore(posting, minScore.value, props.compFloor, props.productWords),
+      ),
     );
     /*
      * The filtered count, and "" when no filter is set. The `<p>` that shows
@@ -403,7 +434,7 @@ export const QueueView = defineComponent({
      * and goes. Unfiltered the tab's own pill already says the number.
      */
     const matchedText = computed(() =>
-      query.value.trim() === "" ? "" : `${waiting.value.length} of ${waitingTotal.value.length}`,
+      filtering.value ? `${waiting.value.length} of ${waitingTotal.value.length}` : "",
     );
     const visible = computed(() =>
       orderedQueue(
@@ -419,7 +450,7 @@ export const QueueView = defineComponent({
     const { isCollapsed, toggleCompany } = useCollapsedCompanies();
     // An empty queue and an empty result are different facts.
     const emptyText = computed(() =>
-      query.value.trim() === "" ? "Nothing waiting on you." : "Nothing matches.",
+      filtering.value ? "Nothing matches." : "Nothing waiting on you.",
     );
     const {
       selectedKey,
@@ -475,6 +506,9 @@ export const QueueView = defineComponent({
       setSort,
       QUEUE_SORTS,
       query,
+      minScore,
+      setMinScore,
+      MIN_SCORES,
       emptyText,
       isCollapsed,
       toggleCompany,
@@ -486,6 +520,13 @@ export const QueueView = defineComponent({
       <ArrangeBar tab="queue" tab-label="Queue" :view="view" :sort="sort" :sorts="QUEUE_SORTS" @view="setView" @sort="setSort" />
       <div class="queue-search">
         <SearchBox :value="query" placeholder="Company or role" @search="query = $event" />
+        <label v-if="compFloor !== null" class="min-score">
+          <span>Min score</span>
+          <select :value="minScore === null ? '' : String(minScore)" @change="setMinScore($event.target.value)">
+            <option value="">Any</option>
+            <option v-for="s in MIN_SCORES" :key="s" :value="String(s)">{{ s }}+</option>
+          </select>
+        </label>
         <p class="matched" role="status">{{ matchedText }}</p>
       </div>
       <EmptyState v-if="waiting.length === 0" :text="emptyText" />
