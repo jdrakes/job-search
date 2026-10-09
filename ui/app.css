@@ -816,7 +816,7 @@ textarea:focus-visible {
 
 /* The checkbox sits on its line with its words beside it, not over it, and
    on the select's line: the box and the select are the taller controls. */
-.queue-search label.no-open {
+.queue-search label.not-applied {
   flex-direction: row;
   align-items: center;
   gap: var(--s-2);
@@ -856,7 +856,7 @@ textarea:focus-visible {
   /* Same 44px reasoning as the buttons above, for the same finger. */
   .queue-search input[type="search"],
   .queue-search select,
-  .queue-search label.no-open {
+  .queue-search label.not-applied {
     min-height: 2.75rem;
   }
 
