@@ -787,6 +787,9 @@ textarea:focus-visible {
  */
 .queue-search {
   display: flex;
+  /* Wraps on a phone, where the box takes the full width and the score
+     filter and count drop to a line under it. */
+  flex-wrap: wrap;
   align-items: flex-end;
   gap: var(--s-3);
   margin: var(--s-3) 0 var(--s-4);
@@ -811,6 +814,33 @@ textarea:focus-visible {
   font-size: var(--text-sm);
 }
 
+/* The checkbox sits on its line with its words beside it, not over it, and
+   on the select's line: the box and the select are the taller controls. */
+.queue-search label.no-open {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: 2.25rem;
+  cursor: pointer;
+}
+
+/* The native box back: the shared `input` rule's `appearance: none`, padding
+   and height are for text fields, and on a checkbox they erase the tick. */
+.queue-search input[type="checkbox"] {
+  appearance: auto;
+  width: 1.125rem;
+  height: 1.125rem;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+/* The minimum score, beside the box: a second narrowing of the same list. */
+.queue-search select {
+  font-size: var(--text-sm);
+}
+
 @media (max-width: 40rem) {
   /*
    * The view and sort groups are the queue's and the record's chrome, and on
@@ -824,9 +854,14 @@ textarea:focus-visible {
   }
 
   /* Same 44px reasoning as the buttons above, for the same finger. */
+  .queue-search input[type="search"],
+  .queue-search select,
+  .queue-search label.no-open {
+    min-height: 2.75rem;
+  }
+
   .queue-search input[type="search"] {
     width: 100%;
-    min-height: 2.75rem;
   }
 }
 
