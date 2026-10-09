@@ -891,17 +891,20 @@ textarea:focus-visible {
  * `hidden`: both cut the rounded corners and contain the leaving row, but
  * `hidden` makes `.list` a scroll container, and a sticky `.company-head`
  * would then stick to `.list` (which never scrolls) instead of the page.
+ *
+ * A leaving row is hidden at once rather than faded. Out of flow with no
+ * `top`, each one sits where the rows before it left, so a filter that
+ * takes many rows out at once stacked them all at the top of the list
+ * while they faded.
  */
 .list-move,
-.list-enter-active,
-.list-leave-active {
+.list-enter-active {
   transition:
     transform var(--ease),
     opacity var(--ease);
 }
 
-.list-enter-from,
-.list-leave-to {
+.list-enter-from {
   opacity: 0;
   transform: translateY(calc(-1 * var(--s-2)));
 }
@@ -909,6 +912,8 @@ textarea:focus-visible {
 .list-leave-active {
   position: absolute;
   width: 100%;
+  opacity: 0;
+  transition: none;
 }
 
 /* The surface clips its own edge, so a ring inside it draws inward. */
