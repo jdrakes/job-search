@@ -43,6 +43,7 @@ import { useMasterDetail } from "../src/master-detail.ts";
 import {
   appliedCountsByCompany,
   appliedLabel,
+  companiesWithOpenApplication,
   companyHeadLabel,
   headAt,
   headOf,
@@ -2653,6 +2654,75 @@ test("choosing a minimum score narrows the queue and says how many it kept", asy
     chooseMinScore(minScoreSelect(app.root)!, "");
     await nextTick();
     assert.equal(textOf(matchedLine(app.root)!), "", "Any is no filter");
+  } finally {
+    app.unmount();
+    restoreDom();
+  }
+});
+
+test("companiesWithOpenApplication names the companies with an applied, interviewing or offer row", () => {
+  const interviewing = posting("dune::1", { company: "Dune", status: "interviewing" });
+  const rejected = posting("echo::1", { company: "Echo", status: "rejected" });
+  const open = companiesWithOpenApplication([
+    ACME_APPLIED,
+    ACME_CLOSED,
+    interviewing,
+    rejected,
+    BEVEL_MID,
+  ]);
+  assert.deepEqual([...open].sort(), ["Acme", "Dune"]);
+});
+
+function noOpenCheckbox(root: TreeNode): TreeNode {
+  const box = allNodes(root).find((node) => node.props["type"] === "checkbox");
+  if (box === undefined) throw new Error("the queue rendered no checkbox");
+  return box;
+}
+
+test("the no-open-application filter leaves only companies with nothing open, and says how many", async () => {
+  const restoreDom = stubDom();
+  const app = mountTree(QueueView, {
+    postings: [ACME_TOP, BEVEL_MID, ACME_LOW],
+    config: CONFIG,
+    accessToken: ACCESS_TOKEN,
+    compFloor: null,
+    history: [ACME_APPLIED, ACME_CLOSED],
+  });
+  try {
+    const box = noOpenCheckbox(app.root);
+    (box.props["onChange"] as (event: object) => void)({ target: { checked: true } });
+    await nextTick();
+    assert.equal(textOf(matchedLine(app.root)!), "1 of 3");
+    const text = textOf(app.root);
+    assert.match(text, /Mid role/);
+    assert.doesNotMatch(text, /Top role/, "Acme has an open application");
+
+    (noOpenCheckbox(app.root).props["onChange"] as (event: object) => void)({
+      target: { checked: false },
+    });
+    await nextTick();
+    assert.equal(textOf(matchedLine(app.root)!), "", "unchecked is no filter");
+  } finally {
+    app.unmount();
+    restoreDom();
+  }
+});
+
+test("a closed or rejected role does not count as an open application", async () => {
+  const restoreDom = stubDom();
+  const app = mountTree(QueueView, {
+    postings: [ACME_TOP],
+    config: CONFIG,
+    accessToken: ACCESS_TOKEN,
+    compFloor: null,
+    history: [ACME_CLOSED],
+  });
+  try {
+    (noOpenCheckbox(app.root).props["onChange"] as (event: object) => void)({
+      target: { checked: true },
+    });
+    await nextTick();
+    assert.match(textOf(app.root), /Top role/);
   } finally {
     app.unmount();
     restoreDom();

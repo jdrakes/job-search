@@ -350,6 +350,17 @@ function actedWith(
   ].filter(isActive);
 }
 
+/**
+ * Companies where James has an application still open (`isActive`): the
+ * ones the "No open application" filter takes out of the Queue, so the
+ * companies he has not yet reached can be applied to first.
+ */
+export function companiesWithOpenApplication(
+  postings: readonly PostingSummary[],
+): ReadonlySet<string> {
+  return new Set(postings.filter(isActive).map((posting) => posting.company));
+}
+
 export const QueueView = defineComponent({
   name: "QueueView",
   components: { ArrangeBar, PostingCard, EmptyState, SearchBox, Toast },
@@ -405,8 +416,16 @@ export const QueueView = defineComponent({
     function setMinScore(value: string): void {
       minScore.value = value === "" ? null : Number(value);
     }
+    // Not remembered either: restored tomorrow it would hide every company
+    // he applied to today with nothing on screen but the box saying why.
+    const noOpenApplication = ref(false);
+    const acted = computed(() => actedWith(props.history, props.postings));
+    const openCompanies = computed(() => companiesWithOpenApplication(acted.value));
     const filtering = computed(
-      () => query.value.trim() !== "" || (minScore.value !== null && props.compFloor !== null),
+      () =>
+        query.value.trim() !== "" ||
+        (minScore.value !== null && props.compFloor !== null) ||
+        noOpenApplication.value,
     );
     /** Waiting on James: no status, whether the store wrote it or he just did. */
     const isWaiting = (posting: PostingSummary): boolean => posting.status === null;
@@ -421,7 +440,8 @@ export const QueueView = defineComponent({
       waitingTotal.value.filter(
         (posting) =>
           matchesQuery(posting, query.value) &&
-          meetsMinScore(posting, minScore.value, props.compFloor, props.productWords),
+          meetsMinScore(posting, minScore.value, props.compFloor, props.productWords) &&
+          !(noOpenApplication.value && openCompanies.value.has(posting.company)),
       ),
     );
     /*
@@ -443,7 +463,7 @@ export const QueueView = defineComponent({
         props.productWords,
         sort.value,
         view.value,
-        actedWith(props.history, props.postings),
+        acted.value,
       ),
     );
     const rows = computed(() => queueRows(visible.value, view.value === "company"));
@@ -509,6 +529,7 @@ export const QueueView = defineComponent({
       minScore,
       setMinScore,
       MIN_SCORES,
+      noOpenApplication,
       emptyText,
       isCollapsed,
       toggleCompany,
@@ -526,6 +547,10 @@ export const QueueView = defineComponent({
             <option value="">Any</option>
             <option v-for="s in MIN_SCORES" :key="s" :value="String(s)">{{ s }}+</option>
           </select>
+        </label>
+        <label class="no-open">
+          <input type="checkbox" :checked="noOpenApplication" @change="noOpenApplication = $event.target.checked" />
+          <span>No open application</span>
         </label>
         <p class="matched" role="status">{{ matchedText }}</p>
       </div>
