@@ -315,21 +315,25 @@ export const NULL_STORE: SessionStore = {
 };
 
 /**
- * The statuses a company's history in the Queue shows: the roles still live
- * for James. Rejected and closed are ends; under a company he is deciding on
- * they are roles that will not move again, and they read as noise beside the
- * ones that can (2026-10-01). The Record keeps every status: it is the
- * record.
+ * The statuses that mean James applied: every one but closed, which is
+ * passing on a role. A company's history in the Queue shows these, and the
+ * "Not applied to" filter hides a company with any of them. The Record
+ * keeps every status: it is the record.
  */
-export const ACTIVE_STATUSES: ReadonlySet<string> = new Set(["applied", "interviewing", "offer"]);
+export const APPLIED_STATUSES: ReadonlySet<string> = new Set([
+  "applied",
+  "interviewing",
+  "rejected",
+  "offer",
+]);
 
-export function isActive(posting: PostingSummary): boolean {
-  return posting.status !== null && ACTIVE_STATUSES.has(posting.status);
+export function isApplication(posting: PostingSummary): boolean {
+  return posting.status !== null && APPLIED_STATUSES.has(posting.status);
 }
 
 /**
  * Every posting this view should show as history, grouped by company: the
- * active ones only (`isActive`). Normally `history` is all of it: both reads return a queue row, so a
+ * applications only (`isApplication`). Normally `history` is all of it: both reads return a queue row, so a
  * posting decided on this page comes back from the record read wearing its
  * new status. But when the record read fails `history` is empty while the
  * queue read is fine, and a row James just decided would then be in neither
@@ -347,18 +351,16 @@ function actedWith(
   return [
     ...history,
     ...postings.filter((posting) => posting.status !== null && !known.has(posting.key)),
-  ].filter(isActive);
+  ].filter(isApplication);
 }
 
 /**
- * Companies where James has an application still open (`isActive`): the
- * ones the "No open application" filter takes out of the Queue, so the
- * companies he has not yet reached can be applied to first.
+ * Companies James has applied to (`isApplication`): the ones the "Not
+ * applied to" filter takes out of the Queue, so the companies he has not
+ * yet reached can be applied to first.
  */
-export function companiesWithOpenApplication(
-  postings: readonly PostingSummary[],
-): ReadonlySet<string> {
-  return new Set(postings.filter(isActive).map((posting) => posting.company));
+export function companiesAppliedTo(postings: readonly PostingSummary[]): ReadonlySet<string> {
+  return new Set(postings.filter(isApplication).map((posting) => posting.company));
 }
 
 export const QueueView = defineComponent({
@@ -418,14 +420,14 @@ export const QueueView = defineComponent({
     }
     // Not remembered either: restored tomorrow it would hide every company
     // he applied to today with nothing on screen but the box saying why.
-    const noOpenApplication = ref(false);
+    const notAppliedTo = ref(false);
     const acted = computed(() => actedWith(props.history, props.postings));
-    const openCompanies = computed(() => companiesWithOpenApplication(acted.value));
+    const appliedCompanies = computed(() => companiesAppliedTo(acted.value));
     const filtering = computed(
       () =>
         query.value.trim() !== "" ||
         (minScore.value !== null && props.compFloor !== null) ||
-        noOpenApplication.value,
+        notAppliedTo.value,
     );
     /** Waiting on James: no status, whether the store wrote it or he just did. */
     const isWaiting = (posting: PostingSummary): boolean => posting.status === null;
@@ -441,7 +443,7 @@ export const QueueView = defineComponent({
         (posting) =>
           matchesQuery(posting, query.value) &&
           meetsMinScore(posting, minScore.value, props.compFloor, props.productWords) &&
-          !(noOpenApplication.value && openCompanies.value.has(posting.company)),
+          !(notAppliedTo.value && appliedCompanies.value.has(posting.company)),
       ),
     );
     /*
@@ -529,7 +531,7 @@ export const QueueView = defineComponent({
       minScore,
       setMinScore,
       MIN_SCORES,
-      noOpenApplication,
+      notAppliedTo,
       emptyText,
       isCollapsed,
       toggleCompany,
@@ -548,9 +550,9 @@ export const QueueView = defineComponent({
             <option v-for="s in MIN_SCORES" :key="s" :value="String(s)">{{ s }}+</option>
           </select>
         </label>
-        <label class="no-open">
-          <input type="checkbox" :checked="noOpenApplication" @change="noOpenApplication = $event.target.checked" />
-          <span>No open application</span>
+        <label class="not-applied">
+          <input type="checkbox" :checked="notAppliedTo" @change="notAppliedTo = $event.target.checked" />
+          <span>Not applied to</span>
         </label>
         <p class="matched" role="status">{{ matchedText }}</p>
       </div>

@@ -43,11 +43,11 @@ import { useMasterDetail } from "../src/master-detail.ts";
 import {
   appliedCountsByCompany,
   appliedLabel,
-  companiesWithOpenApplication,
+  companiesAppliedTo,
   companyHeadLabel,
   headAt,
   headOf,
-  isActive,
+  isApplication,
   matchesQuery,
   meetsMinScore,
   MIN_SCORES,
@@ -2541,7 +2541,7 @@ test("useCollapsedCompanies folds a company on the first toggle, unfolds it on t
   assert.equal(isCollapsed("Acme"), false);
 });
 
-test("the Queue's company history shows applied, interviewing and offer, and leaves rejected and closed out", async () => {
+test("the Queue's company history shows every role he applied to, rejected included, and leaves closed out", async () => {
   const acted = (status: Posting["status"]): Posting =>
     posting(`acme::${status}`, {
       company: "Acme",
@@ -2557,18 +2557,16 @@ test("the Queue's company history shows applied, interviewing and offer, and lea
     store: memoryStore({ [viewKey("queue")]: "company" }),
     history: STATUSES.map(acted),
   });
-  for (const status of ["applied", "interviewing", "offer"]) {
-    assert.match(html, new RegExp(`Role ${status}`), `${status} is still live, so it shows`);
+  for (const status of ["applied", "interviewing", "rejected", "offer"]) {
+    assert.match(html, new RegExp(`Role ${status}`), `${status} is an application, so it shows`);
   }
-  for (const status of ["rejected", "closed"]) {
-    assert.doesNotMatch(html, new RegExp(`Role ${status}`), `${status} is an end, so it does not`);
-  }
+  assert.doesNotMatch(html, /Role closed/, "closed is passing on a role, so it does not");
 });
 
-test("isActive is true for applied, interviewing and offer, and false for no status, rejected and closed", () => {
+test("isApplication is true for applied, interviewing, rejected and offer, and false for no status and closed", () => {
   assert.deepEqual(
-    [null, ...STATUSES].map((status) => isActive(posting("a::1", { status }))),
-    [false, true, true, false, true, false],
+    [null, ...STATUSES].map((status) => isApplication(posting("a::1", { status }))),
+    [false, true, true, true, true, false],
   );
 });
 
@@ -2660,26 +2658,26 @@ test("choosing a minimum score narrows the queue and says how many it kept", asy
   }
 });
 
-test("companiesWithOpenApplication names the companies with an applied, interviewing or offer row", () => {
+test("companiesAppliedTo names the companies with an applied, interviewing, rejected or offer row", () => {
   const interviewing = posting("dune::1", { company: "Dune", status: "interviewing" });
   const rejected = posting("echo::1", { company: "Echo", status: "rejected" });
-  const open = companiesWithOpenApplication([
+  const appliedTo = companiesAppliedTo([
     ACME_APPLIED,
     ACME_CLOSED,
     interviewing,
     rejected,
     BEVEL_MID,
   ]);
-  assert.deepEqual([...open].sort(), ["Acme", "Dune"]);
+  assert.deepEqual([...appliedTo].sort(), ["Acme", "Dune", "Echo"]);
 });
 
-function noOpenCheckbox(root: TreeNode): TreeNode {
+function notAppliedCheckbox(root: TreeNode): TreeNode {
   const box = allNodes(root).find((node) => node.props["type"] === "checkbox");
   if (box === undefined) throw new Error("the queue rendered no checkbox");
   return box;
 }
 
-test("the no-open-application filter leaves only companies with nothing open, and says how many", async () => {
+test("the not-applied-to filter leaves only companies he has not applied to, and says how many", async () => {
   const restoreDom = stubDom();
   const app = mountTree(QueueView, {
     postings: [ACME_TOP, BEVEL_MID, ACME_LOW],
@@ -2689,15 +2687,15 @@ test("the no-open-application filter leaves only companies with nothing open, an
     history: [ACME_APPLIED, ACME_CLOSED],
   });
   try {
-    const box = noOpenCheckbox(app.root);
+    const box = notAppliedCheckbox(app.root);
     (box.props["onChange"] as (event: object) => void)({ target: { checked: true } });
     await nextTick();
     assert.equal(textOf(matchedLine(app.root)!), "1 of 3");
     const text = textOf(app.root);
     assert.match(text, /Mid role/);
-    assert.doesNotMatch(text, /Top role/, "Acme has an open application");
+    assert.doesNotMatch(text, /Top role/, "he applied to Acme");
 
-    (noOpenCheckbox(app.root).props["onChange"] as (event: object) => void)({
+    (notAppliedCheckbox(app.root).props["onChange"] as (event: object) => void)({
       target: { checked: false },
     });
     await nextTick();
@@ -2708,21 +2706,23 @@ test("the no-open-application filter leaves only companies with nothing open, an
   }
 });
 
-test("a closed or rejected role does not count as an open application", async () => {
+test("a closed role does not count as applying, a rejected one does", async () => {
   const restoreDom = stubDom();
   const app = mountTree(QueueView, {
-    postings: [ACME_TOP],
+    postings: [ACME_TOP, BEVEL_MID],
     config: CONFIG,
     accessToken: ACCESS_TOKEN,
     compFloor: null,
-    history: [ACME_CLOSED],
+    history: [ACME_CLOSED, posting("bevel::rejected", { company: "Bevel", status: "rejected" })],
   });
   try {
-    (noOpenCheckbox(app.root).props["onChange"] as (event: object) => void)({
+    (notAppliedCheckbox(app.root).props["onChange"] as (event: object) => void)({
       target: { checked: true },
     });
     await nextTick();
-    assert.match(textOf(app.root), /Top role/);
+    const text = textOf(app.root);
+    assert.match(text, /Top role/, "closing Acme's other role was not applying");
+    assert.doesNotMatch(text, /Mid role/, "a rejection at Bevel means he applied there");
   } finally {
     app.unmount();
     restoreDom();
