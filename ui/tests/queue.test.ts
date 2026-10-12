@@ -122,6 +122,7 @@ const CONFIG: AppConfig = {
   statuses: [...STATUSES],
 };
 const ACCESS_TOKEN = "user-jwt";
+const FRESH_TOKEN = async () => ({ ok: true as const, value: ACCESS_TOKEN });
 
 /** Stands in for `localStorage`. */
 function memoryStore(initial: Record<string, string> = {}): SessionStore {
@@ -689,7 +690,7 @@ test("a card with no floor to read shows no score; one with a floor shows the ti
   const withoutFloor = await render(PostingCard, {
     posting: p,
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   assert.doesNotMatch(withoutFloor, /class="score"/);
@@ -697,7 +698,7 @@ test("a card with no floor to read shows no score; one with a floor shows the ti
   const withFloor = await render(PostingCard, {
     posting: p,
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: FLOOR,
   });
   // What the tile counts is named in its `title`, not a caption per row.
@@ -717,7 +718,7 @@ test("a card shows comp, the evidence the processor kept it for, and the posting
   const html = await render(PostingCard, {
     posting: p,
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
 
@@ -736,7 +737,7 @@ test("a card's expansion carries the evidence sentences on demand", async () => 
   const closed = await render(PostingCard, {
     posting: p,
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   assert.doesNotMatch(closed, /class="evidence"/);
@@ -744,7 +745,7 @@ test("a card's expansion carries the evidence sentences on demand", async () => 
   const open = await render(PostingCard, {
     posting: p,
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     expanded: true,
   });
@@ -761,7 +762,7 @@ test("a single-office posting's drawer shows no offices list, matching today's m
   const html = await render(PostingCard, {
     posting: p,
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     expanded: true,
   });
@@ -780,7 +781,7 @@ test("a multi-office posting's drawer lists every office as a working link", asy
   const html = await render(PostingCard, {
     posting: p,
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     expanded: true,
   });
@@ -808,7 +809,7 @@ test("an office whose url is unsafe renders as plain text in the offices list", 
   const html = await render(PostingCard, {
     posting: p,
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     expanded: true,
   });
@@ -832,7 +833,7 @@ test("an office with a null name renders with a fallback label in the offices li
   const html = await render(PostingCard, {
     posting: p,
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     expanded: true,
   });
@@ -856,7 +857,7 @@ test("the drawer shows each reason once, as evidence, and a closed posting's not
       evidence: { level: 'title carries level word "Staff"' },
     }),
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     expanded: true,
   });
@@ -877,7 +878,7 @@ test("the drawer puts the close reason above the evidence", async () => {
       evidence: { level: 'title carries level word "Staff"' },
     }),
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     expanded: true,
   });
@@ -892,7 +893,7 @@ test("a rejected card with 'change' revealed offers all five outcomes in order, 
   const html = await render(PostingCard, {
     posting: p,
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     revealed: true,
   });
@@ -907,7 +908,7 @@ test("closing opens the close dialog as an accessible, labelled modal", async ()
   const html = await render(PostingCard, {
     posting: p,
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     closing: true,
   });
@@ -928,7 +929,7 @@ test("the close dialog's aria-labelledby stays one IDREF when the posting key ho
   const html = await render(PostingCard, {
     posting: p,
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     closing: true,
   });
@@ -946,7 +947,7 @@ test("with closing false (the default), no dialog renders at all", async () => {
   const html = await render(PostingCard, {
     posting: p,
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
 
@@ -959,7 +960,7 @@ test("a card with no URL shows no posting link", async () => {
   const html = await render(PostingCard, {
     posting: p,
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
 
@@ -972,7 +973,7 @@ test("the posting link opens the group of actions, inside .acts, and every contr
   const card = mountTree(PostingCard, {
     posting: posting("acme::1", { company: "Acme", url: "https://acme.example/job/1" }),
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   try {
@@ -1002,7 +1003,7 @@ test("every action carries a glyph, and its word rides in aria-label and title, 
   const html = await render(PostingCard, {
     posting: posting("Acme::1", { status: "rejected" }),
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     revealed: true,
   });
@@ -1031,7 +1032,7 @@ test("a posting with a status shows it as a toned pill with its age", async () =
   const withStatus = await render(PostingCard, {
     posting: posting("Acme::1", { status: "applied", status_at: threeDaysAgo }),
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   assert.match(withStatus, /class="status tag tone-progress"/);
@@ -1043,7 +1044,7 @@ test("a posting with no status says it is in the queue, and for how long", async
   const without = await render(PostingCard, {
     posting: posting("Acme::2", { first_seen: fourDaysAgo }),
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   assert.match(without, /class="meta"/);
@@ -1058,7 +1059,7 @@ test("the tag needs no prop to decide it: the same card says it on either page",
   const props = {
     posting: posting("Acme::3"),
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   };
   const once = await render(PostingCard, props);
@@ -1108,7 +1109,7 @@ test("a card shows how long ago it was posted, alongside — not in place of —
       posted_at: fiveDaysAgo,
     }),
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   assert.match(html, /class="age"[^>]*>for 2 days</);
@@ -1121,7 +1122,7 @@ test("a bare queue card (no status) still says how long ago it was posted", asyn
   const html = await render(PostingCard, {
     posting: posting("Acme::1", { posted_at: tenDaysAgo }),
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   assert.match(html, /class="meta"/);
@@ -1132,7 +1133,7 @@ test("a posting with no posted_at says nothing of posting age, unlike scoreOf wh
   const html = await render(PostingCard, {
     posting: posting("Acme::1", { posted_at: null, first_seen: "2026-01-01T00:00:00Z" }),
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   assert.doesNotMatch(html, /posted-age/);
@@ -1155,7 +1156,7 @@ test("QueueView renders in score order when it has a floor", async () => {
   const html = await render(QueueView, {
     postings: [stale, fresh],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: 150_000,
   });
   assert.ok(html.indexOf("Fresh") < html.indexOf("Stale"), "a score tie goes to the newer posting");
@@ -1169,7 +1170,7 @@ test("QueueView renders in midpoint order with an unposted band at the floor whe
   const html = await render(QueueView, {
     postings: [noBand, modest, top],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
 
@@ -1184,7 +1185,7 @@ test("QueueView shows the empty state when nothing is waiting", async () => {
   const html = await render(QueueView, {
     postings: [],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
 
@@ -1212,7 +1213,7 @@ test("a queue row states its place, so a group's waiting rows read beside its ac
       }),
     ],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     store: memoryStore({ [viewKey("queue")]: "company" }),
   });
@@ -1226,7 +1227,7 @@ test("QueueView cards offer applied and closed only, read straight off the posti
   const queue = await render(QueueView, {
     postings: [p],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   const list = queue.match(/class="list">([^]*?)<\/div><aside/)?.[1] ?? "";
@@ -1242,7 +1243,7 @@ test("the rendered queue shows a View group and a Sort group, 'List' and 'By sco
   const html = await render(QueueView, {
     postings: [posting("a::1")],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   const { view, sort } = orderGroups(html);
@@ -1260,7 +1261,7 @@ test("a stored view and sort are read on mount, each pressing its own button", a
   const html = await render(QueueView, {
     postings: [posting("a::1")],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     store: memoryStore({ [viewKey("queue")]: "company", [sortKey("queue")]: "posted" }),
   });
@@ -1337,7 +1338,7 @@ test("choosing 'Newest first' reorders the list and writes the sort key", async 
   const app = mountTree(QueueView, {
     postings: [older, newer],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     store,
   });
@@ -1380,7 +1381,7 @@ test("choosing 'By company' writes the view key at once and leaves the sort alon
   const app = mountTree(QueueView, {
     postings: [ACME_LOW, BEVEL_MID, ACME_TOP],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     store,
   });
@@ -1416,7 +1417,7 @@ test("the grouped list is one list, with the company headers as siblings of the 
   const app = mountTree(QueueView, {
     postings: [ACME_LOW, BEVEL_MID, ACME_TOP],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     store: memoryStore({ [viewKey("queue")]: "company" }),
   });
@@ -1457,14 +1458,14 @@ test("the list is marked grouped only in grouped mode, which is the hook the row
   const grouped = mountTree(QueueView, {
     postings: [ACME_LOW, BEVEL_MID, ACME_TOP],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     store: memoryStore({ [viewKey("queue")]: "company" }),
   });
   const byScore = mountTree(QueueView, {
     postings: [ACME_LOW, BEVEL_MID, ACME_TOP],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   try {
@@ -1485,7 +1486,7 @@ test("a grouped company shows the history app.ts hands in under its waiting rows
   const app = mountTree(QueueView, {
     postings: [ACME_LOW, BEVEL_MID, ACME_TOP],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     store: memoryStore({ [viewKey("queue")]: "company" }),
     history: [ACME_APPLIED, CIRRUS_APPLIED],
@@ -1523,7 +1524,7 @@ test("a grouped company's history row offers the outcomes its own status allows,
   const app = mountTree(QueueView, {
     postings: [ACME_TOP],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     store: memoryStore({ [viewKey("queue")]: "company" }),
     history: [ACME_APPLIED],
@@ -1557,7 +1558,7 @@ test("the filtered count counts what is waiting on James, not the rows the group
   const app = mountTree(QueueView, {
     postings: [ACME_LOW, BEVEL_MID, ACME_TOP],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     store: memoryStore({ [viewKey("queue")]: "company" }),
     history: [ACME_APPLIED, ACME_CLOSED],
@@ -1579,7 +1580,7 @@ test("nothing waiting is still the empty state, however much history the record 
   const html = await render(QueueView, {
     postings: [],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     store: memoryStore({ [viewKey("queue")]: "company" }),
     history: [ACME_APPLIED, CIRRUS_APPLIED],
@@ -1653,7 +1654,7 @@ test("a queue row (no status) offers exactly Applied and Closed", async () => {
   const html = await render(PostingCard, {
     posting: posting("a::1"),
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   assert.deepEqual(outcomeLabels(html), ["Applied", "Closed"]);
@@ -1663,7 +1664,7 @@ test("an applied row offers Interviewing, Rejected and Closed, and no Applied bu
   const html = await render(PostingCard, {
     posting: posting("a::1", { status: "applied", status_at: "2026-09-10T00:00:00Z" }),
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   assert.deepEqual(outcomeLabels(html), ["Interviewing", "Rejected", "Closed"]);
@@ -1673,7 +1674,7 @@ test("an interviewing row offers Offer, Rejected and Closed", async () => {
   const html = await render(PostingCard, {
     posting: posting("a::1", { status: "interviewing", status_at: "2026-09-10T00:00:00Z" }),
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   assert.deepEqual(outcomeLabels(html), ["Offer", "Rejected", "Closed"]);
@@ -1683,7 +1684,7 @@ test("an offer row offers Closed alone", async () => {
   const html = await render(PostingCard, {
     posting: posting("a::1", { status: "offer", status_at: "2026-09-10T00:00:00Z" }),
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   assert.deepEqual(outcomeLabels(html), ["Closed"]);
@@ -1693,7 +1694,7 @@ test("a rejected row offers no outcome buttons, only the quiet change control", 
   const html = await render(PostingCard, {
     posting: posting("a::1", { status: "rejected", status_at: "2026-09-10T00:00:00Z" }),
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   assert.deepEqual(outcomeLabels(html), []);
@@ -1704,7 +1705,7 @@ test("a closed row offers no outcome buttons, only the quiet change control", as
   const html = await render(PostingCard, {
     posting: posting("a::1", { status: "closed", status_at: "2026-09-10T00:00:00Z" }),
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   assert.deepEqual(outcomeLabels(html), []);
@@ -1715,7 +1716,7 @@ test("the quiet change control carries a glyph and a title, same as the outcome 
   const html = await render(PostingCard, {
     posting: posting("a::1", { status: "rejected", status_at: "2026-09-10T00:00:00Z" }),
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   const change = html.match(/<button[^>]*class="ghost change"[^>]*>([\s\S]*?)<\/button>/);
@@ -1742,7 +1743,7 @@ test("activating a rejected card's 'change' control reveals all five outcomes an
       status_at: "2026-09-10T00:00:00Z",
     }),
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   try {
@@ -1776,7 +1777,7 @@ test("a refused status write shows its reason on the card", async () => {
   const html = await render(PostingCard, {
     posting: posting("a::1"),
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   assert.doesNotMatch(html, /role="alert"/);
@@ -1785,7 +1786,7 @@ test("a refused status write shows its reason on the card", async () => {
   const card = mountTree(PostingCard, {
     posting: posting("a::1", { company: "Acme" }),
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   try {
@@ -1822,7 +1823,7 @@ test("the queue's panel is programmatically focusable, so a decided card's remov
   const html = await render(QueueView, {
     postings: [posting("a::1")],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
 
@@ -1841,7 +1842,7 @@ test("a decision hands the posting's key and the patch it wrote up to its parent
   const app = mountTree(QueueView, {
     postings: [posting("a::1", { company: "Acme" })],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     onDecided: (outcome: DecidedOutcome) => emitted.push(outcome),
   });
@@ -1872,7 +1873,7 @@ test("the decision that empties the queue sends focus to the panel its tab names
   const restoreFetch = stubFetch(() => Promise.resolve(patchedOne()));
   const app = mountUnderAppRoot(QueueView, [ACME_TOP], {
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   try {
@@ -1898,7 +1899,7 @@ test("a filter says how many of the waiting rows it matched, and clearing it say
   const app = mountTree(QueueView, {
     postings: [ACME_TOP, BEVEL_MID, ACME_LOW],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   try {
@@ -1927,7 +1928,7 @@ test("a card's head button, where a committed Close sends focus, is never disabl
   const html = await render(PostingCard, {
     posting: posting("Acme::1"),
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
 
@@ -1940,7 +1941,7 @@ test("a selected card carries aria-current and the selected class", async () => 
   const html = await render(PostingCard, {
     posting: posting("acme::1"),
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     selected: true,
   });
@@ -1952,7 +1953,7 @@ test("an unselected card carries neither aria-current nor the selected class", a
   const html = await render(PostingCard, {
     posting: posting("acme::1"),
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     selected: false,
   });
@@ -1965,7 +1966,7 @@ test("an expandable card's head is a disclosure: it says whether its own detail 
   const shut = await render(PostingCard, {
     posting: p,
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   assert.match(shut.match(/<button[^>]*class="head"[^>]*>/)?.[0] ?? "", /aria-expanded="false"/);
@@ -1973,7 +1974,7 @@ test("an expandable card's head is a disclosure: it says whether its own detail 
   const open = await render(PostingCard, {
     posting: p,
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     expanded: true,
   });
@@ -1987,7 +1988,7 @@ test("a card that cannot expand claims no aria-expanded, open or shut", async ()
   const row = await render(PostingCard, {
     posting: p,
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     expandable: false,
   });
@@ -1998,7 +1999,7 @@ test("a card that cannot expand claims no aria-expanded, open or shut", async ()
   const pane = await render(PostingCard, {
     posting: p,
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     expanded: true,
     expandable: false,
@@ -2061,7 +2062,7 @@ test("QueueView auto-selects the top-ordered posting into the pane with no prior
   const html = await render(QueueView, {
     postings: [stale, fresh],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: 150_000,
   });
   const pane = html.match(/<aside class="detail-pane"[^]*$/)?.[0] ?? "";
@@ -2074,7 +2075,7 @@ test("an empty queue renders no master-detail pane at all", async () => {
   const html = await render(QueueView, {
     postings: [],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   assert.doesNotMatch(html, /class="master-detail"/);
@@ -2090,7 +2091,7 @@ test("no list card carries aria-current when paneMode is false, even though the 
   const html = await render(QueueView, {
     postings: [a, b],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   const list = html.match(/class="list">([^]*?)<\/div><aside/)?.[1] ?? "";
@@ -2107,7 +2108,7 @@ test("the pane's card is open with no disclosure that could shut it", async () =
   const html = await render(QueueView, {
     postings: [posting("a::1", { company: "Acme", evidence: { role: "words" } })],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   const pane = html.match(/<aside class="detail-pane"[^]*$/)?.[0] ?? "";
@@ -2122,7 +2123,7 @@ test("the pane offers no outcome or change button, only its posting link", async
   const html = await render(QueueView, {
     postings: [posting("a::1", { company: "Acme", url: "https://boards.example/acme/1" })],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   const pane = html.match(/<aside class="detail-pane"[^]*$/)?.[0] ?? "";
@@ -2160,7 +2161,7 @@ test("a Close dialog submitted twice before it can close writes the posting once
   const card = mountTree(PostingCard, {
     posting: posting("Acme::1", { company: "Acme" }),
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     closing: true,
   });
@@ -2185,7 +2186,7 @@ test("a card mid-write disables every control that could start a second one", as
   const card = mountTree(PostingCard, {
     posting: posting("Acme::1", { company: "Acme" }),
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     closing: true,
   });
@@ -2216,7 +2217,7 @@ test("a refused write in the queue shows its reason on the row that issued it, a
   const app = mountTree(QueueView, {
     postings: [posting("a::1", { company: "Acme" }), posting("b::2", { company: "Bevel" })],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   try {
@@ -2242,7 +2243,7 @@ test("a successful decision takes the row out of the queue", async () => {
   const app = mountUnderAppRoot(
     QueueView,
     [posting("a::1", { company: "Acme" }), posting("b::2", { company: "Bevel" })],
-    { config: CONFIG, accessToken: ACCESS_TOKEN, compFloor: null },
+    { config: CONFIG, freshToken: FRESH_TOKEN, compFloor: null },
   );
   try {
     click(outcomeButton(cardIn(app.root, "list", "Acme"), "Applied — Acme"));
@@ -2281,7 +2282,7 @@ test("a card names its posting in data-key, so the list can find that row again 
     createSSRApp(QueueView, {
       postings: [ACME_TOP, BEVEL_MID],
       config: CONFIG,
-      accessToken: ACCESS_TOKEN,
+      freshToken: FRESH_TOKEN,
       compFloor: null,
     }),
   );
@@ -2294,7 +2295,7 @@ test("headOf finds the head button of the card holding a given key", () => {
   const app = mountTree(QueueView, {
     postings: [ACME_TOP, BEVEL_MID],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   try {
@@ -2316,7 +2317,7 @@ test("headOf answers null for a key no card is showing, so the caller can fall t
   const app = mountTree(QueueView, {
     postings: [ACME_TOP],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   try {
@@ -2334,7 +2335,7 @@ test("headOf takes a null key, which is what nextSelection returns when nothing 
   const app = mountTree(QueueView, {
     postings: [ACME_TOP],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   try {
@@ -2356,7 +2357,7 @@ test("the successor headOf is asked for is the row that takes the decided one's 
   const app = mountTree(QueueView, {
     postings: [ACME_TOP, BEVEL_MID, ACME_LOW],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   try {
@@ -2405,7 +2406,7 @@ test("the queue renders one search input, over company and role", async () => {
     createSSRApp(QueueView, {
       postings: [ACME_TOP, BEVEL_MID],
       config: CONFIG,
-      accessToken: ACCESS_TOKEN,
+      freshToken: FRESH_TOKEN,
       compFloor: null,
     }),
   );
@@ -2447,7 +2448,7 @@ test("headAt gives the row that now sits where the decided one was", () => {
   const app = mountTree(QueueView, {
     postings: [ACME_TOP, BEVEL_MID, ACME_LOW],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   try {
@@ -2468,7 +2469,7 @@ test("headAt clamps past the end, so a shorter list still yields a row and not t
   const app = mountTree(QueueView, {
     postings: [ACME_TOP, BEVEL_MID],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   try {
@@ -2486,7 +2487,7 @@ test("headAt answers null for an empty list and a negative index, so the caller 
   const app = mountTree(QueueView, {
     postings: [ACME_TOP],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   try {
@@ -2552,7 +2553,7 @@ test("the Queue's company history shows every role he applied to, rejected inclu
   const html = await render(QueueView, {
     postings: [ACME_TOP],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     store: memoryStore({ [viewKey("queue")]: "company" }),
     history: STATUSES.map(acted),
@@ -2603,7 +2604,7 @@ test("the score filter offers Any and every step, in ascending order", async () 
   const html = await render(QueueView, {
     postings: [ACME_TOP],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: 200_000,
   });
   assert.match(html, /<span>Min score<\/span>/);
@@ -2619,7 +2620,7 @@ test("with no floor the queue renders no score filter, since no card shows a sco
   const html = await render(QueueView, {
     postings: [ACME_TOP],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   assert.doesNotMatch(html, /Min score/);
@@ -2631,7 +2632,7 @@ test("choosing a minimum score narrows the queue and says how many it kept", asy
   const app = mountTree(QueueView, {
     postings: [ACME_TOP, BEVEL_MID, ACME_LOW],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: 200_000,
   });
   try {
@@ -2682,7 +2683,7 @@ test("the not-applied-to filter leaves only companies he has not applied to, and
   const app = mountTree(QueueView, {
     postings: [ACME_TOP, BEVEL_MID, ACME_LOW],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     history: [ACME_APPLIED, ACME_CLOSED],
   });
@@ -2711,7 +2712,7 @@ test("a closed role does not count as applying, a rejected one does", async () =
   const app = mountTree(QueueView, {
     postings: [ACME_TOP, BEVEL_MID],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     history: [ACME_CLOSED, posting("bevel::rejected", { company: "Bevel", status: "rejected" })],
   });

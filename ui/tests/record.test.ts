@@ -90,6 +90,7 @@ const CONFIG: AppConfig = {
   statuses: [...STATUSES],
 };
 const ACCESS_TOKEN = "user-jwt";
+const FRESH_TOKEN = async () => ({ ok: true as const, value: ACCESS_TOKEN });
 
 test("filteredRecord with no filters returns every posting", () => {
   const a = posting("acme::1");
@@ -151,7 +152,7 @@ test("RecordView renders the three filters and one card per posting", async () =
   const html = await render(RecordView, {
     postings: [a, b],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
 
@@ -172,7 +173,7 @@ test("RecordView's rows offer only the outcomes that make sense from their own s
   const html = await render(RecordView, {
     postings: [interviewing],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   // The row also auto-selects into the pane, so this reads the list row
@@ -188,7 +189,7 @@ test("RecordView shows the empty state when nothing is kept at all", async () =>
   const html = await render(RecordView, {
     postings: [],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
 
@@ -270,7 +271,7 @@ test("RecordView shows a View group and a Sort group, 'List' and 'Recently acted
   const html = await render(RecordView, {
     postings: [posting("a::1")],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   const [view, sort] = [...html.matchAll(/class="order"[^>]*>([^]*?)<\/div>/g)].map(
@@ -291,7 +292,7 @@ test("RecordView in the company view heads each company with its counts and mark
       posting("bevel::1", { company: "Bevel", status: "closed", status_at: "2026-09-10" }),
     ],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     store: memoryStore({ [viewKey("record")]: "company" }),
   });
@@ -306,7 +307,7 @@ test("RecordView folds its filters under a summary and says its place on an unto
   const html = await render(RecordView, {
     postings: [untouched],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   assert.match(html, /<details class="filters"><summary>Filters<!---->/);
@@ -324,7 +325,7 @@ test("a Record row's status-age still reads as days-since-status, unchanged, alo
   const html = await render(RecordView, {
     postings: [acted],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   // Only that the status-age wording is untouched and a separate
@@ -367,7 +368,7 @@ test("RecordView's status options carry their counts, In queue among them", asyn
   const html = await render(RecordView, {
     postings: [posting("a::1"), posting("b::1", { status: "applied" })],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   assert.match(html, /<option value="">All \(2\)<\/option>/);
@@ -386,7 +387,7 @@ test("RecordView auto-selects the first row of filtered into the pane with no pr
   const html = await render(RecordView, {
     postings: [untouched, acted],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   const pane = html.match(/<aside class="detail-pane"[^]*$/)?.[0] ?? "";
@@ -401,7 +402,7 @@ test("an empty filter result renders no master-detail pane at all", async () => 
   const html = await render(RecordView, {
     postings: [],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   assert.doesNotMatch(html, /class="master-detail"/);
@@ -417,7 +418,7 @@ test("no list card carries aria-current when paneMode is false, even though the 
   const html = await render(RecordView, {
     postings: [a, b],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   const list = html.match(/class="list">([^]*?)<\/div><aside/)?.[1] ?? "";
@@ -434,7 +435,7 @@ test("the pane's card is open with no disclosure that could shut it", async () =
   const html = await render(RecordView, {
     postings: [posting("a::1", { company: "Acme", evidence: { role: "words" } })],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   const pane = html.match(/<aside class="detail-pane"[^]*$/)?.[0] ?? "";
@@ -448,7 +449,7 @@ test("the pane offers no outcome or change button, only its posting link", async
   const html = await render(RecordView, {
     postings: [posting("a::1", { company: "Acme", url: "https://boards.example/acme/1" })],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   const pane = html.match(/<aside class="detail-pane"[^]*$/)?.[0] ?? "";
@@ -483,7 +484,7 @@ test("a refused write shows its reason on the row that issued it, and no other",
       posting("b::2", { company: "Bevel" }),
     ],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   try {
@@ -515,7 +516,7 @@ test("a Record decision hands the posting's key and the patch it wrote up to its
   const app = mountTree(RecordView, {
     postings: [posting("a::1", { company: "Acme" })],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     onDecided: (outcome: DecidedOutcome) => emitted.push(outcome),
   });
@@ -549,7 +550,7 @@ test("a decided Record row offers its new status's outcomes at once, and an end 
       posting("a::1", { company: "Acme", status: "applied", status_at: "2026-09-10" }),
       posting("b::2", { company: "Bevel" }),
     ],
-    { config: CONFIG, accessToken: ACCESS_TOKEN, compFloor: null },
+    { config: CONFIG, freshToken: FRESH_TOKEN, compFloor: null },
   );
   try {
     click(outcomeButton(cardIn(app.root, "list", "Acme"), "Rejected — Acme"));
@@ -594,7 +595,7 @@ test("a second decision from a written Record row sends the applied_at the first
   });
   const app = mountUnderAppRoot(RecordView, [posting("a::1", { company: "Acme" })], {
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   try {
@@ -630,7 +631,7 @@ test("revealing Change on the list row reveals its own five outcomes; the non-ac
       posting("b::2", { company: "Bevel" }),
     ],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   try {
@@ -687,7 +688,7 @@ test("a reveal outlives a filter that takes its row off the list and puts it bac
       posting("b::2", { company: "Bevel" }),
     ],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   try {
@@ -737,7 +738,7 @@ test("a Record filter says how many of its postings matched, and no filter says 
       posting("b::1", { company: "Bevel" }),
     ],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
   });
   try {
@@ -775,7 +776,7 @@ test("folding a company in the company view keeps its header and counts and take
       posting("bevel::1", { company: "Bevel" }),
     ],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     compFloor: null,
     store: memoryStore({ [viewKey("record")]: "company" }),
   });

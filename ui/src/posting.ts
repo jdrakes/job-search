@@ -13,6 +13,7 @@ import {
 import { STATUSES, type PostingSummary, type Status } from "../../src/schema.ts";
 import { findWholeWord } from "../../src/judge/whole-word.ts";
 import { setStatus, type StatusPatch } from "./api.ts";
+import type { FreshToken } from "./auth.ts";
 import type { AppConfig } from "./config.ts";
 import { focusAfterClose, trapFocus, type DialogClose } from "./focus-trap.ts";
 
@@ -290,7 +291,7 @@ export const PostingCard = defineComponent({
   props: {
     posting: { type: Object as PropType<PostingSummary>, required: true },
     config: { type: Object as PropType<AppConfig>, required: true },
-    accessToken: { type: String, required: true },
+    freshToken: { type: Function as PropType<FreshToken>, required: true },
     // Null when there is no criteria row; the card then shows no score.
     compFloor: { type: [Number, null] as PropType<number | null>, required: true },
     productWords: { type: Array as PropType<readonly string[]>, default: () => [] },
@@ -404,7 +405,10 @@ export const PostingCard = defineComponent({
       busy.value = true;
       writeError.value = null;
       const patch = patchFor(props.posting, status, note, new Date().toISOString());
-      const result = await setStatus(props.config, props.accessToken, props.posting.key, patch);
+      const token = await props.freshToken();
+      const result = token.ok
+        ? await setStatus(props.config, token.value, props.posting.key, patch)
+        : token;
       busy.value = false;
       writeError.value = result.ok ? null : result.reason;
       if (result.ok) emit("decided", decidedOutcome(props.posting, patch));

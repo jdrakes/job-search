@@ -32,6 +32,9 @@ export interface SessionStore {
 
 export type AuthResult<T> = { ok: true; value: T } | { ok: false; reason: string };
 
+/** A write's access token, refreshed first if it has expired; `AppRoot` owns the session. */
+export type FreshToken = () => Promise<AuthResult<string>>;
+
 function authHeaders(config: AppConfig): Record<string, string> {
   return {
     apikey: config.anonKey,

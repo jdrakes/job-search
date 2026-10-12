@@ -10,6 +10,7 @@ import { defineComponent, ref, type PropType } from "vue";
 
 import type { Candidate, Outcome } from "../../src/schema.ts";
 import { addCandidate, type CandidateInput } from "./api.ts";
+import type { FreshToken } from "./auth.ts";
 import type { AppConfig } from "./config.ts";
 import { EmptyState } from "./empty-state.ts";
 import { Toast, useToast } from "./toast.ts";
@@ -51,7 +52,7 @@ export const CandidatesView = defineComponent({
   props: {
     candidates: { type: Array as PropType<Candidate[]>, required: true },
     config: { type: Object as PropType<AppConfig>, required: true },
-    accessToken: { type: String, required: true },
+    freshToken: { type: Function as PropType<FreshToken>, required: true },
   },
   emits: {
     // Handed up to `AppRoot`, which lays it over the round the way a
@@ -85,7 +86,8 @@ export const CandidatesView = defineComponent({
       };
       error.value = null;
       busy.value = true;
-      const result = await addCandidate(props.config, props.accessToken, input);
+      const token = await props.freshToken();
+      const result = token.ok ? await addCandidate(props.config, token.value, input) : token;
       busy.value = false;
       if (!result.ok) {
         error.value = result.reason;
