@@ -577,7 +577,7 @@ export const PostingCard = defineComponent({
             <p class="error" v-if="closeError">{{ closeError }}</p>
             <label>
               <span>Why does this disagree with the processor?</span>
-              <textarea v-model="closeReason" rows="3"></textarea>
+              <textarea v-model="closeReason" rows="3" @keydown.enter.shift.exact.prevent="submitClose"></textarea>
             </label>
             <div class="actions">
               <button type="button" class="ghost" @click="cancelClose">Cancel</button>
