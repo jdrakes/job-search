@@ -9,7 +9,7 @@
 import { computed, defineComponent, nextTick, ref, type PropType } from "vue";
 
 import type { PostingSummary } from "../../src/schema.ts";
-import type { SessionStore } from "./auth.ts";
+import type { FreshToken, SessionStore } from "./auth.ts";
 import {
   ArrangeBar,
   loadArrangement,
@@ -369,7 +369,7 @@ export const QueueView = defineComponent({
   props: {
     postings: { type: Array as PropType<PostingSummary[]>, required: true },
     config: { type: Object as PropType<AppConfig>, required: true },
-    accessToken: { type: String, required: true },
+    freshToken: { type: Function as PropType<FreshToken>, required: true },
     // Null when the criteria read failed; no card then guesses one.
     compFloor: { type: [Number, null] as PropType<number | null>, required: true },
     productWords: { type: Array as PropType<readonly string[]>, default: () => [] },
@@ -566,7 +566,7 @@ export const QueueView = defineComponent({
               :class="{ history: row.history }"
               :posting="row.posting"
               :config="config"
-              :access-token="accessToken"
+              :fresh-token="freshToken"
               :comp-floor="compFloor"
               :product-words="productWords"
               :selected="paneMode && selected !== null && row.posting.key === selected.key"
@@ -583,7 +583,7 @@ export const QueueView = defineComponent({
             :key="selected.key"
             :posting="selected"
             :config="config"
-            :access-token="accessToken"
+            :fresh-token="freshToken"
             :comp-floor="compFloor"
             :product-words="productWords"
             expanded

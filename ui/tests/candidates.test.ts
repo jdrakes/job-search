@@ -45,6 +45,7 @@ const CONFIG: AppConfig = {
   statuses: [...STATUSES],
 };
 const ACCESS_TOKEN = "user-jwt";
+const FRESH_TOKEN = async () => ({ ok: true as const, value: ACCESS_TOKEN });
 
 /** The one row PostgREST hands back for `return=representation`, with the id the store assigned. */
 const STORED = candidate({
@@ -106,7 +107,7 @@ test("CandidatesView renders every candidate's outcome in words, newest first as
   const html = await render(CandidatesView, {
     candidates: [watched, pending, alias],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
   });
 
   assert.match(html, /watched/);
@@ -126,7 +127,7 @@ test("the Add form refuses an empty submit and sends nothing", async () => {
   const app = mountTree(CandidatesView, {
     candidates: [],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     onAdded: (candidate: Candidate) => {
       added.push(candidate);
     },
@@ -158,7 +159,7 @@ test("the Add form posts a URL-only add and hands up the row the store returned"
   const app = mountTree(CandidatesView, {
     candidates: [],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     onAdded: (candidate: Candidate) => {
       added.push(candidate);
     },
@@ -204,7 +205,7 @@ test("a committed Add clears the three fields in place and sends focus to the pa
   const app = mountTree(CandidatesView, {
     candidates: [],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
   });
   try {
     const fields = formFields(app.root);
@@ -241,7 +242,7 @@ test("a refused Add keeps what was typed and says the URL is unreadable", async 
   const app = mountTree(CandidatesView, {
     candidates: [],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
   });
   try {
     const fields = formFields(app.root);

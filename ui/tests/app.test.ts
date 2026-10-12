@@ -1276,6 +1276,125 @@ test("deciding a posting in the Queue drops the tab pill by one", async () => {
   }
 });
 
+/**
+ * Reads never answer; a token refresh answers with `refreshReply`. Counts
+ * the refreshes so a test can say how many went out.
+ */
+function refreshingFetch(refreshReply: () => Response): {
+  fetchImpl: typeof fetch;
+  refreshes: () => number;
+} {
+  let refreshes = 0;
+  const fetchImpl: typeof fetch = (input) => {
+    if (!String(input).includes("/auth/v1/token")) return new Promise<Response>(() => {});
+    refreshes += 1;
+    return Promise.resolve(refreshReply());
+  };
+  return { fetchImpl, refreshes: () => refreshes };
+}
+
+/** The `Authorization` header of every PATCH the views sent through the global fetch. */
+function recordingWrites(): { bearers: string[]; restore: () => void } {
+  const bearers: string[] = [];
+  const restore = stubFetch((_url, init) => {
+    bearers.push(new Headers(init?.headers).get("Authorization") ?? "");
+    return Promise.resolve(patchedOne());
+  });
+  return { bearers, restore };
+}
+
+const REFRESHED = {
+  access_token: "refreshed-jwt",
+  expires_at: NOW + 2 * 3600 + 3600,
+  refresh_token: "refreshed-refresh-token",
+};
+
+test("a decision made after the token expired refreshes it first and writes with the new one", async () => {
+  // The page reads at load with a live token, then sits open past its hour;
+  // the write used to send the token it was handed at load, and PostgREST
+  // answered 401 "JWT expired".
+  const restoreDom = stubDom();
+  const writes = recordingWrites();
+  const network = refreshingFetch(jsonReply(REFRESHED));
+  let clock = NOW;
+  const store = storeWithRound([QUEUE_ROW], [QUEUE_ROW]);
+  const app = mountRoot({ config: CONFIG, store, httpFetch: network.fetchImpl, now: () => clock });
+  try {
+    await settled();
+    assert.equal(network.refreshes(), 0, "the token was live at load");
+    clock = NOW + 2 * 3600;
+
+    click(outcomeButton(cardIn(app.root, "list", "Acme"), "Applied — Acme"));
+    await settled();
+    await settled();
+
+    assert.equal(network.refreshes(), 1);
+    assert.deepEqual(writes.bearers, ["Bearer refreshed-jwt"]);
+    assert.match(store.getItem(SESSION_KEY) ?? "", /refreshed-jwt/, "the new session is saved");
+    assert.equal(listCards(app.root, "acme::1").length, 0, "the decision took");
+  } finally {
+    app.unmount();
+    writes.restore();
+    restoreDom();
+  }
+});
+
+test("two decisions made at once after expiry spend the refresh token once", async () => {
+  // Supabase rotates the refresh token, so a second refresh racing the first
+  // would send one that has already been spent.
+  const restoreDom = stubDom();
+  const writes = recordingWrites();
+  const network = refreshingFetch(jsonReply(REFRESHED));
+  let clock = NOW;
+  const app = mountRoot({
+    config: CONFIG,
+    store: storeWithRound([QUEUE_ROW, ACME_SECOND], [QUEUE_ROW, ACME_SECOND]),
+    httpFetch: network.fetchImpl,
+    now: () => clock,
+  });
+  try {
+    await settled();
+    clock = NOW + 2 * 3600;
+
+    click(outcomeButton(cardIn(app.root, "list", "Staff Engineer"), "Applied — Acme"));
+    click(outcomeButton(cardIn(app.root, "list", "Principal Engineer"), "Applied — Acme"));
+    await settled();
+    await settled();
+
+    assert.equal(network.refreshes(), 1);
+    assert.deepEqual(writes.bearers, ["Bearer refreshed-jwt", "Bearer refreshed-jwt"]);
+  } finally {
+    app.unmount();
+    writes.restore();
+    restoreDom();
+  }
+});
+
+test("a decision whose token refresh fails sends no write and shows the sign-in form", async () => {
+  const restoreDom = stubDom();
+  const writes = recordingWrites();
+  const network = refreshingFetch(statusReply(400, '{"error":"invalid_grant"}'));
+  let clock = NOW;
+  const store = storeWithRound([QUEUE_ROW], [QUEUE_ROW]);
+  const app = mountRoot({ config: CONFIG, store, httpFetch: network.fetchImpl, now: () => clock });
+  try {
+    await settled();
+    clock = NOW + 2 * 3600;
+
+    click(outcomeButton(cardIn(app.root, "list", "Acme"), "Applied — Acme"));
+    await settled();
+    await settled();
+
+    assert.deepEqual(writes.bearers, [], "no write went out with the dead token");
+    assert.equal(elementsWithClass(app.root, "sign-in").length > 0, true);
+    assert.equal(store.getItem(SESSION_KEY), null);
+  } finally {
+    app.unmount();
+    writes.restore();
+    restoreDom();
+  }
+});
+
 const BETA_ROW = { ...QUEUE_ROW, key: "beta::1", company: "Beta", title: "Backend Engineer" };
 
 test("typing in the queue's search box narrows the matched line and leaves the tab pill alone", async () => {

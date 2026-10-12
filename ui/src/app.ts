@@ -386,6 +386,37 @@ export const AppRoot = defineComponent({
       }
     }
 
+    // A write's token, refreshed first if the page has sat open past its
+    // hour: the reads refresh through `refresh()`, but a write can come
+    // long after the last round. Concurrent writes share one refresh,
+    // because Supabase rotates the refresh token and a second refresh would
+    // send one already spent. A refresh that fails signs out as `refresh()`
+    // does.
+    let tokenInFlight: Promise<AuthResult<string>> | null = null;
+    async function freshTokenOnce(): Promise<AuthResult<string>> {
+      if (session.value === null) return { ok: false, reason: "signed out; sign in again" };
+      const startedFor = session.value;
+      const fresh = await currentSession(props.config, startedFor, props.httpFetch, props.now);
+      if (!refreshStillApplies(startedFor, session.value)) {
+        return { ok: false, reason: "signed out; sign in again" };
+      }
+      if (!fresh.ok) {
+        onSignOut();
+        return fresh;
+      }
+      if (fresh.value !== startedFor) {
+        session.value = fresh.value;
+        saveSession(props.store, fresh.value);
+      }
+      return { ok: true, value: fresh.value.accessToken };
+    }
+    function freshToken(): Promise<AuthResult<string>> {
+      tokenInFlight ??= freshTokenOnce().finally(() => {
+        tokenInFlight = null;
+      });
+      return tokenInFlight;
+    }
+
     // Forgotten before it is spent, so a reload never replays a used hash;
     // a link that fails leaves the sign-in form saying why.
     if (props.linkToken !== null) {
@@ -561,6 +592,7 @@ export const AppRoot = defineComponent({
       onRequest,
       onRestart,
       onSignOut,
+      freshToken,
       onRetry,
       selectTab,
       onDecided,
@@ -610,7 +642,7 @@ export const AppRoot = defineComponent({
           v-if="tab === 'queue'"
           :postings="queuePostings"
           :config="config"
-          :access-token="session.accessToken"
+          :fresh-token="freshToken"
           :comp-floor="criteria === null ? null : criteria.comp_floor"
           :product-words="criteria === null ? [] : criteria.product_words"
           :history="actedPostings"
@@ -621,7 +653,7 @@ export const AppRoot = defineComponent({
           v-if="tab === 'record'"
           :postings="allPostings"
           :config="config"
-          :access-token="session.accessToken"
+          :fresh-token="freshToken"
           :comp-floor="criteria === null ? null : criteria.comp_floor"
           :product-words="criteria === null ? [] : criteria.product_words"
           :store="store"
@@ -633,21 +665,21 @@ export const AppRoot = defineComponent({
           :queue="waitingPostings"
           :candidates="candidates"
           :config="config"
-          :access-token="session.accessToken"
+          :fresh-token="freshToken"
           @dropped="onDropped" />
 
         <CandidatesView
           v-if="tab === 'candidates'"
           :candidates="candidates"
           :config="config"
-          :access-token="session.accessToken"
+          :fresh-token="freshToken"
           @added="onCandidateAdded" />
 
         <CriteriaView
           v-if="tab === 'criteria' && criteria !== null"
           :criteria="criteria"
           :config="config"
-          :access-token="session.accessToken" />
+          :fresh-token="freshToken" />
         </template>
       </div>
     </template>

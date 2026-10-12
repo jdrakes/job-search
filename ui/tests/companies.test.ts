@@ -100,6 +100,7 @@ const CONFIG: AppConfig = {
   statuses: [...STATUSES],
 };
 const ACCESS_TOKEN = "user-jwt";
+const FRESH_TOKEN = async () => ({ ok: true as const, value: ACCESS_TOKEN });
 
 test("groupOf reads dropped_at first, then whether the company has a board", () => {
   assert.equal(groupOf(company("Acme", READ)), "read");
@@ -332,7 +333,7 @@ test("CompaniesView's New group holds a company watched 2 days ago, showing that
     queue: [],
     candidates,
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
   });
 
   assert.match(html, /New.*?\(1\)/s);
@@ -359,7 +360,7 @@ test("CompaniesView renders each group with its count and its companies", async 
     queue: [],
     candidates: [],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
   });
 
   assert.match(html, /Read.*?\(1\)/);
@@ -381,7 +382,7 @@ test("CompaniesView offers Drop on a read or boardless company but not on one al
     queue: [],
     candidates: [],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
   });
 
   // The button writes no word on screen; the one it announces is what says
@@ -402,7 +403,7 @@ test("CompaniesView renders a dropped company with no .acts, and the list carrie
     queue: [],
     candidates: [],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
   });
 
   assert.doesNotMatch(html, /<span class="acts"/);
@@ -419,7 +420,7 @@ test("CompaniesView renders 'no board yet' for a company with no boards", async 
     queue: [],
     candidates: [],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
   });
 
   assert.match(html, /class="board none">/);
@@ -434,7 +435,7 @@ test("CompaniesView shows each company's queued count, none in the muted type", 
     queue: [queued("Acme", "1"), queued("Acme", "2"), queued("Acme", "3")],
     candidates: [],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
   });
   assert.match(html, /class="queued">3 in queue</);
   assert.match(html, /class="none queued">none in queue</);
@@ -449,7 +450,7 @@ test("initialDropping opens the drop dialog as an accessible, labelled modal", a
     queue: [],
     candidates: [],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     initialDropping: "Acme",
   });
 
@@ -473,7 +474,7 @@ test("the drop dialog's aria-labelledby stays one IDREF when the company name ho
     queue: [],
     candidates: [],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     initialDropping: "Overland Transport & Logistics",
   });
 
@@ -495,7 +496,7 @@ test("the Companies panel is programmatically focusable, so a committed Drop has
     queue: [],
     candidates: [],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
   });
 
   assert.match(
@@ -512,7 +513,7 @@ test("a committed Drop sends focus to the panel, since the card it was issued fr
     queue: [],
     candidates: [],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     initialDropping: "Acme",
   });
   try {
@@ -548,7 +549,7 @@ test("a committed Drop hands the name and the patch up, and keeps no copy of its
     queue: [],
     candidates: [],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     initialDropping: "Acme",
     onDropped: (dropped: { name: string; patch: { dropped_at: string; reason: string } }) => {
       handed.push(dropped);
@@ -593,7 +594,7 @@ test("with no initialDropping, no dialog renders at all", async () => {
     queue: [],
     candidates: [],
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
   });
 
   assert.doesNotMatch(html, /role="dialog"/);

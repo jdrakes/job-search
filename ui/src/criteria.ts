@@ -7,6 +7,7 @@ import { computed, defineComponent, ref, type PropType } from "vue";
 
 import type { Criteria } from "../../src/schema.ts";
 import { saveCriteria, type CriteriaPatch, type WriteResult } from "./api.ts";
+import type { FreshToken } from "./auth.ts";
 import type { AppConfig } from "./config.ts";
 import { formatComp } from "./posting.ts";
 import { Toast, useToast } from "./toast.ts";
@@ -263,7 +264,7 @@ export const CriteriaView = defineComponent({
   props: {
     criteria: { type: Object as PropType<Criteria>, required: true },
     config: { type: Object as PropType<AppConfig>, required: true },
-    accessToken: { type: String, required: true },
+    freshToken: { type: Function as PropType<FreshToken>, required: true },
     // Overridden in tests, which run with no `window` and must not block on
     // a real confirm dialog; a plain browser mount gets the real one.
     confirm: {
@@ -295,12 +296,10 @@ export const CriteriaView = defineComponent({
       if (!props.confirm("Save and re-judge every posting at the next run?")) return;
       error.value = null;
       busy.value = true;
-      const written: WriteResult = await saveCriteria(
-        props.config,
-        props.accessToken,
-        props.criteria.id,
-        outcome.patch,
-      );
+      const token = await props.freshToken();
+      const written: WriteResult = token.ok
+        ? await saveCriteria(props.config, token.value, props.criteria.id, outcome.patch)
+        : token;
       busy.value = false;
       if (written.ok) {
         saved.value = { ...fields.value };

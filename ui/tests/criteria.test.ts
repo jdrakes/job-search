@@ -43,6 +43,7 @@ const CONFIG: AppConfig = {
   statuses: [...STATUSES],
 };
 const ACCESS_TOKEN = "user-jwt";
+const FRESH_TOKEN = async () => ({ ok: true as const, value: ACCESS_TOKEN });
 
 // A `confirm` that never blocks a test on a real dialog Node has no
 // `window` to show; a test that wants to see the confirm refused passes its
@@ -231,7 +232,7 @@ test("CriteriaView groups every field under a labelled fieldset", async () => {
   const html = await render(CriteriaView, {
     criteria: CRITERIA,
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
   });
 
   for (const legend of ["Title", "Location", "Language", "Ranking only", "Pay &amp; freshness"]) {
@@ -244,7 +245,7 @@ test("CriteriaView prefills every field from the saved criteria row, each item i
   const html = await render(CriteriaView, {
     criteria: CRITERIA,
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
   });
 
   assert.match(html, /<li class="tag"><span>senior<\/span>/);
@@ -259,7 +260,7 @@ test("CriteriaView offers one Save that writes every field at once", async () =>
   const html = await render(CriteriaView, {
     criteria: CRITERIA,
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
   });
 
   const saveButtons = [...html.matchAll(/type="submit"/g)];
@@ -270,7 +271,7 @@ test("CriteriaView disables Save until a field actually changes", async () => {
   const html = await render(CriteriaView, {
     criteria: CRITERIA,
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
   });
 
   assert.match(html, /<button type="submit" class="primary" disabled(="")?>Save<\/button>/);
@@ -280,7 +281,7 @@ test("CriteriaView shows the floor as money next to Comp floor", async () => {
   const html = await render(CriteriaView, {
     criteria: CRITERIA,
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
   });
 
   assert.match(html, /Comp floor <em class="money">\$160k<\/em>/);
@@ -290,7 +291,7 @@ test("CriteriaView carries an Excluded locations tag editor and a Max age input"
   const html = await render(CriteriaView, {
     criteria: CRITERIA,
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
   });
 
   assert.match(html, /Excluded locations<\/span>/);
@@ -302,7 +303,7 @@ test("CriteriaView carries an Assumed bonus % input", async () => {
   const html = await render(CriteriaView, {
     criteria: CRITERIA,
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
   });
 
   assert.match(html, /Assumed bonus %.*<input type="text" inputmode="numeric"/);
@@ -312,7 +313,7 @@ test("CriteriaView carries a Product words tag editor, marked as ranking only", 
   const html = await render(CriteriaView, {
     criteria: CRITERIA,
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
   });
 
   assert.match(html, /<legend>Ranking only<\/legend>/);
@@ -402,7 +403,7 @@ test("CriteriaView shows a Saved. toast after a successful save, and Save disabl
   await render(captured.component, {
     criteria: CRITERIA,
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     confirm: ALWAYS_CONFIRM,
   });
 
@@ -424,7 +425,7 @@ test("CriteriaView shows a Saved. toast after a successful save, and Save disabl
   const html = await render(Prefilled, {
     criteria: CRITERIA,
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
   });
   assert.match(html, /<p class="toast notice" role="status">Saved\.<\/p>/);
 });
@@ -434,7 +435,7 @@ test("CriteriaView asks to confirm before saving, and a refusal writes nothing",
   await render(captured.component, {
     criteria: CRITERIA,
     config: CONFIG,
-    accessToken: ACCESS_TOKEN,
+    freshToken: FRESH_TOKEN,
     confirm: () => false,
   });
 

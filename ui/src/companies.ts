@@ -18,6 +18,7 @@ import {
 
 import type { Candidate, Company, PostingSummary } from "../../src/schema.ts";
 import { setCompanyDrop, type CompanyDropPatch } from "./api.ts";
+import type { FreshToken } from "./auth.ts";
 import type { AppConfig } from "./config.ts";
 import { EmptyState } from "./empty-state.ts";
 import { focusAfterClose, trapFocus, type DialogClose } from "./focus-trap.ts";
@@ -160,7 +161,7 @@ export const CompaniesView = defineComponent({
     queue: { type: Array as PropType<PostingSummary[]>, required: true },
     candidates: { type: Array as PropType<Candidate[]>, required: true },
     config: { type: Object as PropType<AppConfig>, required: true },
-    accessToken: { type: String, required: true },
+    freshToken: { type: Function as PropType<FreshToken>, required: true },
     // Seeds the drop dialog open, for an SSR test with no DOM to click.
     initialDropping: { type: String as PropType<string | null>, default: null },
   },
@@ -239,7 +240,10 @@ export const CompaniesView = defineComponent({
         dropped_at: new Date().toISOString(),
         reason: dropReason.value.trim(),
       };
-      const result = await setCompanyDrop(props.config, props.accessToken, company.name, patch);
+      const token = await props.freshToken();
+      const result = token.ok
+        ? await setCompanyDrop(props.config, token.value, company.name, patch)
+        : token;
       busy.value = false;
       if (result.ok) {
         emit("dropped", { name: company.name, patch });
