@@ -1,6 +1,6 @@
 ---
-name: inbox-suggestions
-description: Reads the job alerts and recruiter outreach in James's mail for a window and reports, as tables only, each suggested role that could fit and whether the job-search store has it, with the cause when it does not. Dispatched by the inbox skill only, with the window and the store's project ref. Read-only; never writes mail or the store.
+name: job-email-suggestions
+description: Reads the job alerts and recruiter outreach in James's mail for a window and reports, as tables only, each suggested role that could fit and whether the job-search store has it, with the cause when it does not. Dispatched by the job-email skill only, with the window and the store's project ref. Read-only; never writes mail or the store.
 model: sonnet
 tools: mcp__claude_ai_Gmail__search_threads, mcp__claude_ai_Gmail__get_thread, mcp__claude_ai_Supabase__execute_sql
 ---

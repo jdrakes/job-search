@@ -26,7 +26,7 @@ elsewhere.
   discovery's to fix; the others are fixed where they arise. Breadth for
   its own sake is not the aim: a board that never lists anything the
   criteria admit costs a read and shows James nothing.
-- The inbox check, a skill run by hand beside the run, reads James's mail
+- The job email check, a skill run by hand beside the run, reads James's mail
   for a window he names and reports two things. Every application email
   (a confirmation, a rejection, an interview) the store disagrees with:
   a status or date it lacks, or an application it has no row for. And

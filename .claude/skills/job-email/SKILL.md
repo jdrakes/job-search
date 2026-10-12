@@ -1,17 +1,17 @@
 ---
-name: inbox
-description: 'Inbox check: reads James''s mail for a window, reports every application email the store disagrees with (a rejection, an interview, an application it has no row for) and every suggested role the tool missed with its cause, then writes only the corrections he chooses. Use for /inbox, /inbox <since>, "check my email for job updates", "check the statuses in my email", "what did the job alerts suggest that the tool missed", or any request to reconcile job email with the store.'
+name: job-email
+description: 'Job email check: reads James''s mail for a window, reports every application email the store disagrees with (a rejection, an interview, an application it has no row for) and every suggested role the tool missed with its cause, then writes only the corrections he chooses. Use for /job-email, /job-email <since>, "check my email for job updates", "check the statuses in my email", "what did the job alerts suggest that the tool missed", or any request to reconcile job email with the store.'
 argument-hint: "[since: YYYY-MM-DD or Nd, default 7d]"
 ---
 
-# inbox
+# job-email
 
-Two read-only agents read the mail in parallel: `inbox-status`
-(`.claude/agents/inbox-status.md`) compares application emails with the
-store, and `inbox-suggestions` (`.claude/agents/inbox-suggestions.md`)
+Two read-only agents read the mail in parallel: `job-email-status`
+(`.claude/agents/job-email-status.md`) compares application emails with the
+store, and `job-email-suggestions` (`.claude/agents/job-email-suggestions.md`)
 lists suggested roles the tool did not show, each with its cause. This
 skill shows both, proposes corrections, and writes only the ones James
-picks. Design: the inbox check bullet under Discovery in `docs/design.md`.
+picks. Design: the job email check bullet under Discovery in `docs/design.md`.
 
 **Nothing is written until James has chosen.** Step 4 is a stop.
 
@@ -47,11 +47,11 @@ prompt is one JSON object and nothing else:
 
 Lead with what needs him, in this order, as tables:
 
-1. **Status changes**: STATUS and DATE rows from `inbox-status`.
+1. **Status changes**: STATUS and DATE rows from `job-email-status`.
 2. **Applications with no row**: NOT IN STORE rows.
 3. **Can't tell which row**: AMBIGUOUS rows, each with its candidate rows.
 4. **Interviews**: every interviewing row and its latest email.
-5. **Missed roles that fit**: FIT and MAYBE rows from `inbox-suggestions`,
+5. **Missed roles that fit**: FIT and MAYBE rows from `job-email-suggestions`,
    with their causes. Say how many misses this window holds; the design's
    bar is fewer than one a month.
 6. **Recruiters waiting on a reply**.

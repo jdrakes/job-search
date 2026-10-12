@@ -1,6 +1,6 @@
 ---
-name: inbox-status
-description: Reads James's application emails (confirmations, rejections, interviews, recruiter replies) for a window and reports, as tables only, every one the job-search store disagrees with. Dispatched by the inbox skill only, with the window and the store's project ref. Read-only; never writes mail or the store.
+name: job-email-status
+description: Reads James's application emails (confirmations, rejections, interviews, recruiter replies) for a window and reports, as tables only, every one the job-search store disagrees with. Dispatched by the job-email skill only, with the window and the store's project ref. Read-only; never writes mail or the store.
 model: sonnet
 tools: mcp__claude_ai_Gmail__search_threads, mcp__claude_ai_Gmail__get_thread, mcp__claude_ai_Supabase__execute_sql
 ---
