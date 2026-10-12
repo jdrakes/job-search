@@ -26,6 +26,18 @@ elsewhere.
   discovery's to fix; the others are fixed where they arise. Breadth for
   its own sake is not the aim: a board that never lists anything the
   criteria admit costs a read and shows James nothing.
+- The inbox check, a skill run by hand beside the run, reads James's mail
+  for a window he names and reports two things. Every application email
+  (a confirmation, a rejection, an interview) the store disagrees with:
+  a status or date it lacks, or an application it has no row for. And
+  every posting a job alert or recruiter suggested that the tool did not
+  show him, each with its cause from the five above: that list is the
+  recall measure. It writes nothing until James chooses; then it writes
+  only what he chose, as he would in the list: a status and its dates,
+  a row for an application the tool never read, a company as a candidate
+  of origin James. A job-listing site (Ladders, Clera, Raydar) is not the
+  employer; the employer it names is. A recruiter's screen for a role he
+  did not apply to is not an application.
 - A candidate is a claim that a name may be worth reading. A company is an
   employer the tool reads. Every name enters as a candidate, whatever
   suggested it, and discovery alone turns candidates into companies. The
