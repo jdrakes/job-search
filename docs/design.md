@@ -47,8 +47,11 @@ elsewhere.
 - Candidates come from three inputs, each recorded as the candidate's
   origin:
   - James, in the list: a company name, a posting's URL, or both. A URL
-    carries its board, so a company on a system no name reaches (Workday,
-    Eightfold, iCIMS) is added by pasting one of its postings. A candidate
+    carries its board, so a company on a system no name reaches is added
+    by pasting one of its postings or its board's URL. The probe tries
+    only the systems `SLUG_PLATFORMS` in `src/discovery/probe.ts` names;
+    Workday, iCIMS, BambooHR and Rippling are not among them, so a name
+    on one of them resolves to no board. A candidate
     James adds for a posting he found elsewhere is also the record of a
     miss.
   - Peer expansion, a skill in the tool's repository, run by hand. Its
