@@ -21,7 +21,8 @@ One JSON object: `{ "after": "YYYY/MM/DD", "project_id": "<supabase project ref>
 ## The store
 
 - `postings`: `key`, `company`, `title`, `location`, `comp_low`,
-  `comp_high`, `status`, `kept`, `gone_at`.
+  `comp_high`, `status`, `kept`, `reasons`, `gone_at`. `reasons` names
+  the rules that hid a row whose `kept` is false.
 - `companies`: `name`, `boards` (jsonb, `[{ "platform", "id" }]`),
   `dropped_at`. A company with `dropped_at` set was dropped by James.
 - `candidates`: `name`, `url`, `origin`, `outcome`, `company`. Outcome
@@ -49,14 +50,15 @@ One JSON object: `{ "after": "YYYY/MM/DD", "project_id": "<supabase project ref>
    Principal, Architect or Senior; backend, full-stack or platform; US
    remote or Austin, TX. For each:
    - `postings` by company (`ilike`, try short forms) and a similar title:
-     key, status, kept.
+     key, status, kept, reasons.
    - `companies`: watched, which board, dropped?
    - `candidates`: pending, or which outcome?
 5. Give each miss its cause, one of: **company unknown** (no company, no
    candidate), **no board** (candidate `no_board`, or a company with no
    boards), **board read without the posting** (watched, posting absent,
    title not excluded), **judged out** (title carries an excluded word, or
-   place or pay fails; name the word or rule), **company dropped**, or
+   place or pay fails, or `reasons` names a rule; name the word or rule),
+   **company dropped**, or
    **employer not named**.
 6. Label fit: FIT is Staff or above, backend, full-stack or platform, US
    remote or Austin, and the top of the range at or above `comp_floor`, or
