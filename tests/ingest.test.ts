@@ -4584,6 +4584,81 @@ test("groupByRequisition: keeps the existing stored primary even when a lower id
   assert.equal(grouped[0]!.location, "Boston");
 });
 
+const CANADA_COPY = listing("4720007006", {
+  requisitionId: "POS-100420",
+  title: "Staff Software Engineer (Customer Platform) ",
+  location: "Canada - Remote",
+  url: "https://x/4720007006",
+});
+const US_COPY = listing("4720009006", {
+  requisitionId: "POS-100420",
+  title: "Staff Software Engineer (Customer Platform) ",
+  location: "United States - Remote",
+  url: "https://x/4720009006",
+  compHigh: 231_000,
+});
+
+// Breaks if the primary ignores `preferred`: the lower-id copy that the
+// storage gate rejects would stand for the group and hide the one it admits.
+test("groupByRequisition: a preferred member beats a lower id, and every office is kept", () => {
+  const grouped = groupByRequisition(
+    [CANADA_COPY, US_COPY],
+    new Set(),
+    (member) => member.location === "United States - Remote",
+  );
+  assert.equal(grouped.length, 1);
+  assert.equal(grouped[0]!.id, "4720009006");
+  assert.deepEqual(grouped[0]!.locations, [
+    { name: "Canada - Remote", url: "https://x/4720007006" },
+    { name: "United States - Remote", url: "https://x/4720009006" },
+  ]);
+});
+
+// Breaks if the no-predicate path stops being the lowest numeric id.
+test("groupByRequisition: without a predicate the primary is the lowest id", () => {
+  const grouped = groupByRequisition([US_COPY, CANADA_COPY]);
+  assert.equal(grouped[0]!.id, "4720007006");
+});
+
+// Breaks if no preferred member falls back to something other than the
+// lowest id of the whole group.
+test("groupByRequisition: when no member is preferred the primary is the lowest id", () => {
+  const grouped = groupByRequisition([US_COPY, CANADA_COPY], new Set(), () => false);
+  assert.equal(grouped[0]!.id, "4720007006");
+});
+
+// Breaks if `preferred` outranks a row James already has stored.
+test("groupByRequisition: a stored member wins over a preferred one", () => {
+  const grouped = groupByRequisition(
+    [CANADA_COPY, US_COPY],
+    new Set(["4720007006"]),
+    (member) => member.location === "United States - Remote",
+  );
+  assert.equal(grouped[0]!.id, "4720007006");
+});
+
+// Breaks if `listCompany` stops handing `groupByRequisition` the storage
+// gate: the Canada copy would be the primary, rejected on country, and the
+// US posting never stored.
+test("ingest: a requisition whose lowest-id office fails the gate is stored under the office that passes", async () => {
+  const store = memoryStore({ companies: [ACME], criteria: [criteria()] });
+
+  const result = await ingest(store, oneBoard([CANADA_COPY, US_COPY]), { today: MONDAY });
+
+  assert.deepEqual(result.errors, []);
+  const [stored] = await store.select<Posting>("postings", {
+    key: "greenhouse/acme-gh::4720009006",
+  });
+  assert.deepEqual(stored?.locations, [
+    { name: "Canada - Remote", url: "https://x/4720007006" },
+    { name: "United States - Remote", url: "https://x/4720009006" },
+  ]);
+  const missing = await store.select<Posting>("postings", {
+    key: "greenhouse/acme-gh::4720007006",
+  });
+  assert.deepEqual(missing, []);
+});
+
 // A singleton group (null requisitionId, or a genuine one-office req) still
 // gets a one-element `locations`, never an empty array: downstream code
 // never special-cases "no offices".
