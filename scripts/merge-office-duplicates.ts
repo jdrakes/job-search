@@ -9,7 +9,8 @@
 //
 // Every board with an unacted-on posting is re-read live and grouped by
 // requisition. A group whose offices match two or more stored rows merges
-// into the primary's row (the lowest listing id, as ingest picks it): that
+// into the primary's row (the lowest listing id; ingest prefers a member that
+// passes the storage gate, which this script does not apply): that
 // row takes every office in `locations` and the others are deleted. A group
 // where a non-primary row carries a status (James decided on that office
 // before this fix) or whose primary has no stored row is deferred, printed

@@ -784,9 +784,13 @@ function dedupeOffices(offices: readonly Office[]): readonly Office[] {
 // field comes from) is whichever group member's id already has a stored
 // `postings` row (`storedIds`), so a row James has decided on stays the
 // primary across re-lists even if the board later drops specifically that
-// office; falling back to the lowest numeric id only when no member is on
-// file yet (a brand new group, or a caller such as the backfill script that
-// has no stored rows to prefer). Recomputing the lowest id from scratch on
+// office. When no member is on file yet (a brand new group, or a caller such
+// as the backfill script that has no stored rows to prefer), the primary is
+// the lowest numeric id among the members `preferred` accepts, and the lowest
+// id of all when it accepts none or is not given. `listCompany` passes the
+// storage gate, so a copy the gate rejects (a Canada office) does not stand
+// in for one it admits (a US office) and hide the posting. `locations` is
+// built from the whole group either way. Recomputing the lowest id from scratch on
 // every run, with no such preference, would silently mint a fresh,
 // undecided row and orphan the one James acted on. A `null` requisitionId
 // is its own singleton group: keyed by the listing object itself, not its
@@ -797,6 +801,7 @@ function dedupeOffices(offices: readonly Office[]): readonly Office[] {
 export function groupByRequisition(
   listings: readonly Listing[],
   storedIds: ReadonlySet<string> = new Set(),
+  preferred?: (listing: Listing) => boolean,
 ): readonly (Listing & { readonly locations: readonly Office[] })[] {
   const groups = new Map<string | Listing, Listing[]>();
   for (const listing of listings) {
@@ -816,8 +821,10 @@ export function groupByRequisition(
     const onFile = group.filter((listing) => storedIds.has(listing.id));
     // Strict `<` keeps the first-seen listing on a tie, as ties should not
     // occur (equal ids would already collide as the same stored row).
-    let primary = onFile[0] ?? group[0]!;
-    for (const listing of onFile.length > 0 ? onFile : group) {
+    const wanted = preferred === undefined ? [] : group.filter(preferred);
+    const candidates = onFile.length > 0 ? onFile : wanted.length > 0 ? wanted : group;
+    let primary = candidates[0]!;
+    for (const listing of candidates) {
       if (Number(listing.id) < Number(primary.id)) primary = listing;
     }
     const locations = dedupeOffices(
@@ -881,7 +888,15 @@ async function listCompany(
     const storedIds = new Set(
       [...(storedByBoard.get(prefix)?.keys() ?? [])].map((key) => key.slice(prefix.length + 2)),
     );
-    const listings = groupByRequisition(rawListings, storedIds);
+    // No stored row is passed to the gate: a member is preferred only when
+    // it would be stored on its own listing.
+    const listings = groupByRequisition(
+      rawListings,
+      storedIds,
+      criteria === undefined
+        ? undefined
+        : (listing) => listingAdmits(listing, undefined, board, reader, criteria),
+    );
     listed += listings.length;
 
     const seenKeys = new Set<string>();
