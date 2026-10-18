@@ -3616,7 +3616,35 @@ test("ingest: a stored posting its title now rejects, never acted on, is deleted
 
 // Breaks if the prune is tied to a board's read answering: a posting's title
 // and place are on its stored row, so a failed read cannot hide a rejection.
-test("ingest: a stored posting its title rejects is pruned even when its board's read fails", async () => {
+test("ingest: a stored posting its title rejects is pruned even when its board's read fails, while another board reads", async () => {
+  const store = memoryStore({
+    companies: [ACME, company("Globex", { boards: [{ platform: "greenhouse", id: "globex" }] })],
+    postings: [storedSenior("b1")],
+    criteria: [EXCLUDES_SENIOR],
+  });
+  const readers: Partial<Record<Platform, Reader>> = {
+    greenhouse: {
+      platform: "greenhouse",
+      list: async (board) => {
+        if (board.id === "globex") return [];
+        throw new HttpError(500, "HTTP 500");
+      },
+    },
+  };
+
+  const result = await ingest(store, readers, { now: tickingClock(), today: MONDAY });
+
+  assert.equal(result.errors.length, 1);
+  assert.equal(result.pruned, 1);
+  assert.deepEqual(await store.select<Posting>("postings"), []);
+});
+
+// Breaks if the prune runs on a run that read nothing: with every read
+// failed `admitted` is empty, so a stored row whose stored title fails (the
+// listing a read would have admitted it by replaces that title) is deleted
+// on no evidence. Nothing is pruned, one log line says why, and the errors
+// stay the per-board count `listExitCode` reads.
+test("ingest: a run whose every board read failed prunes nothing", async () => {
   const store = memoryStore({
     companies: [ACME],
     postings: [storedSenior("b1")],
@@ -3630,12 +3658,22 @@ test("ingest: a stored posting its title rejects is pruned even when its board's
       },
     },
   };
+  const lines: string[] = [];
 
-  const result = await ingest(store, readers, { now: tickingClock(), today: MONDAY });
+  const result = await ingest(store, readers, {
+    now: tickingClock(),
+    today: MONDAY,
+    log: (line) => lines.push(line),
+  });
 
   assert.equal(result.errors.length, 1);
-  assert.equal(result.pruned, 1);
-  assert.deepEqual(await store.select<Posting>("postings"), []);
+  assert.equal(result.pruned, 0);
+  assert.equal((await store.select<Posting>("postings")).length, 1);
+  assert.deepEqual(
+    lines.filter((line) => /nothing is pruned/.test(line)),
+    ["ingest: every board failed (1 errors, 1 boards); nothing is pruned"],
+  );
+  assert.equal(listExitCode(result), 1);
 });
 
 // Breaks if the prune covers only keys a read listed: a gone posting, a
@@ -5208,6 +5246,7 @@ test("ingest: every board read failing does not write full_read_at, even with an
   assert.equal(listExitCode(result), 1);
   assert.deepEqual(updates, []);
   assert.deepEqual(lines, [
+    "ingest: every board failed (1 errors, 1 boards); nothing is pruned",
     "ingest: every board picked for the criteria edit, but every board failed (1 errors, 1 boards); full_read_at not written, the next run reads every board again",
   ]);
 });
