@@ -1,8 +1,12 @@
 // Jobvite's public job board: two phases, like SmartRecruiters, but both
 // server-rendered HTML rather than JSON. The listing
-// (jobs.jobvite.com/${board}/jobs) carries no body or comp, only every open
-// row in repeated `<table class="jv-job-list">` blocks, confirmed unpaged on
-// boards up to 88 postings. The detail
+// (jobs.jobvite.com/${board}/jobs) carries no body or comp, only open rows in
+// repeated `<table class="jv-job-list">` blocks. A long category is cut short
+// there and ends in a "Show More" row linking to that category's search page
+// (/${board}/search?c=...&p=0), which lists the whole category in one table
+// ("1-31 of 31", no next link, p=1 empty; confirmed on ninjaone, zones,
+// laborie and ziffdavis, the largest category 45 rows). So the reader reads
+// the listing, then every Show More page, and merges by job id. The detail
 // (jobs.jobvite.com/${board}/job/${id}) embeds a schema.org `JobPosting` in
 // one `<script type="application/ld+json">` tag, confirmed on every detail
 // checked across three boards.
@@ -46,7 +50,9 @@ function cellLocation(cellHtml: string): string | null {
   return text === "" ? null : text;
 }
 
-const ROW = /<tr>\s*<td class="jv-job-list-name">[\s\S]*?<\/tr>/g;
+// The row tag may carry attributes: some boards (zones) render
+// `<tr onclick="location.href = '/zones/job/ot8zAfwu'">`.
+const ROW = /<tr[^>]*>\s*<td class="jv-job-list-name">[\s\S]*?<\/tr>/g;
 const ANCHOR = /<a href="([^"]+)">([^<]*)<\/a>/;
 const LOCATION_CELL = /<td class="jv-job-list-location">([\s\S]*?)<\/td>/;
 
@@ -163,9 +169,37 @@ function extractJobPosting(html: string): unknown {
   }
 }
 
+const SHOW_MORE = /<a href="([^"]*\/search\?[^"]*)">\s*<strong>\s*Show more\s*<\/strong>/gi;
+
+// Every category search page the listing links to, absolute and in page
+// order. The label's case varies by board ("Show More", "Show more").
+export function showMoreUrls(html: string, slug: string): string[] {
+  const base = `https://jobs.jobvite.com/${slug}/`;
+  return [...html.matchAll(SHOW_MORE)].map((match) =>
+    new URL((match[1] ?? "").replaceAll("&amp;", "&"), base).toString(),
+  );
+}
+
+// First occurrence wins, so a row on the listing keeps its place and a
+// search page only adds what the listing cut off.
+export function mergeById(listings: Listing[]): Listing[] {
+  const seen = new Set<string>();
+  return listings.filter((listing) => {
+    if (seen.has(listing.id)) return false;
+    seen.add(listing.id);
+    return true;
+  });
+}
+
+// A failed Show More fetch throws like a failed listing fetch: returning the
+// rows read so far would pass a truncated board off as complete.
 async function list(board: Board, options?: HttpOptions): Promise<Listing[]> {
   const html = await getText(`https://jobs.jobvite.com/${board.id}/jobs`, options);
-  return parseJobviteListing(html, board.id);
+  const listings = parseJobviteListing(html, board.id);
+  for (const url of showMoreUrls(html, board.id)) {
+    listings.push(...parseJobviteListing(await getText(url, options), board.id));
+  }
+  return mergeById(listings);
 }
 
 async function body(board: Board, id: string, options?: HttpOptions): Promise<Listing | null> {

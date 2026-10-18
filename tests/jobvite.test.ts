@@ -1,7 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert";
 import { readFileSync } from "node:fs";
-import { parseJobviteListing, parseJobviteDetail, jobviteReader } from "../src/ats/jobvite.ts";
+import {
+  parseJobviteListing,
+  parseJobviteDetail,
+  showMoreUrls,
+  jobviteReader,
+} from "../src/ats/jobvite.ts";
 
 // The client requires a configured User-Agent; these tests fake the network
 // entirely, so any value satisfies it.
@@ -183,4 +188,81 @@ test("Jobvite: list hits the board's jobs page, body hits the job page and fills
     "https://jobs.jobvite.com/lamnahealthcare/jobs",
     "https://jobs.jobvite.com/lamnahealthcare/job/oyX6Afwc",
   ]);
+});
+
+const NINJA_SEARCH_URL =
+  "https://jobs.jobvite.com/ninjaone/search?c=Engineering+%26+Quality+Assurance&p=0";
+
+function fakeNinjaFetch(requested: string[], searchStatus = 200): typeof fetch {
+  return async (input) => {
+    const url = String(input);
+    requested.push(url);
+    if (url.endsWith("/ninjaone/jobs")) {
+      return new Response(fixtureHtml("jobvite-truncated.html"), { status: 200 });
+    }
+    if (url === NINJA_SEARCH_URL) {
+      return new Response(fixtureHtml("jobvite-search.html"), { status: searchStatus });
+    }
+    return new Response("", { status: 404 });
+  };
+}
+
+test("Jobvite: showMoreUrls finds each Show More link, in either label case, and none on a page without one", () => {
+  assert.deepEqual(showMoreUrls(fixtureHtml("jobvite-truncated.html"), "ninjaone"), [
+    NINJA_SEARCH_URL,
+  ]);
+  const lowercase = '<a href="/varonis/search?c=Sales&amp;p=0">\n<strong>Show more</strong>\n</a>';
+  assert.deepEqual(showMoreUrls(lowercase, "varonis"), [
+    "https://jobs.jobvite.com/varonis/search?c=Sales&p=0",
+  ]);
+  assert.deepEqual(showMoreUrls(fixtureHtml("jobvite-listing.html"), "margiestravel"), []);
+});
+
+test("Jobvite: list follows Show More and returns the union, each job once, listing rows first", async () => {
+  const requested: string[] = [];
+  const options = {
+    fetchImpl: fakeNinjaFetch(requested),
+    userAgent: TEST_USER_AGENT,
+    sleep: async () => {},
+  };
+  const listings = await jobviteReader.list({ platform: "jobvite", id: "ninjaone" }, options);
+  assert.deepEqual(
+    listings.map((listing) => listing.id),
+    ["oDNPAfwz", "oA8TAfwV", "oRLRAfwN", "oU7zAfwU"],
+  );
+  assert.equal(listings[3]?.title, "Senior Software Engineer, Technical Lead");
+  assert.deepEqual(requested, ["https://jobs.jobvite.com/ninjaone/jobs", NINJA_SEARCH_URL]);
+});
+
+test("Jobvite: a failed Show More fetch throws rather than returning a partial board", async () => {
+  const options = {
+    fetchImpl: fakeNinjaFetch([], 404),
+    userAgent: TEST_USER_AGENT,
+    sleep: async () => {},
+  };
+  await assert.rejects(jobviteReader.list({ platform: "jobvite", id: "ninjaone" }, options));
+});
+
+test("Jobvite: a listing with no Show More link is read from its one page alone", async () => {
+  const requested: string[] = [];
+  const fetchImpl: typeof fetch = async (input) => {
+    requested.push(String(input));
+    return new Response(fixtureHtml("jobvite-listing.html"), { status: 200 });
+  };
+  const options = { fetchImpl, userAgent: TEST_USER_AGENT, sleep: async () => {} };
+  const listings = await jobviteReader.list({ platform: "jobvite", id: "margiestravel" }, options);
+  assert.equal(listings.length, 5);
+  assert.deepEqual(requested, ["https://jobs.jobvite.com/margiestravel/jobs"]);
+});
+
+test("Jobvite: a row tag carrying attributes (zones renders an onclick) is still a row", () => {
+  const html = `<tr onclick="location.href = '/zones/job/ot8zAfwu'">
+    <td class="jv-job-list-name"><a href="/zones/job/ot8zAfwu">Project Manager 1</a></td>
+    <td class="jv-job-list-location">Islamabad,</td>
+  </tr>`;
+  const listings = parseJobviteListing(html, "zones");
+  assert.deepEqual(
+    listings.map((listing) => [listing.id, listing.title]),
+    [["ot8zAfwu", "Project Manager 1"]],
+  );
 });
