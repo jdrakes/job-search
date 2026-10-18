@@ -142,7 +142,9 @@ elsewhere.
   those checks is not kept: the next read of their board lists them again, so a criteria edit that
   admits one takes effect at that read, and a stored posting a criteria
   edit rejects is removed when its board is next read, unless James acted
-  on it or it is kept.
+  on it or it is kept. A run in which every board it read failed removes
+  nothing, since it could not see which stored postings a read would have
+  admitted.
 - Where the tracking system states a posting's workplace, that is recorded
   with the posting as the board's own word — remote, hybrid or on-site —
   wherever the system states it: on the listing (Ashby, Lever,

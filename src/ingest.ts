@@ -1182,11 +1182,23 @@ export async function ingest(
   // board, its listing changed between their reads) was written by the one
   // that admitted it, so it stays. With no criteria row nothing is judged,
   // and with a failed stored read `stored` is empty: either way nothing is
-  // deleted.
+  // deleted. A run where every board failed (`everyBoardFailed`, the same
+  // test `daily.ts` exits non-zero on, over the list errors so far) admitted
+  // nothing because it read nothing, so `prunable` would delete every stored
+  // posting a successful read would have kept: nothing is pruned, as one log
+  // line, not an error, since the failure is already counted per board.
   const admitted = new Set(results.flatMap((result) => [...result.admitted]));
   const rejected = new Set(results.flatMap((result) => [...result.rejected]));
+  const listErrorCount =
+    errors.length + results.reduce((sum, result) => sum + result.errors.length, 0);
+  const unread = everyBoardFailed(boardsToday, listErrorCount);
+  if (unread) {
+    log(
+      `ingest: every board failed (${listErrorCount} errors, ${boardsToday} boards); nothing is pruned`,
+    );
+  }
   const keys =
-    criteria === undefined ? [] : prunable(stored, admitted, rejected, criteria, readers);
+    criteria === undefined || unread ? [] : prunable(stored, admitted, rejected, criteria, readers);
   let pruned = keys.length;
   const pruneErrors: string[] = [];
   try {
