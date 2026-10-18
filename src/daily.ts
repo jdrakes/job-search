@@ -181,9 +181,29 @@ export function unbindLines(result: Unbound): string[] {
   ];
 }
 
+// Every HTTP request this tool makes needs the operator's User-Agent
+// (`requiredUserAgent`, net/http.ts), and a request without one is refused
+// before it is sent. A run without one would still write: discovery records
+// every candidate as having no board, and ingest prunes every posting a
+// failed read could not confirm. So the run stops here, before the store is
+// opened or any phase starts. Returns the reason, or null when one is set.
+export function missingUserAgent(settings: Settings): string | null {
+  if (settings.userAgent) return null;
+  return (
+    'settings/config.json is missing the "userAgent" field. This tool ' +
+    "identifies itself to third-party job boards on every request it " +
+    "makes, so it needs to know who is running it before it will make one."
+  );
+}
+
 async function main(): Promise<number> {
-  const store = openStore();
   const settings = loadSettings();
+  const refusal = missingUserAgent(settings);
+  if (refusal !== null) {
+    console.error(`Refusing: ${refusal}`);
+    return 1;
+  }
+  const store = openStore();
 
   // An extra source is searched for the criteria's level words, so the row is
   // read here. `ingest` reads it again for judging; two reads of one row beat

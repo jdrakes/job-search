@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { resolveSources, selectSources } from "../src/daily.ts";
+import { missingUserAgent, resolveSources, selectSources } from "../src/daily.ts";
 import { remoteOkSource, parseRemoteOkJobs } from "../src/discovery/remoteok.ts";
 import { hnSource, parseHnThread } from "../src/discovery/hn.ts";
 import type { Source } from "../src/discovery/source.ts";
@@ -540,4 +540,13 @@ test("theMuseSource: a page that never runs out of results stops at MAX_PAGES", 
 
   assert.equal(calls, 50);
   assert.equal(names.length, 50);
+});
+
+test("missingUserAgent: settings with no user agent, or an empty one, are refused", () => {
+  assert.match(missingUserAgent({}) ?? "", /missing the "userAgent" field/);
+  assert.match(missingUserAgent({ userAgent: "" }) ?? "", /missing the "userAgent" field/);
+});
+
+test("missingUserAgent: settings with a user agent are not refused", () => {
+  assert.equal(missingUserAgent({ userAgent: TEST_USER_AGENT }), null);
 });
