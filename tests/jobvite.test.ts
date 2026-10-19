@@ -315,3 +315,20 @@ test("Jobvite: the Show More link is found when it sits in a bare table cell, in
   assert.deepEqual(showMoreUrls(fixtureHtml("jobvite-varonis.html"), "margiestravel"), expected);
   assert.deepEqual(showMoreUrls(fixtureHtml("jobvite-ziffdavis.html"), "margiestravel"), expected);
 });
+
+// Breaks if the fallback for a title with no link inside reaches back past
+// the row it sits in: the second row would take the first row's id and the
+// merge would drop it.
+test("Jobvite: a bare title cell takes the link in its own row's later cell, not the previous row's", () => {
+  const html = `<table class="jv-job-list">
+    <tr><td class="jv-job-list-name">Payroll Analyst</td><td><a href="/margiestravel/job/oKKKKfwB">Apply</a></td></tr>
+    <tr><td class="jv-job-list-name">Travel Agent</td><td><a href="/margiestravel/job/oLLLLfwC">Apply</a></td></tr>
+  </table>`;
+  assert.deepEqual(
+    parseJobviteListing(html, "margiestravel").map((listing) => [listing.id, listing.title]),
+    [
+      ["oKKKKfwB", "Payroll Analyst"],
+      ["oLLLLfwC", "Travel Agent"],
+    ],
+  );
+});

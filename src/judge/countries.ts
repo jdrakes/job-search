@@ -25,8 +25,6 @@ function patternFor(term: string): RegExp {
 // "Perú" are "Mexico" and "Peru" once the accents go. No name below carries
 // a dot or an accent. `\b` will not close a match on a trailing ".".
 function normalize(text: string): string {
-  // "México" and "Perú" are "Mexico" and "Peru" once the accents go; the
-  // term lists carry no accented name.
   return text.normalize("NFD").replace(/\p{M}/gu, "").replace(/\./g, "");
 }
 

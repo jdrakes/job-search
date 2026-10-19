@@ -7,7 +7,8 @@
 // `<li>` rows wrapped whole in the link, the place the last of two spans
 // (varonis, laborie); table rows whose link ends in an icon (ziffdavis); and
 // "Featured Jobs" blocks (laborie, ziffdavis) that repeat listed roles. A
-// long category is cut short there and ends in a "Show More" row linking to that category's search page
+// long category is cut short there and ends in a "Show More" row linking to
+// that category's search page
 // (/${board}/search?c=...&p=0), which lists the whole category in one table
 // ("1-31 of 31", no next link, p=1 empty; confirmed on ninjaone, zones,
 // laborie and ziffdavis, the largest category 45 rows). So the reader reads
@@ -87,14 +88,22 @@ function placeCell(cellHtml: string): string | null {
   return cellLocation(cellHtml);
 }
 
-// The job id for a title element. `nextTitle` bounds the row. In order: a link inside the title (enverus, ziffdavis
-// lists); for a featured block, the first link after the block opens (laborie
-// wraps the block in the link, ziffdavis puts "View Job" after the title);
-// otherwise the nearest link before the title (varonis and laborie list rows
-// wrap the whole row in the anchor).
+// A row opens with `<tr` or `<li`; the last one between two titles is where
+// the second title's row starts.
+const ROW_OPEN = /<(?:tr|li)\b/g;
+
+// The job id for a title element. `previousEnd` and `nextTitle` bound the
+// title's row: a link outside them belongs to another row. In order: a link
+// inside the title (enverus, ziffdavis lists); for a featured block, the
+// first link after the block opens (laborie wraps the block in the link,
+// ziffdavis puts "View Job" after the title); then the nearest link before
+// the title within its own row (varonis and laborie list rows wrap the whole
+// row in the anchor); then the first link after the title (a table row whose
+// title cell is bare and whose link sits in a later cell).
 function jobId(
   html: string,
   title: { start: number; end: number; html: string; featured: boolean },
+  previousEnd: number,
   nextTitle: number,
   featuredStarts: number[],
 ): string | null {
@@ -107,8 +116,13 @@ function jobId(
     return after?.[1] ?? null;
   }
 
-  const before = [...html.slice(0, title.start).matchAll(JOB_LINKS)].pop();
-  return before?.[1] ?? null;
+  const between = html.slice(previousEnd, title.start);
+  const rowStart = [...between.matchAll(ROW_OPEN)].pop()?.index ?? 0;
+  const before = [...between.slice(rowStart).matchAll(JOB_LINKS)].pop();
+  if (before !== undefined) return before[1] ?? null;
+
+  const after = JOB_LINK.exec(html.slice(title.end, nextTitle));
+  return after?.[1] ?? null;
 }
 
 export function parseJobviteListing(html: string, slug: string): Listing[] {
@@ -122,8 +136,9 @@ export function parseJobviteListing(html: string, slug: string): Listing[] {
 
   const listings: Listing[] = [];
   titles.forEach((title, position) => {
+    const previousEnd = titles[position - 1]?.end ?? 0;
     const nextTitle = titles[position + 1]?.start ?? html.length;
-    const id = jobId(html, title, nextTitle, featuredStarts);
+    const id = jobId(html, title, previousEnd, nextTitle, featuredStarts);
     const text = stripTags(title.html).replace(/\s+/g, " ").trim();
     if (id === null || id === "" || text === "") return;
 
