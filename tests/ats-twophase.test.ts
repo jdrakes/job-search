@@ -306,6 +306,82 @@ test("Workday: a requisition found by two large-tenant queries is listed once", 
   assert.deepEqual(listings.map((listing) => listing.id).sort(), ["architect-only", "shared"]);
 });
 
+// A Workday board for `body`: the empty search lists `listed`, a search for
+// any other text answers `searched(text)`, and a GET of the first fixture
+// entry's path answers its detail. `posts` keeps each search's text, `gets`
+// each detail URL.
+const FABRIKAM_CXS = "https://fabrikam.wd5.myworkdayjobs.com/wday/cxs/fabrikam/Fabrikam_Careers";
+
+function detailBoard(listed: unknown[], searched: (text: string) => unknown[]) {
+  const posts: string[] = [];
+  const gets: string[] = [];
+  const json = (status: number, payload: unknown): Response =>
+    new Response(JSON.stringify(payload), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    });
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const url = String(input);
+    if (init?.method === "POST") {
+      const request = JSON.parse(String(init.body)) as { searchText: string; offset: number };
+      posts.push(request.searchText);
+      const entries = request.searchText === "" ? listed : searched(request.searchText);
+      const page = entries.slice(request.offset, request.offset + 20);
+      return json(200, { total: request.offset === 0 ? entries.length : 0, jobPostings: page });
+    }
+    gets.push(url);
+    if (url === FABRIKAM_CXS + FIRST_REQ_PATH)
+      return json(200, fixture("workday-detail-with-comp.json"));
+    return json(404, {});
+  };
+  return {
+    options: { fetchImpl, userAgent: TEST_USER_AGENT, sleep: async () => {} },
+    posts,
+    gets,
+  };
+}
+
+const LISTED = (fixture("workday-listing.json") as { jobPostings: unknown[] }).jobPostings;
+
+// The fixture's two entries: 4400101 first, 4400102 second.
+const [FIRST_ENTRY, SECOND_ENTRY] = LISTED;
+
+test("Workday: a detail found by searching its id costs one search and one detail read", async () => {
+  // The search also answers a neighbour, listed first, so the entry is
+  // picked by its req number and not by position.
+  const board = detailBoard(LISTED, (text) =>
+    text === "4400101" ? [SECOND_ENTRY, FIRST_ENTRY] : [],
+  );
+
+  const listing = await workdayReader.body?.(FABRIKAM_BOARD, "4400101", board.options);
+
+  assert.deepEqual(board.posts, ["4400101"]);
+  assert.deepEqual(board.gets, [FABRIKAM_CXS + FIRST_REQ_PATH]);
+  assert.equal(listing?.id, "4400101");
+  assert.equal(listing?.compLow, 326_000);
+});
+
+test("Workday: a detail the id search misses falls back to the listing scan", async () => {
+  const board = detailBoard(LISTED, (text) => (text === "4400101" ? [SECOND_ENTRY] : []));
+
+  const listing = await workdayReader.body?.(FABRIKAM_BOARD, "4400101", board.options);
+
+  assert.deepEqual(board.posts, ["4400101", ""]);
+  assert.deepEqual(board.gets, [FABRIKAM_CXS + FIRST_REQ_PATH]);
+  assert.equal(listing?.id, "4400101");
+  assert.equal(listing?.compLow, 326_000);
+});
+
+test("Workday: a requisition neither the search nor the scan finds reads as absent", async () => {
+  const board = detailBoard(LISTED, () => []);
+
+  const listing = await workdayReader.body?.(FABRIKAM_BOARD, "4400199", board.options);
+
+  assert.equal(listing, null);
+  assert.deepEqual(board.posts, ["4400199", ""]);
+  assert.deepEqual(board.gets, []);
+});
+
 test("Eightfold: a board that never runs out of pages stops at the cap", async () => {
   let issued = 0;
   const board = endlessBoard(

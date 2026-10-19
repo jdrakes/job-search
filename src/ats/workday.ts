@@ -183,17 +183,32 @@ async function list(board: Board, options?: HttpOptions): Promise<Listing[]> {
   });
 }
 
-// Costs a fresh scan of the whole listing first: the detail endpoint is keyed by
-// the posting's path, which only a listing entry hands out. Uncached.
+// The listing entry for one requisition, which holds the path the detail
+// endpoint is keyed by. A search with the requisition id as its text finds it
+// in one request (measured 2026-10-19: 17 of 17 ids across five tenants gave
+// exactly that requisition), so that comes first. The whole-listing scan, up
+// to MAX_PAGES requests, runs only when the search does not find it.
+async function listingEntry(
+  cxs: string,
+  id: string,
+  options?: HttpOptions,
+): Promise<Record<string, unknown> | null> {
+  const isRequisition = (entry: Record<string, unknown>): boolean => reqNumber(entry) === id;
+  const searched = (await searchPage(cxs, id, 0, options)).entries.map(asRecord);
+  const hit = searched.find(isRequisition);
+  if (hit !== undefined) return hit;
+  return (await rawListing(cxs, options)).map(asRecord).find(isRequisition) ?? null;
+}
+
+// Uncached: each call searches for the requisition, then reads its detail.
 async function body(board: Board, id: string, options?: HttpOptions): Promise<Listing | null> {
   const parsed = parseWorkdayId(board.id);
   if (parsed === null) throw new Error(`not a Workday board id: ${JSON.stringify(board.id)}`);
   const cxs = cxsUrl(parsed);
   const site = siteUrl(parsed);
-  const raw = await rawListing(cxs, options);
-  const entry = raw.find((item) => reqNumber(asRecord(item)) === id);
-  if (entry === undefined) return null;
-  const path = asText(asRecord(entry)["externalPath"]);
+  const entry = await listingEntry(cxs, id, options);
+  if (entry === null) return null;
+  const path = asText(entry["externalPath"]);
   if (path === null) return null;
   const data = await getJson<unknown>(cxs + path, options);
   return parseWorkdayDetail(data, path, site);
