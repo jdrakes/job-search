@@ -48,6 +48,9 @@ export interface IngestResult {
   // list phase writes postings only; discovery removes these boards
   // (`unbind`, discover.ts).
   readonly gone: readonly GoneBoard[];
+  // Every board whose read succeeded and returned no listing, in walk order.
+  // A failed read is an error, not an empty board.
+  readonly emptyBoards: readonly Board[];
   // Counted per company board, the way `listCompany` reads them and its
   // errors are counted: a board two companies carry is read, and can fail,
   // twice. `boardsToday` is every company board `boardsToRead` picked;
@@ -753,6 +756,7 @@ interface ListedCompany {
   readonly rejected: ReadonlySet<string>;
   readonly errors: readonly string[];
   readonly gone: readonly GoneBoard[];
+  readonly empty: readonly Board[];
 }
 
 // `null` sorts last; two `null`s (or two equal strings) keep their relative
@@ -846,6 +850,7 @@ async function listCompany(
 ): Promise<ListedCompany> {
   const errors: string[] = [];
   const gone: GoneBoard[] = [];
+  const empty: Board[] = [];
   let listed = 0;
 
   // Taken before any board is listed: the `gone_at` of every posting a
@@ -881,6 +886,7 @@ async function listCompany(
       if (isGone(board.platform, err)) gone.push({ company: company.name, board });
       continue;
     }
+    if (rawListings.length === 0) empty.push(board);
     // The ids this board already has a stored row for, so `groupByRequisition`
     // can keep the row James decided on as the primary even if the board
     // later drops specifically that office (see its own comment).
@@ -964,7 +970,7 @@ async function listCompany(
     errors.push(`${company.name}: recording ${rows.length} postings: ${describeError(err)}`);
     recorded = 0;
   }
-  return { listed, recorded, admitted, rejected, errors, gone };
+  return { listed, recorded, admitted, rejected, errors, gone, empty };
 }
 
 // Every column a re-list can write, bar `body`: `body_hash` stands for it.
@@ -1242,6 +1248,7 @@ export async function ingest(
     pruned,
     errors: allErrors,
     gone: results.flatMap((result) => result.gone),
+    emptyBoards: results.flatMap((result) => result.empty),
     boardsToday,
     boardsWaiting,
     criteriaEdited: edited,
