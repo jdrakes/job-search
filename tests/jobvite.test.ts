@@ -12,7 +12,7 @@ import {
 // entirely, so any value satisfies it.
 const TEST_USER_AGENT = "test-bot (+https://example.com)";
 
-// All three fixtures are written from Jobvite's schemas and never captured;
+// The first three fixtures are written from Jobvite's schemas and never captured;
 // each carries its own header comment saying which shape it proves. Every
 // id, title, place and sentence in them is invented, and neither Margie's
 // Travel nor Lamna Healthcare is a real employer. jobvite-detail-comp.json
@@ -265,4 +265,53 @@ test("Jobvite: a row tag carrying attributes (zones renders an onclick) is still
     listings.map((listing) => [listing.id, listing.title]),
     [["ot8zAfwu", "Project Manager 1"]],
   );
+});
+
+// Four layouts beyond the `<tr>` table. Each fixture is written from the
+// layout's markup (see its header) with invented rows; the expected values
+// below are written by hand from those rows.
+function idsTitlesLocations(file: string): string[][] {
+  return parseJobviteListing(fixtureHtml(file), "margiestravel").map((listing) => [
+    listing.id,
+    listing.title ?? "",
+    listing.location ?? "null",
+  ]);
+}
+
+test("Jobvite: the card layout (title div holds the link) parses, and an N-Locations-only cell reads null", () => {
+  assert.deepEqual(idsTitlesLocations("jobvite-enverus.html"), [
+    ["oAAAAfw1", "Staff Software Developer - 1001", "Springfield, Illinois"],
+    ["oBBBBfw2", "Billing Specialist I - 1002", "null"],
+  ]);
+});
+
+test("Jobvite: the list layout takes the id from the wrapping link (query dropped) and the place from the last span", () => {
+  assert.deepEqual(idsTitlesLocations("jobvite-varonis.html"), [
+    ["oCCCCfw3", "Detection and Response Engineer", "Springfield, Illinois"],
+    ["oDDDDfw4", "Procurement Buyer", "Remote, United States"],
+  ]);
+});
+
+test("Jobvite: featured blocks wrapped in their own link each take their own id, and list rows keep theirs", () => {
+  assert.deepEqual(idsTitlesLocations("jobvite-laborie.html"), [
+    ["oEEEEfw5", "Senior Cost Accountant", "Springfield, Illinois"],
+    ["oFFFFfw6", "Regional Sales Director", "null"],
+    ["oGGGGfw7", "Clinical Project Manager", "Maple Grove, MN"],
+    ["oEEEEfw5", "Senior Cost Accountant", "Springfield, Illinois"],
+  ]);
+});
+
+test("Jobvite: featured blocks with the link after the title, and table rows with an icon in the link and a department cell", () => {
+  assert.deepEqual(idsTitlesLocations("jobvite-ziffdavis.html"), [
+    ["oHHHHfw8", "Associate Director, Scientific Affairs", "Remote - Florida"],
+    ["oIIIIfw9", "Account Director", "null"],
+    ["oJJJJfwA", "Financial Accountant", "Helsinki, Finland"],
+    ["oHHHHfw8", "Associate Director, Scientific Affairs", "Remote - Florida"],
+  ]);
+});
+
+test("Jobvite: the Show More link is found when it sits in a bare table cell, in either label case", () => {
+  const expected = ["https://jobs.jobvite.com/margiestravel/search?c=Sales&p=0"];
+  assert.deepEqual(showMoreUrls(fixtureHtml("jobvite-varonis.html"), "margiestravel"), expected);
+  assert.deepEqual(showMoreUrls(fixtureHtml("jobvite-ziffdavis.html"), "margiestravel"), expected);
 });
