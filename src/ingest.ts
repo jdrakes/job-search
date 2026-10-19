@@ -640,7 +640,7 @@ export function twoPhase(
 
 // A listing is judged on the pay `toRow` leaves on its row: the listing's own
 // when it states a body or a band, else the stored band.
-function listingAdmits(
+export function listingAdmits(
   listing: Listing,
   stored: StoredListing | undefined,
   board: Board,

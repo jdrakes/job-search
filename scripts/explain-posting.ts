@@ -158,7 +158,7 @@ export async function explainPosting(
 // criteria's names; one not yet converted by `scripts/shrink-reasons.ts`
 // holds a `{criterion, verdict}` object per criterion, of which the "out"
 // ones are the same names.
-function storedOutCriteria(reasons: readonly unknown[] | null): string[] {
+export function storedOutCriteria(reasons: readonly unknown[] | null): string[] {
   if (!Array.isArray(reasons)) return [];
   return reasons.flatMap((reason: unknown) => {
     if (typeof reason === "string") return [reason];
