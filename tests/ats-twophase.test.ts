@@ -226,10 +226,84 @@ test("Workday: a board that never runs out of pages stops at the cap", async () 
     board.options,
   );
 
-  // MAX_PAGES for each of the three search queries workday.ts walks; the
+  // MAX_PAGES over the one empty search, the first page included; the
   // pages are full and the payload states no total.
-  assert.equal(board.calls(), MAX_PAGES * 3);
-  assert.equal(listings.length, MAX_PAGES * 3 * 20);
+  assert.equal(board.calls(), MAX_PAGES);
+  assert.equal(listings.length, MAX_PAGES * 20);
+});
+
+// A Workday board stating `total`, whose search answers by `searchText`:
+// `catalog` is what every query matches, in order. `searches` records each
+// request's `searchText` and offset. Like Workday, it states `total` on the
+// offset 0 page only and 0 on later ones.
+function searchableBoard(total: number, catalog: (query: string) => string[]) {
+  const searches: { searchText: string; offset: number }[] = [];
+  const fetchImpl: typeof fetch = async (_url, init) => {
+    const body = JSON.parse(String(init?.body)) as { searchText: string; offset: number };
+    searches.push({ searchText: body.searchText, offset: body.offset });
+    const ids = catalog(body.searchText).slice(body.offset, body.offset + 20);
+    return new Response(
+      JSON.stringify({
+        total: body.offset === 0 ? total : 0,
+        jobPostings: ids.map((id) => ({ title: "Staff Software Engineer", bulletFields: [id] })),
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  };
+  return {
+    options: { fetchImpl, userAgent: TEST_USER_AGENT, sleep: async () => {} },
+    searches,
+  };
+}
+
+const FABRIKAM_BOARD = { platform: "workday", id: "wd5/Fabrikam_Careers/fabrikam" } as const;
+
+test("Workday: a tenant at or under the whole-tenant limit is read by empty search only", async () => {
+  const ids = Array.from({ length: 50 }, (_, index) => `req-${index}`);
+  const board = searchableBoard(50, () => ids);
+
+  const listings = await workdayReader.list(FABRIKAM_BOARD, board.options);
+
+  assert.equal(listings.length, 50);
+  assert.deepEqual(
+    board.searches.map((search) => search.searchText),
+    ["", "", ""],
+  );
+  assert.deepEqual(
+    board.searches.map((search) => search.offset),
+    [0, 20, 40],
+  );
+});
+
+test("Workday: a tenant over the whole-tenant limit reads one empty search, then each large-tenant query", async () => {
+  const board = searchableBoard(1500, (query) => [`${query}-a`, `${query}-b`]);
+
+  const listings = await workdayReader.list(FABRIKAM_BOARD, board.options);
+
+  // Each query ends on its first empty page, so a query repeats once.
+  assert.deepEqual(
+    [...new Set(board.searches.map((search) => search.searchText))],
+    ["", "engineer", "developer", "architect"],
+  );
+  assert.equal(board.searches.filter((search) => search.searchText === "").length, 1);
+  assert.deepEqual(listings.map((listing) => listing.id).sort(), [
+    "architect-a",
+    "architect-b",
+    "developer-a",
+    "developer-b",
+    "engineer-a",
+    "engineer-b",
+  ]);
+});
+
+test("Workday: a requisition found by two large-tenant queries is listed once", async () => {
+  const board = searchableBoard(1500, (query) =>
+    query === "architect" ? ["shared", "architect-only"] : ["shared"],
+  );
+
+  const listings = await workdayReader.list(FABRIKAM_BOARD, board.options);
+
+  assert.deepEqual(listings.map((listing) => listing.id).sort(), ["architect-only", "shared"]);
 });
 
 test("Eightfold: a board that never runs out of pages stops at the cap", async () => {

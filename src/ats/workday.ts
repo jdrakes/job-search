@@ -1,7 +1,11 @@
 // Workday's CXS search API: a listing without a body, and a detail request
-// per posting. A large tenant publishes over a thousand open reqs, so the
-// listing is search-scoped, as Amazon's is: too narrow a set silently
-// undercounts a board, too broad wastes requests.
+// per posting. Measured 2026-10-19 on 12 boards: 421 requisitions pass title
+// and place at the pay floor; three narrow title searches listed 104 of them
+// in 54 pages, while an empty search lists all 421 in 202 pages (searching
+// "engineer", "developer" and "architect" finds the same 421 but takes 313
+// pages). So a tenant is read whole, unless it reports over WHOLE_TENANT_LIMIT
+// requisitions (25 of 358 boards, 3,187 of the 5,965 pages a whole read of
+// every board costs), where it is searched by LARGE_TENANT_QUERIES instead.
 import { getJson, htmlToText, postJson, type HttpOptions } from "../net/http.ts";
 import type { Board, Workplace } from "../schema.ts";
 import {
@@ -16,7 +20,8 @@ import {
   type Reader,
 } from "./ats.ts";
 
-const QUERIES = ["staff software engineer", "senior staff engineer", "principal engineer"];
+export const WHOLE_TENANT_LIMIT = 1000;
+export const LARGE_TENANT_QUERIES = ["engineer", "developer", "architect"];
 
 const PAGE_SIZE = 20;
 
@@ -98,28 +103,71 @@ export function parseWorkdayDetail(data: unknown, path: string, site: string): L
   return isRecord(info) ? toListing(info, path, site) : null;
 }
 
+interface SearchPage {
+  readonly entries: unknown[];
+  // `null` when the payload states no total.
+  readonly total: number | null;
+}
+
+async function searchPage(
+  cxs: string,
+  query: string,
+  offset: number,
+  options?: HttpOptions,
+): Promise<SearchPage> {
+  const payload = { appliedFacets: {}, limit: PAGE_SIZE, offset, searchText: query };
+  const data = asRecord(await postJson<unknown>(`${cxs}/jobs`, payload, options));
+  const total = data["total"];
+  return {
+    entries: asArray(data["jobPostings"]),
+    total: typeof total === "number" ? total : null,
+  };
+}
+
+// Pages through one search, adding each requisition once to `out`. `first`
+// is the already-read page at offset 0, when the caller has it.
+async function walkSearch(
+  cxs: string,
+  query: string,
+  first: SearchPage | null,
+  seen: Set<string>,
+  out: unknown[],
+  options?: HttpOptions,
+): Promise<void> {
+  let offset = 0;
+  // Workday states `total` on the offset 0 page only (later pages say 0), so
+  // it is kept from there.
+  let total: number | null = null;
+  // Capped at MAX_PAGES (ats.ts): a board that ignores `offset` offers
+  // neither of this loop's other exits.
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const current =
+      page === 0 && first !== null ? first : await searchPage(cxs, query, offset, options);
+    const { entries } = current;
+    if (page === 0) total = current.total;
+    for (const raw of entries) {
+      const id = reqNumber(asRecord(raw));
+      if (id === "" || seen.has(id)) continue;
+      seen.add(id);
+      out.push(raw);
+    }
+    if (entries.length === 0) break;
+    offset += entries.length;
+    if (total !== null && offset >= total) break;
+  }
+}
+
 async function rawListing(cxs: string, options?: HttpOptions): Promise<unknown[]> {
   const out: unknown[] = [];
   const seen = new Set<string>();
-  for (const query of QUERIES) {
-    let offset = 0;
-    // Capped at MAX_PAGES (ats.ts): a board that ignores `offset` offers
-    // neither of this loop's other exits.
-    for (let page = 0; page < MAX_PAGES; page++) {
-      const payload = { appliedFacets: {}, limit: PAGE_SIZE, offset, searchText: query };
-      const data = asRecord(await postJson<unknown>(`${cxs}/jobs`, payload, options));
-      const entries = asArray(data["jobPostings"]);
-      for (const raw of entries) {
-        const id = reqNumber(asRecord(raw));
-        if (id === "" || seen.has(id)) continue;
-        seen.add(id);
-        out.push(raw);
-      }
-      if (entries.length === 0) break;
-      offset += entries.length;
-      const total = data["total"];
-      if (typeof total === "number" && offset >= total) break;
-    }
+  const first = await searchPage(cxs, "", 0, options);
+  // A payload with no total is read whole: the cap bounds it.
+  if (first.total === null || first.total <= WHOLE_TENANT_LIMIT) {
+    await walkSearch(cxs, "", first, seen, out, options);
+    return out;
+  }
+  for (const query of LARGE_TENANT_QUERIES) {
+    await walkSearch(cxs, query, null, seen, out, options);
   }
   return out;
 }
@@ -135,7 +183,7 @@ async function list(board: Board, options?: HttpOptions): Promise<Listing[]> {
   });
 }
 
-// Costs a fresh scan of every query first: the detail endpoint is keyed by
+// Costs a fresh scan of the whole listing first: the detail endpoint is keyed by
 // the posting's path, which only a listing entry hands out. Uncached.
 async function body(board: Board, id: string, options?: HttpOptions): Promise<Listing | null> {
   const parsed = parseWorkdayId(board.id);
