@@ -5,12 +5,19 @@ import {
   failingCriterion,
   missCause,
   titleMatches,
+  workdaySearchHit,
   type Match,
   type MissInput,
 } from "../scripts/explain-miss.ts";
-import type { Criteria } from "../src/schema.ts";
+import type { Board, Criteria } from "../src/schema.ts";
 
-const base: MissInput = { companyKnown: true, boardCount: 1, matches: [], searchHit: null };
+const base: MissInput = {
+  companyKnown: true,
+  boardCount: 1,
+  failedReads: 0,
+  matches: [],
+  searchHit: null,
+};
 
 const admitted: Match = { rejectedBy: null, stored: null };
 const rejected: Match = {
@@ -33,6 +40,20 @@ test("no match and no search hit is not on board", () => {
 
 test("no match but a Workday search hit is outside the reader's search", () => {
   assert.equal(missCause({ ...base, searchHit: true }), "outside the reader's search");
+});
+
+// Breaks if missCause stops checking failedReads before "not on board".
+test("no match after a failed read is unknown, not absent", () => {
+  assert.equal(
+    missCause({ ...base, boardCount: 2, failedReads: 1 }),
+    "unknown, 1 board read(s) failed",
+  );
+});
+
+// Breaks if the failed-read check moves ahead of the stored match.
+test("a stored match decides the cause despite a failed read", () => {
+  const match: Match = { rejectedBy: null, stored: { kept: true, hiddenReasons: [] } };
+  assert.equal(missCause({ ...base, boardCount: 2, failedReads: 1, matches: [match] }), "stored");
 });
 
 test("a rejected match names its criterion and detail", () => {
@@ -95,4 +116,36 @@ test("a title that passes every rule has no failing criterion", () => {
     criteria,
   );
   assert.equal(reason, null);
+});
+
+const workdayBoard = { platform: "workday", id: "wd5/Careers/acme" } as Board;
+const httpOptions = {
+  userAgent: "test-bot (+https://example.com)",
+  sleep: async () => {},
+  retries: 0,
+};
+
+// Breaks if workdaySearchHit lets a failed POST throw out of the board loop.
+test("a failing Workday title search is returned, not thrown", async () => {
+  const fetchImpl: typeof fetch = async () => new Response("down", { status: 500 });
+  const result = await workdaySearchHit(workdayBoard, "Staff Engineer", {
+    ...httpOptions,
+    fetchImpl,
+  });
+  assert.equal(result.ok, false);
+});
+
+// Breaks if the search URL stops coming from the reader's cxsUrl.
+test("a Workday title search posts to the tenant's CXS jobs URL", async () => {
+  const urls: string[] = [];
+  const fetchImpl: typeof fetch = async (input) => {
+    urls.push(String(input));
+    return new Response(JSON.stringify({ jobPostings: [{ title: "Staff Engineer, Search" }] }));
+  };
+  const result = await workdaySearchHit(workdayBoard, "staff engineer", {
+    ...httpOptions,
+    fetchImpl,
+  });
+  assert.deepEqual(result, { ok: true, value: true });
+  assert.deepEqual(urls, ["https://acme.wd5.myworkdayjobs.com/wday/cxs/acme/Careers/jobs"]);
 });

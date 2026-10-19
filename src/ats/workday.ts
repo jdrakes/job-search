@@ -34,7 +34,7 @@ interface WorkdayId {
   readonly tenant: string;
 }
 
-function parseWorkdayId(id: string): WorkdayId | null {
+export function parseWorkdayId(id: string): WorkdayId | null {
   const parts = id.split("/");
   if (parts.length !== 3) return null;
   const [wd, site, tenant] = parts;
@@ -42,7 +42,7 @@ function parseWorkdayId(id: string): WorkdayId | null {
   return { wd, site, tenant };
 }
 
-function cxsUrl(parsed: WorkdayId): string {
+export function cxsUrl(parsed: WorkdayId): string {
   return `https://${parsed.tenant}.${parsed.wd}.myworkdayjobs.com/wday/cxs/${parsed.tenant}/${parsed.site}`;
 }
 

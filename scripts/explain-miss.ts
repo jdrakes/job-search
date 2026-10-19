@@ -23,7 +23,8 @@ import {
   judgeRole,
   type Reason,
 } from "../src/judge/listing.ts";
-import { postJson } from "../src/net/http.ts";
+import { cxsUrl, parseWorkdayId } from "../src/ats/workday.ts";
+import { postJson, type HttpOptions } from "../src/net/http.ts";
 import {
   COMPANY_FIELDS,
   postingKey,
@@ -56,6 +57,8 @@ export interface Match {
 export interface MissInput {
   readonly companyKnown: boolean;
   readonly boardCount: number;
+  // How many board reads, or Workday title searches, failed.
+  readonly failedReads: number;
   readonly matches: readonly Match[];
   // Whether a Workday search for the title found it; null when none was made.
   readonly searchHit: boolean | null;
@@ -69,11 +72,14 @@ function storedCause(state: StoredState): MissCause {
 
 // A stored match wins, since it is what the store holds. Next a match the
 // gate admits but the store lacks (listed since the last daily run, or the
-// criteria were edited after it), and last the first rejection.
+// criteria were edited after it), and last the first rejection. With no
+// match at all, a failed read means the role may be on the board that
+// failed, so the cause is unknown rather than absent.
 export function missCause(input: MissInput): MissCause {
   if (!input.companyKnown) return "company unknown";
   if (input.boardCount === 0) return "no board";
   if (input.matches.length === 0) {
+    if (input.failedReads > 0) return `unknown, ${input.failedReads} board read(s) failed`;
     return input.searchHit === true ? "outside the reader's search" : "not on board";
   }
   const stored = input.matches.find((match) => match.stored !== null);
@@ -130,14 +136,27 @@ async function storedState(
 }
 
 // One search by the title on a Workday tenant, outside the reader's own
-// queries: whether the tenant lists it at all.
-async function workdaySearchHit(board: Board, title: string): Promise<boolean> {
-  const [wd, site, tenant] = board.id.split("/");
-  if (!wd || !site || !tenant) return false;
-  const url = `https://${tenant}.${wd}.myworkdayjobs.com/wday/cxs/${tenant}/${site}/jobs`;
+// queries: whether the tenant lists it at all. A failed search is returned,
+// so the caller counts it as one more failed read.
+export async function workdaySearchHit(
+  board: Board,
+  title: string,
+  options?: HttpOptions,
+): Promise<{ ok: true; value: boolean } | { ok: false; reason: string }> {
+  const parsed = parseWorkdayId(board.id);
+  if (parsed === null) return { ok: true, value: false };
   const payload = { appliedFacets: {}, limit: 20, offset: 0, searchText: title };
-  const data = await postJson<{ jobPostings?: { title?: string }[] }>(url, payload);
-  return (data.jobPostings ?? []).some((entry) => titleMatches(entry.title ?? null, title));
+  try {
+    const data = await postJson<{ jobPostings?: { title?: string }[] }>(
+      `${cxsUrl(parsed)}/jobs`,
+      payload,
+      options,
+    );
+    const hit = (data.jobPostings ?? []).some((entry) => titleMatches(entry.title ?? null, title));
+    return { ok: true, value: hit };
+  } catch (error) {
+    return { ok: false, reason: describeError(error) };
+  }
 }
 
 async function main(): Promise<void> {
@@ -200,17 +219,20 @@ async function main(): Promise<void> {
       );
     }
     if (found.length === 0 && board.platform === "workday") {
-      searchHit = (await workdaySearchHit(board, title)) || searchHit === true;
+      const search = await workdaySearchHit(board, title);
+      if (search.ok) {
+        searchHit = search.value || searchHit === true;
+      } else {
+        readFailures += 1;
+        console.log(`${board.platform}/${board.id}: title search failed: ${search.reason}`);
+      }
     }
   }
-  if (boards.length > 0 && readFailures === boards.length) {
-    console.log("cause: unknown, every board read failed");
-    process.exitCode = 1;
-    return;
-  }
+  if (readFailures > 0) process.exitCode = 1;
   const cause = missCause({
     companyKnown: company !== undefined,
     boardCount: boards.length,
+    failedReads: readFailures,
     matches,
     searchHit,
   });
