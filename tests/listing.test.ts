@@ -6,11 +6,13 @@ import {
   boardIndex,
   duplicateKey,
   goneBy,
+  judgeCountry,
   judgeListing,
   NO_BOARDS,
   type Reason,
   unwatchedBy,
 } from "../src/judge/listing.ts";
+import { foreignPlace } from "../src/judge/countries.ts";
 import type { Company, Criteria, Posting } from "../src/schema.ts";
 
 // The seeded criteria values, a plain fixture; each test file owns its own.
@@ -1165,4 +1167,20 @@ test("duplicate: an empty representative map reads in, same default as no duplic
     criteria(),
   );
   assert.equal(reasonFor(reasons, "duplicate").verdict, "in");
+});
+
+test("foreignPlace: accents are stripped before matching", () => {
+  assert.equal(foreignPlace("México, México"), "Mexico");
+});
+
+test("foreignPlace: Perú matches Peru", () => {
+  assert.equal(foreignPlace("Perú"), "Peru");
+});
+
+test("judgeCountry: México, México is out", () => {
+  assert.equal(judgeCountry("México, México", criteria()).verdict, "out");
+});
+
+test("judgeCountry: Mexico, MO stays in", () => {
+  assert.equal(judgeCountry("Mexico, MO", criteria()).verdict, "in");
 });
