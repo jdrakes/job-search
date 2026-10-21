@@ -226,10 +226,160 @@ test("Workday: a board that never runs out of pages stops at the cap", async () 
     board.options,
   );
 
-  // MAX_PAGES for each of the three search queries workday.ts walks; the
+  // MAX_PAGES over the one empty search, the first page included; the
   // pages are full and the payload states no total.
-  assert.equal(board.calls(), MAX_PAGES * 3);
-  assert.equal(listings.length, MAX_PAGES * 3 * 20);
+  assert.equal(board.calls(), MAX_PAGES);
+  assert.equal(listings.length, MAX_PAGES * 20);
+});
+
+// A Workday board stating `total`, whose search answers by `searchText`:
+// `catalog` is what every query matches, in order. `searches` records each
+// request's `searchText` and offset. Like Workday, it states `total` on the
+// offset 0 page only and 0 on later ones.
+function searchableBoard(total: number, catalog: (query: string) => string[]) {
+  const searches: { searchText: string; offset: number }[] = [];
+  const fetchImpl: typeof fetch = async (_url, init) => {
+    const body = JSON.parse(String(init?.body)) as { searchText: string; offset: number };
+    searches.push({ searchText: body.searchText, offset: body.offset });
+    const ids = catalog(body.searchText).slice(body.offset, body.offset + 20);
+    return new Response(
+      JSON.stringify({
+        total: body.offset === 0 ? total : 0,
+        jobPostings: ids.map((id) => ({ title: "Staff Software Engineer", bulletFields: [id] })),
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  };
+  return {
+    options: { fetchImpl, userAgent: TEST_USER_AGENT, sleep: async () => {} },
+    searches,
+  };
+}
+
+const FABRIKAM_BOARD = { platform: "workday", id: "wd5/Fabrikam_Careers/fabrikam" } as const;
+
+test("Workday: a tenant at or under the whole-tenant limit is read by empty search only", async () => {
+  const ids = Array.from({ length: 50 }, (_, index) => `req-${index}`);
+  const board = searchableBoard(50, () => ids);
+
+  const listings = await workdayReader.list(FABRIKAM_BOARD, board.options);
+
+  assert.equal(listings.length, 50);
+  assert.deepEqual(
+    board.searches.map((search) => search.searchText),
+    ["", "", ""],
+  );
+  assert.deepEqual(
+    board.searches.map((search) => search.offset),
+    [0, 20, 40],
+  );
+});
+
+test("Workday: a tenant over the whole-tenant limit reads one empty search, then each large-tenant query", async () => {
+  const board = searchableBoard(1500, (query) => [`${query}-a`, `${query}-b`]);
+
+  const listings = await workdayReader.list(FABRIKAM_BOARD, board.options);
+
+  // Each query ends on its first empty page, so a query repeats once.
+  assert.deepEqual(
+    [...new Set(board.searches.map((search) => search.searchText))],
+    ["", "engineer", "developer", "architect"],
+  );
+  assert.equal(board.searches.filter((search) => search.searchText === "").length, 1);
+  assert.deepEqual(listings.map((listing) => listing.id).sort(), [
+    "architect-a",
+    "architect-b",
+    "developer-a",
+    "developer-b",
+    "engineer-a",
+    "engineer-b",
+  ]);
+});
+
+test("Workday: a requisition found by two large-tenant queries is listed once", async () => {
+  const board = searchableBoard(1500, (query) =>
+    query === "architect" ? ["shared", "architect-only"] : ["shared"],
+  );
+
+  const listings = await workdayReader.list(FABRIKAM_BOARD, board.options);
+
+  assert.deepEqual(listings.map((listing) => listing.id).sort(), ["architect-only", "shared"]);
+});
+
+// A Workday board for `body`: the empty search lists `listed`, a search for
+// any other text answers `searched(text)`, and a GET of the first fixture
+// entry's path answers its detail. `posts` keeps each search's text, `gets`
+// each detail URL.
+const FABRIKAM_CXS = "https://fabrikam.wd5.myworkdayjobs.com/wday/cxs/fabrikam/Fabrikam_Careers";
+
+function detailBoard(listed: unknown[], searched: (text: string) => unknown[]) {
+  const posts: string[] = [];
+  const gets: string[] = [];
+  const json = (status: number, payload: unknown): Response =>
+    new Response(JSON.stringify(payload), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    });
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const url = String(input);
+    if (init?.method === "POST") {
+      const request = JSON.parse(String(init.body)) as { searchText: string; offset: number };
+      posts.push(request.searchText);
+      const entries = request.searchText === "" ? listed : searched(request.searchText);
+      const page = entries.slice(request.offset, request.offset + 20);
+      return json(200, { total: request.offset === 0 ? entries.length : 0, jobPostings: page });
+    }
+    gets.push(url);
+    if (url === FABRIKAM_CXS + FIRST_REQ_PATH)
+      return json(200, fixture("workday-detail-with-comp.json"));
+    return json(404, {});
+  };
+  return {
+    options: { fetchImpl, userAgent: TEST_USER_AGENT, sleep: async () => {} },
+    posts,
+    gets,
+  };
+}
+
+const LISTED = (fixture("workday-listing.json") as { jobPostings: unknown[] }).jobPostings;
+
+// The fixture's two entries: 4400101 first, 4400102 second.
+const [FIRST_ENTRY, SECOND_ENTRY] = LISTED;
+
+test("Workday: a detail found by searching its id costs one search and one detail read", async () => {
+  // The search also answers a neighbour, listed first, so the entry is
+  // picked by its req number and not by position.
+  const board = detailBoard(LISTED, (text) =>
+    text === "4400101" ? [SECOND_ENTRY, FIRST_ENTRY] : [],
+  );
+
+  const listing = await workdayReader.body?.(FABRIKAM_BOARD, "4400101", board.options);
+
+  assert.deepEqual(board.posts, ["4400101"]);
+  assert.deepEqual(board.gets, [FABRIKAM_CXS + FIRST_REQ_PATH]);
+  assert.equal(listing?.id, "4400101");
+  assert.equal(listing?.compLow, 326_000);
+});
+
+test("Workday: a detail the id search misses falls back to the listing scan", async () => {
+  const board = detailBoard(LISTED, (text) => (text === "4400101" ? [SECOND_ENTRY] : []));
+
+  const listing = await workdayReader.body?.(FABRIKAM_BOARD, "4400101", board.options);
+
+  assert.deepEqual(board.posts, ["4400101", ""]);
+  assert.deepEqual(board.gets, [FABRIKAM_CXS + FIRST_REQ_PATH]);
+  assert.equal(listing?.id, "4400101");
+  assert.equal(listing?.compLow, 326_000);
+});
+
+test("Workday: a requisition neither the search nor the scan finds reads as absent", async () => {
+  const board = detailBoard(LISTED, () => []);
+
+  const listing = await workdayReader.body?.(FABRIKAM_BOARD, "4400199", board.options);
+
+  assert.equal(listing, null);
+  assert.deepEqual(board.posts, ["4400199", ""]);
+  assert.deepEqual(board.gets, []);
 });
 
 test("Eightfold: a board that never runs out of pages stops at the cap", async () => {

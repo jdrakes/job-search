@@ -5306,3 +5306,29 @@ test("ingest: a refused full_read_at write is a log line, not an error", async (
     "ingest: every board read for the criteria edit, but full_read_at not written: permission denied",
   ]);
 });
+
+// Breaks if an empty read is not recorded, or a failed read is counted as one.
+test("ingest: emptyBoards holds a board that read zero listings, not one that read one or threw", async () => {
+  const store = memoryStore({
+    companies: [
+      company("Acme", {
+        boards: [
+          { platform: "greenhouse", id: "acme-gh" },
+          { platform: "lever", id: "acme-lv" },
+          { platform: "ashby", id: "acme-ab" },
+        ],
+      }),
+    ],
+    criteria: [criteria()],
+  });
+  const readers: Partial<Record<Platform, Reader>> = {
+    greenhouse: { platform: "greenhouse", list: async () => [] },
+    lever: { platform: "lever", list: async () => [listing("l1")] },
+    ashby: goneReader("ashby", 500),
+  };
+
+  const result = await ingest(store, readers, { today: MONDAY });
+
+  assert.deepEqual(result.emptyBoards, [{ platform: "greenhouse", id: "acme-gh" }]);
+  assert.equal(result.errors.length, 1);
+});

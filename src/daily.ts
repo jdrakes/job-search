@@ -22,7 +22,7 @@ import type { Store } from "./store/store.ts";
 
 import type { DetailRead, Reader } from "./ats/ats.ts";
 import { READERS, withDetailReads } from "./ats/readers.ts";
-import { OUTCOMES, type Platform } from "./schema.ts";
+import { OUTCOMES, type Board, type Platform } from "./schema.ts";
 
 const SOURCES: readonly DiscoverySource[] = [
   hnSource,
@@ -181,6 +181,33 @@ export function unbindLines(result: Unbound): string[] {
   ];
 }
 
+// Platforms whose listing is parsed out of HTML pages, where a read that
+// returns nothing has meant the page changed (5 of 5 sampled), not that the
+// company has no openings. Breezy is left out: its list is JSON (`/json`),
+// only its detail page is HTML. Personio is left out: its list is the
+// vendor's XML feed, not a page layout.
+export const SCRAPED_PLATFORMS: readonly Platform[] = ["avature", "hrmdirect", "jazzhr", "jobvite"];
+
+// Nothing when no board read empty. Otherwise the count line with a count per
+// platform, sorted by name, then each empty board on a scraped platform; about
+// 5% of boards are empty for real, so naming the rest would be noise.
+export function emptyBoardLines(emptyBoards: readonly Board[]): string[] {
+  if (emptyBoards.length === 0) return [];
+  const perPlatform = new Map<Platform, number>();
+  for (const board of emptyBoards) {
+    perPlatform.set(board.platform, (perPlatform.get(board.platform) ?? 0) + 1);
+  }
+  const counts = [...perPlatform]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([platform, count]) => `${platform} ${count}`);
+  return [
+    `list: 0 listed on ${emptyBoards.length} boards (${counts.join(", ")})`,
+    ...emptyBoards
+      .filter((board) => SCRAPED_PLATFORMS.includes(board.platform))
+      .map((board) => `  empty: ${board.platform}/${board.id}`),
+  ];
+}
+
 // Every HTTP request this tool makes needs the operator's User-Agent
 // (`requiredUserAgent`, net/http.ts), and a request without one is refused
 // before it is sent. A run without one would still write: discovery records
@@ -248,6 +275,7 @@ async function main(): Promise<number> {
   if (result.criteriaEdited) {
     console.log("list: every board read: criteria edited since the last full read");
   }
+  for (const line of emptyBoardLines(result.emptyBoards)) console.log(line);
   for (const error of result.errors) {
     console.log(`  ${error}`);
   }

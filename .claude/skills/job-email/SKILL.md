@@ -54,6 +54,13 @@ Lead with what needs him, in this order, as tables:
 5. **Missed roles that fit**: FIT and MAYBE rows from `job-email-suggestions`,
    with their causes. Say how many misses this window holds; the design's
    bar is fewer than one a month.
+
+   Before showing them, run
+   `node --env-file=.env scripts/explain-miss.ts "<company>" "<title>"` for
+   every FIT or MAYBE miss whose cause is "board read without the posting",
+   and replace the agent's cause with the script's. Say how many causes
+   changed.
+
 6. **Recruiters waiting on a reply**.
 7. Anything else worth knowing, one line each. MATCH rows only as a count.
 

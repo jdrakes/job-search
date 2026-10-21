@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { Reader } from "../src/ats/ats.ts";
-import { discoverLine, unbindLines } from "../src/daily.ts";
+import { discoverLine, emptyBoardLines, unbindLines } from "../src/daily.ts";
 import { discover, type DiscoverResult, suggestAgain, unbind } from "../src/discover.ts";
 import type { BoardSource, DiscoverySource, Source } from "../src/discovery/source.ts";
 import { HttpError } from "../src/net/http.ts";
@@ -1247,4 +1247,27 @@ test("discoverLine: names every outcome's count, then pending and errors", () =>
     "discover: 12 suggested, 2 watched, 1 added, 5 known, 1 alias, 3 no_board, " +
       "0 wrong_company, 0 gone, 0 dropped, 0 bad_url, 1 pending, 1 errors",
   );
+});
+
+// Breaks if the counts stop covering every platform, or the named lines stop
+// being limited to scraped platforms.
+test("emptyBoardLines: counts every empty board by platform, names only scraped ones", () => {
+  assert.deepEqual(
+    emptyBoardLines([
+      { platform: "greenhouse", id: "g1" },
+      { platform: "jobvite", id: "jv1" },
+      { platform: "ashby", id: "a1" },
+      { platform: "greenhouse", id: "g2" },
+      { platform: "avature", id: "av1" },
+    ]),
+    [
+      "list: 0 listed on 5 boards (ashby 1, avature 1, greenhouse 2, jobvite 1)",
+      "  empty: jobvite/jv1",
+      "  empty: avature/av1",
+    ],
+  );
+});
+
+test("emptyBoardLines: no empty board prints nothing", () => {
+  assert.deepEqual(emptyBoardLines([]), []);
 });

@@ -1,8 +1,14 @@
 // Jobvite's public job board: two phases, like SmartRecruiters, but both
 // server-rendered HTML rather than JSON. The listing
 // (jobs.jobvite.com/${board}/jobs) carries no body or comp, only open rows in
-// repeated `<table class="jv-job-list">` blocks. A long category is cut short
-// there and ends in a "Show More" row linking to that category's search page
+// repeated `<table class="jv-job-list">` blocks on most boards. Four other
+// layouts are read by their title element alone (see `TITLE`): cards, each
+// a `<div class="jv-job-item">` with the link inside the title (enverus);
+// `<li>` rows wrapped whole in the link, the place the last of two spans
+// (varonis, laborie); table rows whose link ends in an icon (ziffdavis); and
+// "Featured Jobs" blocks (laborie, ziffdavis) that repeat listed roles. A
+// long category is cut short there and ends in a "Show More" row linking to
+// that category's search page
 // (/${board}/search?c=...&p=0), which lists the whole category in one table
 // ("1-31 of 31", no next link, p=1 empty; confirmed on ninjaone, zones,
 // laborie and ziffdavis, the largest category 45 rows). So the reader reads
@@ -50,46 +56,108 @@ function cellLocation(cellHtml: string): string | null {
   return text === "" ? null : text;
 }
 
-// The row tag may carry attributes: some boards (zones) render
-// `<tr onclick="location.href = '/zones/job/ot8zAfwu'">`.
-const ROW = /<tr[^>]*>\s*<td class="jv-job-list-name">[\s\S]*?<\/tr>/g;
-const ANCHOR = /<a href="([^"]+)">([^<]*)<\/a>/;
-const LOCATION_CELL = /<td class="jv-job-list-location">([\s\S]*?)<\/td>/;
+// Every layout puts the title in an element whose class names
+// `jv-job-list-name` (list rows) or `jv-featured-job-title` (the featured
+// blocks some boards add); the markup around it differs, so a row is found by
+// that element rather than by `<tr>`. The element is a `<div>` or a `<td>`
+// and holds no nested block, so its text ends at the first closing tag.
+const TITLE =
+  /<(?:div|td)\b[^>]*class="[^"]*\b(?:jv-job-list-name|jv-featured-job-title)\b[^"]*"[^>]*>([\s\S]*?)<\/(?:div|td)>/g;
+// The "N Locations" caption is a nested `<div>`, so it is cut out before the
+// element's first closing tag is looked for.
+const LOCATION =
+  /<(?:div|td)\b[^>]*class="[^"]*\b(?:jv-job-list-location|jv-featured-job-location)\b[^"]*"[^>]*>([\s\S]*?)<\/(?:div|td)>/;
+const FEATURED_BLOCK = /<div\b[^>]*class="[^"]*(?<![\w-])jv-featured-job(?![\w-])[^"]*"/g;
+const SPAN = /<span>([\s\S]*?)<\/span>/g;
 
-function fromRow(row: string, slug: string): Listing | null {
-  const anchor = ANCHOR.exec(row);
-  if (anchor === null) return null;
-  const href = anchor[1] ?? "";
-  const id = href.split("/").pop() ?? "";
-  if (id === "") return null;
+// A job link is "/<account>/job/<id>", optionally with a "?query". The
+// account is not pinned to the board id: a board's links carry the account's
+// own slug, which can differ from the id the board is listed under.
+const JOB_LINK = /\/[^/"'\s]+\/job\/([^"'/?#&\s]+)/;
+const JOB_LINKS = new RegExp(JOB_LINK.source, "g");
 
-  const locationCell = LOCATION_CELL.exec(row);
-  const location = locationCell !== null ? cellLocation(locationCell[1] ?? "") : null;
+// varonis opens the location element with `<span>department</span>
+// <span>place</span>`; the place is the last span. A lone span is not that
+// shape: "Remote<span>,</span>" is one place name cut by markup.
+function placeCell(cellHtml: string): string | null {
+  const spans = [...cellHtml.matchAll(SPAN)];
+  const last = spans[spans.length - 1];
+  if (spans.length >= 2 && last !== undefined && cellHtml.trimStart().startsWith("<span>")) {
+    return cellLocation(last[1] ?? "");
+  }
+  return cellLocation(cellHtml);
+}
 
-  return {
-    id,
-    title: asText((anchor[2] ?? "").trim()),
-    // `href` is already account-qualified ("/${slug}/job/${id}") on every
-    // board checked; resolving it against the board's own base handles that
-    // real shape and a bare "job/${id}" shape alike, rather than assuming
-    // one.
-    url: new URL(href, `https://jobs.jobvite.com/${slug}/`).toString(),
-    location,
-    compLow: null,
-    compHigh: null,
-    postedAt: null,
-    body: null,
-    workplace: jobviteWorkplace(location),
-    requisitionId: null,
-  };
+// A row opens with `<tr` or `<li`; the last one between two titles is where
+// the second title's row starts.
+const ROW_OPEN = /<(?:tr|li)\b/g;
+
+// The job id for a title element. `previousEnd` and `nextTitle` bound the
+// title's row: a link outside them belongs to another row. In order: a link
+// inside the title (enverus, ziffdavis lists); for a featured block, the
+// first link after the block opens (laborie wraps the block in the link,
+// ziffdavis puts "View Job" after the title); then the nearest link before
+// the title within its own row (varonis and laborie list rows wrap the whole
+// row in the anchor); then the first link after the title (a table row whose
+// title cell is bare and whose link sits in a later cell).
+function jobId(
+  html: string,
+  title: { start: number; end: number; html: string; featured: boolean },
+  previousEnd: number,
+  nextTitle: number,
+  featuredStarts: number[],
+): string | null {
+  const inside = JOB_LINK.exec(title.html);
+  if (inside !== null) return inside[1] ?? null;
+
+  if (title.featured) {
+    const blockStart = Math.max(...featuredStarts.filter((start) => start <= title.start), 0);
+    const after = JOB_LINK.exec(html.slice(blockStart, nextTitle));
+    return after?.[1] ?? null;
+  }
+
+  const between = html.slice(previousEnd, title.start);
+  const rowStart = [...between.matchAll(ROW_OPEN)].pop()?.index ?? 0;
+  const before = [...between.slice(rowStart).matchAll(JOB_LINKS)].pop();
+  if (before !== undefined) return before[1] ?? null;
+
+  const after = JOB_LINK.exec(html.slice(title.end, nextTitle));
+  return after?.[1] ?? null;
 }
 
 export function parseJobviteListing(html: string, slug: string): Listing[] {
+  const featuredStarts = [...html.matchAll(FEATURED_BLOCK)].map((match) => match.index ?? 0);
+  const titles = [...html.matchAll(TITLE)].map((match) => ({
+    start: match.index ?? 0,
+    end: (match.index ?? 0) + match[0].length,
+    html: match[1] ?? "",
+    featured: match[0].includes("jv-featured-job-title"),
+  }));
+
   const listings: Listing[] = [];
-  for (const match of html.matchAll(ROW)) {
-    const listing = fromRow(match[0], slug);
-    if (listing !== null) listings.push(listing);
-  }
+  titles.forEach((title, position) => {
+    const previousEnd = titles[position - 1]?.end ?? 0;
+    const nextTitle = titles[position + 1]?.start ?? html.length;
+    const id = jobId(html, title, previousEnd, nextTitle, featuredStarts);
+    const text = stripTags(title.html).replace(/\s+/g, " ").trim();
+    if (id === null || id === "" || text === "") return;
+
+    const locationCell = LOCATION.exec(html.slice(title.end, nextTitle).replace(JV_META, ""));
+    const location = locationCell !== null ? placeCell(locationCell[1] ?? "") : null;
+
+    listings.push({
+      id,
+      title: asText(text),
+      url: `https://jobs.jobvite.com/${slug}/job/${id}`,
+      location,
+      compLow: null,
+      compHigh: null,
+      postedAt: null,
+      body: null,
+      workplace: jobviteWorkplace(location),
+      requisitionId: null,
+    });
+  });
   return listings;
 }
 

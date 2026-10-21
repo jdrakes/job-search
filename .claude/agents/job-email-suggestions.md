@@ -55,8 +55,11 @@ One JSON object: `{ "after": "YYYY/MM/DD", "project_id": "<supabase project ref>
    - `candidates`: pending, or which outcome?
 5. Give each miss its cause, one of: **company unknown** (no company, no
    candidate), **no board** (candidate `no_board`, or a company with no
-   boards), **board read without the posting** (watched, posting absent,
-   title not excluded), **judged out** (title carries an excluded word, or
+   boards), **board read without the posting** (watched, posting absent, and the
+   title carries a `level_words` word, a `role_words` word and no
+   `excluded_title_words` word; since a title the rules reject is never
+   stored, an absent posting whose title fails one of those is **judged
+   out**, naming the word missing or present), **judged out** (title carries an excluded word, or
    place or pay fails, or `reasons` names a rule; name the word or rule),
    **company dropped**, or
    **employer not named**.

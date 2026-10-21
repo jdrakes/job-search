@@ -1,0 +1,64 @@
+<!-- A Jobvite board listing with list rows wrapped in the job link (the id
+     sits before the title) and a "Featured Jobs" block repeating one of the
+     listed roles, then one more. A featured block is wrapped in its own link,
+     also before its title; the second featured block must take its own id,
+     not the previous block's. Written from the layout's markup and never
+     captured; every id, title and place is invented. -->
+<section id="featured">
+    <div class="jv-featured-jobs">
+        <h4 class="jv-featured-jobs-header">Featured Jobs</h4>
+        <div class="flex-row">
+            <div class="jv-featured-job">
+                <a href="/margiestravel/job/oEEEEfw5">
+                    <div class="jv-featured-job-title">
+                        Senior Cost Accountant
+                    </div>
+                    <div class="jv-featured-job-location">
+                        Springfield,
+                        Illinois
+                    </div>
+                </a>
+            </div>
+            <div class="jv-featured-job">
+                <a href="/margiestravel/job/oFFFFfw6">
+                    <div class="jv-featured-job-title">
+                        Regional Sales Director
+                    </div>
+                    <div class="jv-featured-job-location">
+                        <div class="jv-meta">
+                            4 Locations
+                        </div>
+                    </div>
+                </a>
+            </div>
+        </div>
+    </div>
+</section>
+<ul class="jv-job-list">
+    <li class="row mx0">
+        <a href="/margiestravel/job/oGGGGfw7" class="flex-row flex-m-space-between">
+            <div class="flex-grow">
+                <div class="jv-job-list-name">
+                    Clinical Project Manager
+                </div>
+                <div class="ml-auto jv-job-list-location">
+                    Maple Grove,
+                    MN
+                </div>
+            </div>
+        </a>
+    </li>
+    <li class="row mx0">
+        <a href="/margiestravel/job/oEEEEfw5" class="flex-row flex-m-space-between">
+            <div class="flex-grow">
+                <div class="jv-job-list-name">
+                    Senior Cost Accountant
+                </div>
+                <div class="ml-auto jv-job-list-location">
+                    Springfield,
+                    Illinois
+                </div>
+            </div>
+        </a>
+    </li>
+</ul>

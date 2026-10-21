@@ -21,10 +21,11 @@ function patternFor(term: string): RegExp {
   return new RegExp(`\\b${escapeRegExp(term)}\\b`, isAcronym ? "" : "i");
 }
 
-// "U.S." and "U.S.A." are "US" and "USA" once the dots go, and no name
-// below carries one. `\b` will not close a match on a trailing ".".
+// "U.S." and "U.S.A." are "US" and "USA" once the dots go; "México" and
+// "Perú" are "Mexico" and "Peru" once the accents go. No name below carries
+// a dot or an accent. `\b` will not close a match on a trailing ".".
 function normalize(text: string): string {
-  return text.replace(/\./g, "");
+  return text.normalize("NFD").replace(/\p{M}/gu, "").replace(/\./g, "");
 }
 
 // Countries and the multi-country regions that exclude the United States.
