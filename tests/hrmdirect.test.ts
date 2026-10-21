@@ -170,3 +170,28 @@ test("HRMDirect: body given an id with no colon (no req_loc carried) still reque
     "https://gdinstitute.hrmdirect.com/employment/job-opening.php?req=4410001&req_loc=",
   ]);
 });
+
+function pageOnly(html: string) {
+  const fetchImpl: typeof fetch = async () => new Response(html, { status: 200 });
+  return { fetchImpl, userAgent: TEST_USER_AGENT, sleep: async () => {} };
+}
+
+test("HRMDirect: a page that lists nothing and says it is not hiring is an empty board", async () => {
+  const html =
+    "<html><p>At this time, we are not actively hiring for any openings that meet your search criteria</p></html>";
+  const listings = await hrmdirectReader.list(
+    { platform: "hrmdirect", id: "edetek" },
+    pageOnly(html),
+  );
+  assert.deepEqual(listings, []);
+});
+
+test("HRMDirect: a page that lists nothing and does not say so throws", async () => {
+  await assert.rejects(
+    hrmdirectReader.list(
+      { platform: "hrmdirect", id: "x" },
+      pageOnly("<html><table></table></html>"),
+    ),
+    /lists no posting and does not say it has none/,
+  );
+});

@@ -158,12 +158,20 @@ function splitId(id: string): { reqId: string; reqLoc: string } {
     : { reqId: id.slice(0, separator), reqLoc: id.slice(separator + 1) };
 }
 
+// A board with no openings says so in these words (8 of 8 empty boards
+// checked 2026-10-21). A page that lists nothing and does not say so is a
+// layout this parser misses: it throws, so the run logs an error and marks
+// no posting gone.
+const NO_OPENINGS = /we are not actively hiring for any openings/;
+
 async function list(board: Board, options?: HttpOptions): Promise<Listing[]> {
   const html = await getText(
     `https://${board.id}.hrmdirect.com/employment/job-openings.php?search=true`,
     options,
   );
-  return parseHrmdirectListing(html, board.id);
+  const listings = parseHrmdirectListing(html, board.id);
+  if (listings.length > 0 || NO_OPENINGS.test(html)) return listings;
+  throw new Error("the page lists no posting and does not say it has none");
 }
 
 async function body(board: Board, id: string, options?: HttpOptions): Promise<Listing | null> {
