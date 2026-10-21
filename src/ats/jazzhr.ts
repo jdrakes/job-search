@@ -190,9 +190,22 @@ export function parseJazzhrDetail(html: string, id: string): Listing {
   };
 }
 
+// A board with no openings says so in these words (12 of 12 empty boards
+// checked 2026-10-21). A page that lists nothing and does not say so is a
+// layout this parser misses, or a dead board ("JazzHR - Inactive Career
+// Page"): it throws, so the run logs an error and marks no posting gone.
+const NO_OPENINGS = /There are no open positions at this time/;
+const INACTIVE = /<title>\s*JazzHR - Inactive Career Page/;
+
 async function list(board: Board, options?: HttpOptions): Promise<Listing[]> {
   const html = await getText(`https://${board.id}.applytojob.com/apply/`, options);
-  return parseJazzhrListing(html, board.id);
+  const listings = parseJazzhrListing(html, board.id);
+  if (listings.length > 0 || NO_OPENINGS.test(html)) return listings;
+  throw new Error(
+    INACTIVE.test(html)
+      ? "the career page is inactive"
+      : "the page lists no posting and does not say it has none",
+  );
 }
 
 async function body(board: Board, id: string, options?: HttpOptions): Promise<Listing | null> {

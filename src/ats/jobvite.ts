@@ -161,16 +161,33 @@ export function parseJobviteListing(html: string, slug: string): Listing[] {
   return listings;
 }
 
-// `jobLocation[0].address`'s city/state only - `addressCountry` alone (a
-// posting open anywhere in one country, e.g. "United States") states no
-// city or state, so this reads null rather than falling back to the
-// country, which would misrepresent a countrywide posting as a placed one.
-function detailLocation(job: Record<string, unknown>): string | null {
-  const address = asRecord(asRecord(asArray(job["jobLocation"])[0])["address"]);
-  const parts = [asText(address["addressLocality"]), asText(address["addressRegion"])].filter(
-    (part): part is string => part !== null,
-  );
-  return parts.length > 0 ? parts.join(", ") : null;
+// Each `jobLocation` address's city/state, joined in the board's order. A
+// posting can list several places (Enverus "Staff Software Developer":
+// Austin, Texas, then "Remote, United States"), and reading only the first
+// hid the remote one. `addressCountry` alone (a posting open anywhere in one
+// country, e.g. "United States") states no city or state, so an address with
+// neither reads as nothing rather than falling back to the country, which
+// would misrepresent a countrywide posting as a placed one.
+function detailPlaces(job: Record<string, unknown>): string[] {
+  return asArray(job["jobLocation"])
+    .map((place) => {
+      const address = asRecord(asRecord(place)["address"]);
+      return [asText(address["addressLocality"]), asText(address["addressRegion"])]
+        .filter((part): part is string => part !== null)
+        .join(", ");
+    })
+    .filter((place) => place !== "");
+}
+
+// The board's own word for remote: the schema.org `TELECOMMUTE` type, or a
+// place it names "Remote", as the listing's location cell does
+// (`jobviteWorkplace`).
+function detailWorkplace(
+  job: Record<string, unknown>,
+  places: readonly string[],
+): Workplace | null {
+  if (job["jobLocationType"] === "TELECOMMUTE") return "remote";
+  return places.some((place) => jobviteWorkplace(place) === "remote") ? "remote" : null;
 }
 
 // One posting checked states a numeric range; every other detail checked
@@ -208,6 +225,7 @@ export function parseJobviteDetail(raw: unknown, id: string): Listing {
   const job = asRecord(raw);
   const body = htmlToText(asText(job["description"]) ?? "");
   const comp = structuredComp(job) ?? compInText(body);
+  const places = detailPlaces(job);
   return {
     id: asText(job["identifier"]) ?? id,
     title: asText(job["title"]),
@@ -215,12 +233,12 @@ export function parseJobviteDetail(raw: unknown, id: string): Listing {
     // does not have the board id needed to build one, so it leaves url
     // null and the caller fills it in.
     url: null,
-    location: detailLocation(job),
+    location: places.length > 0 ? places.join("; ") : null,
     compLow: comp?.compLow ?? null,
     compHigh: comp?.compHigh ?? null,
     postedAt: isoDate(job["datePosted"]),
     body: body === "" ? null : body,
-    workplace: job["jobLocationType"] === "TELECOMMUTE" ? "remote" : null,
+    workplace: detailWorkplace(job, places),
     requisitionId: null,
   };
 }

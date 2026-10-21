@@ -266,3 +266,27 @@ test("JazzHR: list hits the board's apply page, body hits /apply/{id}/x and fill
     "https://fincherarchitects.applytojob.com/apply/Vz7PrJj9Cr/x",
   ]);
 });
+
+function pageOnly(html: string) {
+  const fetchImpl: typeof fetch = async () => new Response(html, { status: 200 });
+  return { fetchImpl, userAgent: TEST_USER_AGENT, sleep: async () => {} };
+}
+
+test("JazzHR: a page that lists nothing and says it has no openings is an empty board", async () => {
+  const html =
+    "<html><title>BDO USA - Career Page</title><p>There are no open positions at this time.</p></html>";
+  const listings = await jazzhrReader.list({ platform: "jazzhr", id: "bdousa" }, pageOnly(html));
+  assert.deepEqual(listings, []);
+});
+
+test("JazzHR: a page that lists nothing and does not say so throws, naming an inactive page", async () => {
+  const board = { platform: "jazzhr" as const, id: "x" };
+  await assert.rejects(
+    jazzhrReader.list(board, pageOnly("<html><title>X - Career Page</title></html>")),
+    /lists no posting and does not say it has none/,
+  );
+  await assert.rejects(
+    jazzhrReader.list(board, pageOnly("<html><title>JazzHR - Inactive Career Page</title></html>")),
+    /career page is inactive/,
+  );
+});

@@ -185,8 +185,10 @@ export function unbindLines(result: Unbound): string[] {
 // returns nothing has meant the page changed (5 of 5 sampled), not that the
 // company has no openings. Breezy is left out: its list is JSON (`/json`),
 // only its detail page is HTML. Personio is left out: its list is the
-// vendor's XML feed, not a page layout.
-export const SCRAPED_PLATFORMS: readonly Platform[] = ["avature", "hrmdirect", "jazzhr", "jobvite"];
+// vendor's XML feed, not a page layout. Jazzhr and hrmdirect are left out:
+// their readers return nothing only when the page says it has no openings,
+// and throw otherwise, so an empty board there is empty for real.
+export const SCRAPED_PLATFORMS: readonly Platform[] = ["avature", "jobvite"];
 
 // Nothing when no board read empty. Otherwise the count line with a count per
 // platform, sorted by name, then each empty board on a scraped platform; about
