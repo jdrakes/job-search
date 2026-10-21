@@ -115,6 +115,36 @@ test('Jobvite: a detail with no structured baseSalary (all fields "") falls to c
   assert.equal(listing.postedAt, "2026-08-18");
 });
 
+test("Jobvite: a detail listing several places keeps every one, and a place named Remote makes it remote", () => {
+  const raw = fixture("jobvite-detail.json") as Record<string, unknown>;
+  // Enverus "Staff Software Developer - 26408" (2026-10-21): Austin first,
+  // the remote office second; reading only the first hid it as on-site.
+  const twoPlaces = {
+    ...raw,
+    jobLocation: [
+      {
+        "@type": "Place",
+        address: {
+          addressLocality: "Austin",
+          addressRegion: "Texas",
+          addressCountry: "United States",
+        },
+      },
+      {
+        "@type": "Place",
+        address: {
+          addressLocality: "Remote",
+          addressRegion: "United States",
+          addressCountry: "United States",
+        },
+      },
+    ],
+  };
+  const listing = parseJobviteDetail(twoPlaces, "fallback-id");
+  assert.equal(listing.location, "Austin, Texas; Remote, United States");
+  assert.equal(listing.workplace, "remote");
+});
+
 test("Jobvite: a baseSalary stated in a non-USD currency is not read as structured comp, even with numeric min/max", () => {
   const raw = fixture("jobvite-detail.json") as Record<string, unknown>;
   const cad = {
