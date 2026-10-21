@@ -591,7 +591,7 @@ function passesTitleAndPlace(posting: TitleAndPlace, criteria: Criteria): boolea
     judgeLevel(title, posting.comp_high, criteria).verdict === "in" &&
     judgeRole(title, criteria).verdict === "in" &&
     judgeExcludedWords(title, criteria).verdict === "in" &&
-    judgeCountry(posting.location, criteria).verdict === "in"
+    judgeCountry(posting.location, criteria, posting.title).verdict === "in"
   );
 }
 

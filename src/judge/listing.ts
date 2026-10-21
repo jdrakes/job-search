@@ -191,8 +191,33 @@ export function judgeExcludedWords(title: string, criteria: Criteria): Reason {
 // The label half of "United States only"; the body's half is
 // `country_restriction` in text.ts. Here rather than there because the
 // label is free and the body is not. A label naming only a city ("Seoul")
-// falls to the "names no country is in" default.
-export function judgeCountry(location: string | null, criteria: Criteria): Reason {
+// falls to the "names no country is in" default, so the title is read
+// too: Docplanner's "Staff Engineer (100% Remote within Poland)" is
+// labelled only "Warsaw". A title naming another country is out unless the
+// title or the location also names the United States. Measured 2026-10-21
+// on 6,967 live titles: 191 name a foreign country and no US place, and
+// nearly every one is a role based there ("(Colombia)", "- UK").
+export function judgeCountry(
+  location: string | null,
+  criteria: Criteria,
+  title: string | null = null,
+): Reason {
+  const byLocation = judgeLocationCountry(location, criteria);
+  if (byLocation.verdict === "out" || title === null) return byLocation;
+  const foreign = foreignPlace(title);
+  if (foreign === null) return byLocation;
+  const domestic =
+    unitedStatesPlace(title) ??
+    (location === null ? null : (unitedStatesPlace(location) ?? unitedStatesCity(location)));
+  if (domestic !== null) return byLocation;
+  return {
+    criterion: "country",
+    verdict: "out",
+    detail: `title "${title}" names "${foreign}", and neither it nor the location names the United States`,
+  };
+}
+
+function judgeLocationCountry(location: string | null, criteria: Criteria): Reason {
   if (location === null || location.trim() === "") {
     return { criterion: "country", verdict: "in", detail: "posting names no location" };
   }
@@ -516,7 +541,7 @@ export function judgeListing(
     judgeLevel(title, posting.comp_high, criteria),
     judgeRole(title, criteria),
     judgeExcludedWords(title, criteria),
-    judgeCountry(posting.location, criteria),
+    judgeCountry(posting.location, criteria, posting.title),
     judgeCompFloor(posting, criteria),
     judgeAge(posting.posted_at, criteria, now),
     judgeGone(posting),

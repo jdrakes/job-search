@@ -1184,3 +1184,26 @@ test("judgeCountry: México, México is out", () => {
 test("judgeCountry: Mexico, MO stays in", () => {
   assert.equal(judgeCountry("Mexico, MO", criteria()).verdict, "in");
 });
+
+test("judgeCountry: a title naming another country is out when nothing names the United States", () => {
+  const verdict = judgeCountry("Warsaw", criteria(), "Staff Engineer (100% Remote within Poland)");
+  assert.equal(verdict.verdict, "out");
+  assert.match(verdict.detail, /Poland/);
+});
+
+test("judgeCountry: a title naming another country stays in when the location names the United States", () => {
+  assert.equal(
+    judgeCountry("Remote, United States", criteria(), "Staff Engineer (Remote, Canada or US)")
+      .verdict,
+    "in",
+  );
+  assert.equal(
+    judgeCountry("Austin, TX", criteria(), "Staff Engineer, Canada Payments").verdict,
+    "in",
+  );
+});
+
+test("judgeCountry: a title naming no country leaves the location verdict alone", () => {
+  assert.equal(judgeCountry("Warsaw", criteria(), "Staff Engineer").verdict, "in");
+  assert.equal(judgeCountry("Toronto, Canada", criteria(), "Staff Engineer").verdict, "out");
+});

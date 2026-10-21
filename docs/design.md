@@ -202,7 +202,9 @@ elsewhere.
     remote is remote, whatever else its prose says. Excluded states, until
     the restriction lifts.
   - United States only: a posting whose location names another country, or
-    whose text restricts it to one, is out. A posting that names no country
+    whose text restricts it to one, is out, and so is one whose title names
+    another country when neither the title nor the location names a place
+    in the United States. A posting that names no country
     is in, unless its location names a place on the excluded-locations
     list: the foreign cities a board writes where a country would be. A
     location that also names a place in the United States (a state, or a

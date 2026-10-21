@@ -116,7 +116,7 @@ export function failingCriterion(
     judgeLevel(title, compHigh, criteria),
     judgeRole(title, criteria),
     judgeExcludedWords(title, criteria),
-    judgeCountry(listing.location, criteria),
+    judgeCountry(listing.location, criteria, listing.title),
   ];
   return reasons.find((reason) => reason.verdict === "out") ?? null;
 }
