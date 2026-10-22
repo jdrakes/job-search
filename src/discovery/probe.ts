@@ -1,5 +1,5 @@
 // Turns a company name into candidate board slugs and tries them against
-// the eleven platforms whose id is a company-chosen slug. Workday,
+// the twelve platforms whose id is a company-chosen slug. Workday,
 // Eightfold and Amazon are never probed: their board id needs a host, site
 // and tenant no rule derives from a name (`wd5/Cisco_Careers/cisco`). iCIMS
 // is never probed either: its real id is a `jibeapply.com` host that isn't
@@ -37,7 +37,7 @@
 // names nobody, is refused and returned as such, so discover.ts can tell
 // "wrong company" from "no board". A page that does not answer throws
 // instead (`pageReported` says why).
-import { getJson, getText, HttpError, type HttpOptions } from "../net/http.ts";
+import { getJson, getText, htmlToText, HttpError, type HttpOptions } from "../net/http.ts";
 import { asArray, asRecord, asText } from "../ats/ats.ts";
 import type { Board } from "../schema.ts";
 import { avatureSiteName, readBoardName } from "./boards.ts";
@@ -54,6 +54,7 @@ export const SLUG_PLATFORMS = [
   "jazzhr",
   "recruitee",
   "hrmdirect",
+  "clearcompany",
 ] as const;
 
 export type SlugPlatform = (typeof SLUG_PLATFORMS)[number];
@@ -68,6 +69,7 @@ const TEXT_PLATFORMS = new Set<(typeof SLUG_PLATFORMS)[number]>([
   "avature",
   "jazzhr",
   "hrmdirect",
+  "clearcompany",
 ]);
 
 // Dropped from the end of a name, alongside a leading "the", for the
@@ -268,6 +270,19 @@ function hrmdirectReported(data: unknown): Reported {
   return name === null ? null : { name };
 }
 
+// ClearCompany's board page states the account's name in its <title>,
+// entity-encoded: "Escalent &#x2013; Careers" (checked live on five boards
+// 2026-10-22). An unknown slug answers 404 with the bare title "Careers".
+// A page without the suffix is no evidence of a board.
+const CLEARCOMPANY_TITLE_SUFFIX = " \u2013 Careers";
+
+function clearcompanyReported(data: unknown): Reported {
+  const title = htmlToText(TITLE_TAG.exec(typeof data === "string" ? data : "")?.[1] ?? "");
+  if (!title.endsWith(CLEARCOMPANY_TITLE_SUFFIX)) return null;
+  const name = title.slice(0, -CLEARCOMPANY_TITLE_SUFFIX.length).trim();
+  return name === "" ? null : { name };
+}
+
 const REPORTED: Record<
   SlugPlatform,
   (data: unknown, board: Board, options: HttpOptions) => Reported | Promise<Reported>
@@ -283,6 +298,7 @@ const REPORTED: Record<
   jazzhr: jazzhrReported,
   recruitee: recruiteeReported,
   hrmdirect: hrmdirectReported,
+  clearcompany: clearcompanyReported,
 };
 
 function urlFor(platform: (typeof SLUG_PLATFORMS)[number], slug: string): string {
@@ -309,6 +325,8 @@ function urlFor(platform: (typeof SLUG_PLATFORMS)[number], slug: string): string
       return `https://${slug}.recruitee.com/api/offers`;
     case "hrmdirect":
       return `https://${slug}.hrmdirect.com/employment/job-openings.php?search=true`;
+    case "clearcompany":
+      return `https://apply.clearcompany.com/${slug}`;
   }
 }
 

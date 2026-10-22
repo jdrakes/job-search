@@ -25,6 +25,7 @@ const PATH_HOSTS = new Map<string, Platform>([
   ["jobs.jobvite.com", "jobvite"],
   ["ats.rippling.com", "rippling"],
   ["apply.workable.com", "workable"],
+  ["apply.clearcompany.com", "clearcompany"],
 ]);
 
 // Boards named by the host's first label: `{id}.bamboohr.com`. iCIMS's id
@@ -35,6 +36,7 @@ const SUBDOMAIN_SUFFIXES: ReadonlyArray<readonly [string, Platform]> = [
   [".applytojob.com", "jazzhr"],
   [".recruitee.com", "recruitee"],
   [".hrmdirect.com", "hrmdirect"],
+  [".clearcompany.com", "clearcompany"],
   [".avature.net", "avature"],
   [".jibeapply.com", "icims"],
 ];
@@ -186,6 +188,8 @@ export function boardUrl(board: Board): string {
       return `https://${board.id}.recruitee.com`;
     case "hrmdirect":
       return `https://${board.id}.hrmdirect.com/employment/job-openings.php`;
+    case "clearcompany":
+      return `https://apply.clearcompany.com/${board.id}`;
     case "avature":
       return `https://${board.id}.avature.net/careers`;
     case "icims":

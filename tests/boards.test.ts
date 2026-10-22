@@ -172,6 +172,11 @@ const BOARD_AND_POSTING_URLS: ReadonlyArray<readonly [string, string, Board]> = 
     { platform: "hrmdirect", id: "acme" },
   ],
   [
+    "https://apply.clearcompany.com/acme",
+    "https://acme.clearcompany.com/careers/jobs/8cbc38f3-f46f-b442-2e34-cd83dcb69aa0/apply",
+    { platform: "clearcompany", id: "acme" },
+  ],
+  [
     "https://acme.avature.net/careers",
     "https://acme.avature.net/en_US/careers/JobDetail/Staff-Engineer/1234",
     { platform: "avature", id: "acme" },
@@ -218,6 +223,7 @@ const ROUND_TRIP_BOARDS: readonly Board[] = [
   { platform: "jazzhr", id: "acme" },
   { platform: "recruitee", id: "acme" },
   { platform: "hrmdirect", id: "acme" },
+  { platform: "clearcompany", id: "acme" },
   { platform: "avature", id: "acme" },
   { platform: "personio", id: "acme.jobs.personio.de" },
   { platform: "amazon", id: "amazon" },

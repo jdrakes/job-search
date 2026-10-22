@@ -25,7 +25,8 @@ export function boardsOf(company: Company): readonly Board[] {
 // 200 that fails JSON parsing rather than answering an HttpError, Avature
 // and iCIMS DNS-fail, and Personio answers a 307. None of those is visible
 // here; only the three that answer a clean 404 (Breezy, Recruitee,
-// HRMDirect) get entries.
+// HRMDirect) get entries. ClearCompany, added 2026-10-22, answers 404 for
+// an unknown slug too.
 const GONE_STATUSES: Partial<Record<Platform, readonly number[]>> = {
   greenhouse: [404],
   ashby: [404],
@@ -37,6 +38,7 @@ const GONE_STATUSES: Partial<Record<Platform, readonly number[]>> = {
   breezy: [404],
   recruitee: [404],
   hrmdirect: [404],
+  clearcompany: [404],
 };
 
 export function isGone(platform: Platform, error: unknown): boolean {

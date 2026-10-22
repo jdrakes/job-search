@@ -842,6 +842,59 @@ test("probe: HRMDirect's live title ('Careers At {Name}') prefix-strips cleanly"
   );
 });
 
+// The title as tests/fixtures/clearcompany-page.html states it, en dash
+// entity-encoded: the entity must decode before the suffix is cut.
+test("probe: ClearCompany's entity-encoded title ('{Name} &#x2013; Careers') reports the name", async () => {
+  const fetchImpl = fakeFetch({
+    "https://apply.clearcompany.com/acme": "<title>Acme &#x2013; Careers</title>",
+  });
+
+  const { boards } = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
+
+  assert.deepEqual(
+    boards.filter((board) => board.platform === "clearcompany"),
+    [{ platform: "clearcompany", id: "acme" }],
+  );
+});
+
+test("probe: ClearCompany with a reported account name that does not match is refused", async () => {
+  const fetchImpl = fakeFetch({
+    "https://apply.clearcompany.com/acme": "<title>Other Co &#x2013; Careers</title>",
+  });
+
+  const { refused } = await probe("Acme", {
+    fetchImpl,
+    userAgent: TEST_USER_AGENT,
+    sleep: noSleep,
+  });
+
+  assert.deepEqual(
+    refused.filter((refusal) => refusal.board.platform === "clearcompany"),
+    [{ board: { platform: "clearcompany", id: "acme" }, reported: "Other Co" }],
+  );
+});
+
+// An unknown slug answers 404 with this bare title; were it ever served
+// with 200, it still names no account.
+test("probe: a ClearCompany page titled only 'Careers' is no evidence of a board", async () => {
+  const fetchImpl = fakeFetch({
+    "https://apply.clearcompany.com/acme": "<title>Careers</title>",
+  });
+
+  const { boards, refused } = await probe("Acme", {
+    fetchImpl,
+    userAgent: TEST_USER_AGENT,
+    sleep: noSleep,
+  });
+
+  assert.equal(
+    [...boards, ...refused.map((refusal) => refusal.board)].some(
+      (board) => board.platform === "clearcompany",
+    ),
+    false,
+  );
+});
+
 test("probe: no candidate slug answering for a platform leaves that platform out", async () => {
   const fetchImpl = fakeFetch({});
 
@@ -938,12 +991,12 @@ test("probe: boards come back in platform order, not in the order the hosts answ
   ]);
 });
 
-// Eleven platforms, eleven different hosts, and net/http.ts rate-limits
+// Twelve platforms, twelve different hosts, and net/http.ts rate-limits
 // per host, so probing them one after another stacked unrelated waits
 // (8.5s a name, measured live 2026-09-22). Each platform's first candidate
-// must be in flight at the same moment as the other ten; a serial walk
+// must be in flight at the same moment as the other eleven; a serial walk
 // peaks at one.
-test("probe: all eleven platforms are in flight at once, not one after another", async () => {
+test("probe: all twelve platforms are in flight at once, not one after another", async () => {
   let inFlight = 0;
   let peak = 0;
   const fetchImpl: typeof fetch = async () => {
@@ -957,7 +1010,7 @@ test("probe: all eleven platforms are in flight at once, not one after another",
   const { boards } = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
 
   assert.deepEqual(boards, []);
-  assert.equal(peak, 11);
+  assert.equal(peak, 12);
 });
 
 // Concurrency is across platforms only: within one platform the candidates

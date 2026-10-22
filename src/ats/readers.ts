@@ -1,4 +1,4 @@
-// Shared by the daily and the survey import; the one place all eighteen
+// Shared by the daily and the survey import; the one place all nineteen
 // readers are wired. A platform missing here is a company that lists as
 // zero results rather than an error.
 
@@ -8,6 +8,7 @@ import { ashbyReader } from "./ashby.ts";
 import { avatureReader } from "./avature.ts";
 import { bambooHrReader } from "./bamboohr.ts";
 import { breezyReader } from "./breezy.ts";
+import { clearcompanyReader } from "./clearcompany.ts";
 import { eightfoldReader } from "./eightfold.ts";
 import { greenhouseReader } from "./greenhouse.ts";
 import { hrmdirectReader } from "./hrmdirect.ts";
@@ -42,6 +43,7 @@ export const READERS: Record<Platform, Reader> = {
   personio: personioReader,
   hrmdirect: hrmdirectReader,
   icims: icimsReader,
+  clearcompany: clearcompanyReader,
 };
 
 // A body left null is what sends the judge to `body` for the page; a band
