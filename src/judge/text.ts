@@ -425,6 +425,27 @@ const WELCOME_SIGNALS = [
   "not needed",
 ] as const;
 
+// Unlike `WELCOME_SIGNALS`, these welcome only the clause they are in: in
+// "Production Go is a major advantage; Rust is also valued" each clause
+// welcomes its own language, and in "Proficiency in Go; Java is also
+// welcome" the first clause still requires Go. Clauses split on ";" only.
+const CLAUSE_WELCOME_SIGNALS = [
+  "valuable",
+  "advantage",
+  "advantageous",
+  "beneficial",
+  "welcome",
+  "valued",
+  "not required",
+] as const;
+
+function welcomedInClause(sentence: string, mentionIndex: number): boolean {
+  const clauseStart = sentence.lastIndexOf(";", mentionIndex) + 1;
+  const clauseEnd = sentence.indexOf(";", mentionIndex);
+  const clause = sentence.slice(clauseStart, clauseEnd === -1 ? sentence.length : clauseEnd);
+  return matchesAny(clause, CLAUSE_WELCOME_SIGNALS) !== null;
+}
+
 // "go"/"golang" match only capitalized: "go" is an ordinary English word,
 // and case-insensitive it reads almost every culture blurb as a language
 // requirement.
@@ -604,11 +625,20 @@ function opensLanguageAlternatives(sentence: string): boolean {
 const LANGUAGE_FAMILY =
   /\b(?:jvm|compiled|systems|low-level|type-safe|statically typed|strongly typed)\s+(?:programming\s+)?languages?\b/i;
 
-// "ideally" welcomes only what comes after it: "ideally also Delphi"
-// welcomes Delphi, "proficient in Delphi and ideally also Python" does not.
-function ideallyBefore(sentence: string, mentionIndex: number): boolean {
-  const ideally = matchesAny(sentence, ["ideally"]);
-  return ideally !== null && ideally.index < mentionIndex;
+// These words welcome only what comes after them: "ideally also Delphi"
+// welcomes Delphi, "proficient in Delphi and ideally also Python" does not,
+// and "Delphi microservices, preferably in Spring Boot" still requires
+// Delphi. A sentence naming a `LANGUAGE_FAMILY` still requires the family,
+// so the preference inside it welcomes nothing ("a JVM language,
+// preferably Java").
+const PREFERENCE_WORDS = ["ideally", "preferably"] as const;
+
+function preferenceBefore(sentence: string, mentionIndex: number): boolean {
+  if (LANGUAGE_FAMILY.test(sentence)) return false;
+  return PREFERENCE_WORDS.some((word) => {
+    const index = findWholeWord(sentence, word);
+    return index !== null && index < mentionIndex;
+  });
 }
 
 // A heading that opens a list of what the company runs on; the languages
@@ -670,7 +700,7 @@ const REQUIREMENT_SIGNALS = [
   "years",
 ] as const;
 
-// A mention requires the language by default; these four shapes welcome it
+// A mention requires the language by default; these shapes welcome it
 // instead.
 function judgeMissingLanguages(body: string, criteria: Criteria): Reason {
   let inStackListing = false;
@@ -693,7 +723,8 @@ function judgeMissingLanguages(body: string, criteria: Criteria): Reason {
       if (mentionIndex === null) continue;
       if (ENGLISH_WORD_TERMS.has(term) && matchesAny(sentence, PROGRAMMING_CUES) === null) continue;
       if (matchesAny(sentence, WELCOME_SIGNALS) !== null) continue;
-      if (ideallyBefore(sentence, mentionIndex)) continue;
+      if (welcomedInClause(sentence, mentionIndex)) continue;
+      if (preferenceBefore(sentence, mentionIndex)) continue;
       if (opensLanguageAlternatives(sentence) && !LANGUAGE_FAMILY.test(sentence)) continue;
       if (acceptedLanguage(sentence, criteria) !== null) continue;
       return {

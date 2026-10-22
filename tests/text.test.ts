@@ -1054,6 +1054,100 @@ test("missing languages: 'ideally' welcomes a language named after it", () => {
   assert.equal(missingLanguagesVerdict("You know Python and ideally also Delphi."), "in");
 });
 
+// Real sentences from postings that were ruled out on a language they only
+// welcome. Breaks if "preferably" stops working like "ideally", or if a
+// clause welcome word ("valuable", "advantage", "beneficial", "welcome",
+// "valued", "not required") stops welcoming the clause it is in.
+const JVM_MISSING: Partial<Criteria> = { missing_languages: ["java", "kotlin", "scala"] };
+const SYSTEMS_MISSING: Partial<Criteria> = {
+  missing_languages: ["java", "go", "golang", "rust", "c++"],
+};
+
+const WELCOMING_SENTENCES: readonly [string, Partial<Criteria>][] = [
+  [
+    "Your expertise in Node.js will be essential, while knowledge of Java will provide valuable flexibility in our diverse technology ecosystem.",
+    JVM_MISSING,
+  ],
+  [
+    "Experience with Scala is beneficial for supporting and evolving existing platform components.",
+    JVM_MISSING,
+  ],
+  [
+    "5+ years of professional expertise in at least one object oriented language, preferably Java",
+    JVM_MISSING,
+  ],
+  ["Experience with Java for backend development (strong advantage)", JVM_MISSING],
+  [
+    "Experience with additional backend languages (Java is valuable in our environment)",
+    JVM_MISSING,
+  ],
+  [
+    "- Strong Software Engineering experience with a track record of delivering results (preferably, in Java)",
+    JVM_MISSING,
+  ],
+  [
+    "Production Go is a major advantage; Rust, C++, or comparable systems-language experience is also valued.",
+    SYSTEMS_MISSING,
+  ],
+  [
+    "Deep experience in at least one backend language; Go experience is valuable but not required.",
+    SYSTEMS_MISSING,
+  ],
+  [
+    "Strong backend development experience, preferably with Java and modern service-oriented architectures",
+    JVM_MISSING,
+  ],
+];
+
+for (const [sentence, overrides] of WELCOMING_SENTENCES) {
+  test(`missing languages: welcomed, not required: ${sentence}`, () => {
+    assert.equal(missingLanguagesVerdict(sentence, overrides), "in");
+  });
+}
+
+// Breaks if "preferably" welcomes a language named before it.
+test("missing languages: 'preferably' does not welcome a language named before it", () => {
+  assert.equal(
+    missingLanguagesVerdict(
+      "Three to six years of experience in cloud-based Java microservices development, preferably in Spring Boot, with a strong grounding in multi-threading, memory optimization, and object-oriented programming and design patterns.",
+      JVM_MISSING,
+    ),
+    "out",
+  );
+  assert.equal(
+    missingLanguagesVerdict(
+      "• Experience with Java, preferably version 21 or greater",
+      JVM_MISSING,
+    ),
+    "out",
+  );
+});
+
+// Breaks if a preference word welcomes a language inside a family the
+// sentence still requires.
+test("missing languages: 'a JVM language, preferably Java' still requires the family", () => {
+  assert.equal(
+    missingLanguagesVerdict(
+      "5+ years of software engineering experience, with backend experience using a JVM language, preferably Java",
+      JVM_MISSING,
+    ),
+    "out",
+  );
+});
+
+// Breaks if a clause welcome word governs the whole sentence instead of
+// its own clause: "welcome" sits in the second clause, Go in the first.
+test("missing languages: a welcome word in one clause leaves the other clause required", () => {
+  const sentence =
+    "- Proficiency writing production-quality concurrent code in Go; experience with Java, C++, or similar systems languages is also welcome.";
+  const reason = reasonFor(
+    judgeText(posting({ body: sentence }), criteria(SYSTEMS_MISSING)).reasons,
+    "missing_languages",
+  );
+  assert.equal(reason.verdict, "out");
+  assert.match(reason.detail, /^body requires "go"/);
+});
+
 // Breaks if "sometimes" is a welcome signal again.
 test("missing languages: 'sometimes' is not a welcome signal", () => {
   assert.equal(
