@@ -396,6 +396,50 @@ test("HTTP: a network-level failure is retried like a timeout", async () => {
   assert.deepEqual(sleepShape(sleepCalls), ["2000", "host delay", "4000", "host delay"]);
 });
 
+test("HTTP: a TypeError 'terminated' from the fetch is retried", async () => {
+  let callCount = 0;
+  const mockFetch: typeof fetch = async () => {
+    callCount++;
+    if (callCount === 1) throw new TypeError("terminated");
+    return new Response("second", { status: 200 });
+  };
+
+  const body = await getText("http://terminated-test.com", {
+    fetchImpl: mockFetch,
+    userAgent: TEST_USER_AGENT,
+    sleep: async () => {},
+  });
+
+  assert.equal(body, "second");
+  assert.equal(callCount, 2);
+});
+
+test("HTTP: a body cut off mid-read is retried as a whole request", async () => {
+  let callCount = 0;
+  const mockFetch: typeof fetch = async () => {
+    callCount++;
+    if (callCount === 1) {
+      const cut = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("par"));
+          controller.error(new TypeError("terminated"));
+        },
+      });
+      return new Response(cut, { status: 200 });
+    }
+    return new Response("whole", { status: 200 });
+  };
+
+  const body = await getText("http://cut-body-test.com", {
+    fetchImpl: mockFetch,
+    userAgent: TEST_USER_AGENT,
+    sleep: async () => {},
+  });
+
+  assert.equal(body, "whole");
+  assert.equal(callCount, 2);
+});
+
 // A network-level failure is exactly what a probe's wrong slug guess looks
 // like: a DNS failure for a subdomain nobody registered. The pair below
 // fixes both halves - `retries: 0` asks once, and a caller that names no
