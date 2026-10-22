@@ -599,6 +599,75 @@ test("country restriction: the arrest-record notice naming US cities is not a co
   );
 });
 
+function countryVerdict(body: string): string {
+  return reasonFor(judgeText(posting({ body }), criteria()).reasons, "country_restriction").verdict;
+}
+
+// Sentences below are copied from stored postings, except where noted.
+test("country restriction: 'roles' plural before 'based in' is not a restriction", () => {
+  assert.equal(
+    countryVerdict(
+      "For roles based in Canada, please note that we are not currently able to hire in Quebec.",
+    ),
+    "in",
+  );
+});
+
+test("country restriction: customers and partners based in Europe is not a restriction", () => {
+  assert.equal(
+    countryVerdict(
+      "Many of Thunderbolt\u2019s customers and partners are based in Europe, so some regular overlap with European business hours is expected.",
+    ),
+    "in",
+  );
+});
+
+test("country restriction: colleagues based in a region is not a restriction", () => {
+  assert.equal(
+    countryVerdict(
+      "- You\u2019re comfortable operating across time zones with a globally distributed team, including colleagues based in APAC and EMEA.",
+    ),
+    "in",
+  );
+});
+
+test("country restriction: a team based in Helsinki is not a restriction", () => {
+  assert.equal(
+    countryVerdict("The team is well-established and senior, based in Helsinki, Finland."),
+    "in",
+  );
+});
+
+// No stored posting has a privacy-notice sentence with "based in" and a
+// foreign country (singlestore's reads "residing in", a different signal), so
+// this sentence is written to match the rule's shape.
+test("country restriction: a privacy notice with 'based in' is not a restriction", () => {
+  assert.equal(
+    countryVerdict("If you are based in Germany, see our Recruitment Privacy Notice."),
+    "in",
+  );
+});
+
+test("country restriction: a privacy notice does not excuse another signal", () => {
+  assert.equal(
+    countryVerdict(
+      "For candidates residing in the EEA, UK, and Switzerland, please see our EEA, UK, and Swiss Recruitment Privacy Notice.",
+    ),
+    "out",
+  );
+});
+
+// The stored sentence names Bangalore, which the place list does not know, so
+// it is "in" with or without this change; India stands in for it here.
+test("country restriction: 'a hybrid role based in India' still restricts", () => {
+  assert.equal(
+    countryVerdict(
+      "This is a hybrid role based in India, reporting to the Senior Manager, Software Development Engineering in the Exposure Management & Security Operations department.",
+    ),
+    "out",
+  );
+});
+
 test("missing languages: 'Delphi is a nice to have' welcomes the language", () => {
   const { reasons } = judgeText(posting({ body: "Delphi is a nice to have." }), criteria());
   assert.equal(reasonFor(reasons, "missing_languages").verdict, "in");

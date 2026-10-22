@@ -350,11 +350,46 @@ const RESIDENCY_SIGNALS = [
 // arrest-record notice reading "For positions based in San Francisco or Los
 // Angeles") but safe here: the sentence must also name a foreign country and
 // not the United States. "based in the Philippines" needs it.
+//
+// "based in" also describes people and notices, not the role: "roles based in
+// Canada", "customers and partners are based in Europe", "the team ... based
+// in Helsinki", a privacy notice. Those sentences are skipped for that one
+// signal; "This is a hybrid role based in India" still restricts. "team ... is
+// based in" still restricts too ("The team you would join is based in the
+// Philippines"); only the appositive "team ..., based in" is skipped.
+const PLURAL_ROLE_WORDS = /\b(?:roles|positions|jobs)\s*$/i;
+const NON_ROLE_SUBJECTS = /\b(?:customers|partners|clients|colleagues|teammates)\b/i;
+const TEAM_SUBJECTS = /\bteams?\b/i;
+const COPULA_AT_END = /\b(?:is|are)\s*$/i;
+const PRIVACY_NOTICE = /\b(?:privacy notice|privacy policy|personal data)\b/i;
+
+function basedInDescribesNotTheRole(sentence: string, index: number): boolean {
+  const before = sentence.slice(0, index);
+  return (
+    PLURAL_ROLE_WORDS.test(before) ||
+    NON_ROLE_SUBJECTS.test(before) ||
+    (TEAM_SUBJECTS.test(before) && !COPULA_AT_END.test(before)) ||
+    PRIVACY_NOTICE.test(sentence)
+  );
+}
+
+function residencySignal(
+  sentence: string,
+): { readonly term: string; readonly index: number } | null {
+  const signal = matchesAny(sentence, RESIDENCY_SIGNALS);
+  if (signal === null || signal.term !== "based in") return signal;
+  if (!basedInDescribesNotTheRole(sentence, signal.index)) return signal;
+  return matchesAny(
+    sentence,
+    RESIDENCY_SIGNALS.filter((term) => term !== "based in"),
+  );
+}
+
 function judgeCountryRestriction(body: string): Reason {
   for (const sentence of splitSentences(body)) {
     const foreign = foreignPlace(sentence);
     if (foreign === null) continue;
-    const signal = matchesAny(sentence, RESIDENCY_SIGNALS);
+    const signal = residencySignal(sentence);
     if (signal === null) continue;
     if (unitedStatesPlace(sentence) !== null) continue;
     return {
