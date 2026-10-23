@@ -451,25 +451,57 @@ const WELCOME_SIGNALS = [
   "not needed",
 ] as const;
 
-// Unlike `WELCOME_SIGNALS`, these welcome only the clause they are in: in
-// "Production Go is a major advantage; Rust is also valued" each clause
-// welcomes its own language, and in "Proficiency in Go; Java is also
-// welcome" the first clause still requires Go. Clauses split on ";" only.
-const CLAUSE_WELCOME_SIGNALS = [
-  "valuable",
-  "advantage",
-  "advantageous",
-  "beneficial",
-  "welcome",
-  "valued",
-  "not required",
-] as const;
+// Unlike `WELCOME_SIGNALS`, these welcome a language only when they describe
+// it: the shape has to follow the mention inside the mention's span. So
+// "Production Go is a major advantage; Rust is also valued" welcomes both,
+// while "Java services that deliver valuable insights", "taking full
+// advantage of the JVM" and "Proficiency in Go; Java is also welcome" still
+// require Java, Java and Go.
+const CLAUSE_WELCOME_SIGNALS: readonly RegExp[] = [
+  /\b(?:is|are) (?:also )?(?:valuable|beneficial|welcome|valued|not required)\b/i,
+  /\b(?:is|are) (?:also )?an? (?:plus|bonus)\b/i,
+  /\b(?:is|are) (?:also )?an? (?:(?:major|strong|big) )?advantage\b/i,
+  /\bstrong advantage\b/i,
+  /\badvantageous\b/i,
+  /\b(?:will )?provides? valuable\b/i,
+];
+
+// A span that still states a requirement is not welcomed by a shape in it
+// ("Experience in Go is required to deliver valuable results"). Only the
+// verbs of requiring count: the qualification nouns in `REQUIREMENT_SIGNALS`
+// name what is being welcomed ("Go experience is valuable").
+const SPAN_REQUIREMENT_WORDS = ["must", "require", "required", "requires", "should have"] as const;
+
+// The span runs from the mention to the next ";", ")" or comma. A comma that
+// goes on to another language or to "or" is inside a list the shape
+// describes whole ("Rust, C++, or comparable experience is also valued").
+// An opening parenthesis does not end it: "Java for backend development
+// (strong advantage)".
+function mentionSpan(sentence: string, mentionIndex: number): string {
+  for (let index = mentionIndex; index < sentence.length; index++) {
+    const character = sentence[index];
+    if (character === ";" || character === ")") return sentence.slice(mentionIndex, index);
+    if (character === "," && !listContinues(sentence.slice(index + 1))) {
+      return sentence.slice(mentionIndex, index);
+    }
+  }
+  return sentence.slice(mentionIndex);
+}
+
+function listContinues(after: string): boolean {
+  const next = after.trimStart();
+  if (/^or\b/i.test(next)) return true;
+  return LANGUAGE_NAMES.some((name) =>
+    new RegExp(`^${wholeWordPattern(name)}(?![\\w+#])`, "i").test(next),
+  );
+}
 
 function welcomedInClause(sentence: string, mentionIndex: number): boolean {
-  const clauseStart = sentence.lastIndexOf(";", mentionIndex) + 1;
-  const clauseEnd = sentence.indexOf(";", mentionIndex);
-  const clause = sentence.slice(clauseStart, clauseEnd === -1 ? sentence.length : clauseEnd);
-  return matchesAny(clause, CLAUSE_WELCOME_SIGNALS) !== null;
+  const span = mentionSpan(sentence, mentionIndex);
+  if (matchesAny(span.replace(/\bnot required\b/gi, ""), SPAN_REQUIREMENT_WORDS) !== null) {
+    return false;
+  }
+  return CLAUSE_WELCOME_SIGNALS.some((shape) => shape.test(span));
 }
 
 // "go"/"golang" match only capitalized: "go" is an ordinary English word,

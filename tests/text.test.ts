@@ -1097,8 +1097,9 @@ test("missing languages: 'ideally' welcomes a language named after it", () => {
 
 // Real sentences from postings that were ruled out on a language they only
 // welcome. Breaks if "preferably" stops working like "ideally", or if a
-// clause welcome word ("valuable", "advantage", "beneficial", "welcome",
-// "valued", "not required") stops welcoming the clause it is in.
+// clause welcome shape ("is valuable", "strong advantage", "is beneficial",
+// "is also welcome", "is also valued", "will provide valuable") stops
+// welcoming the language it follows in its span.
 const JVM_MISSING: Partial<Criteria> = { missing_languages: ["java", "kotlin", "scala"] };
 const SYSTEMS_MISSING: Partial<Criteria> = {
   missing_languages: ["java", "go", "golang", "rust", "c++"],
@@ -1188,6 +1189,21 @@ test("missing languages: a welcome word in one clause leaves the other clause re
   assert.equal(reason.verdict, "out");
   assert.match(reason.detail, /^body requires "go"/);
 });
+
+// Breaks if a clause welcome word welcomes a language it does not describe:
+// "valuable" and "advantage" anywhere in the sentence, rather than in a
+// predicate after the mention, or a predicate after a stated requirement.
+const REQUIRING_SENTENCES: readonly [string, Partial<Criteria>][] = [
+  ["You will write Java services that deliver valuable insights to our customers.", JVM_MISSING],
+  ["5+ years building Java microservices, taking full advantage of the JVM.", JVM_MISSING],
+  ["Experience in Go is required to deliver valuable results.", SYSTEMS_MISSING],
+];
+
+for (const [sentence, overrides] of REQUIRING_SENTENCES) {
+  test(`missing languages: a soft word that does not describe the language: ${sentence}`, () => {
+    assert.equal(missingLanguagesVerdict(sentence, overrides), "out");
+  });
+}
 
 // Breaks if "sometimes" is a welcome signal again.
 test("missing languages: 'sometimes' is not a welcome signal", () => {
