@@ -668,6 +668,47 @@ test("country restriction: 'a hybrid role based in India' still restricts", () =
   );
 });
 
+// The people or team excuse "based in" only as its subject, right before it.
+// Each sentence below was "out" before that excuse existed; it breaks if the
+// subject is read anywhere before "based in", or if only the first "based
+// in" in a sentence is read.
+test("country restriction: a team that is hiring is not who is based in Germany", () => {
+  assert.equal(
+    countryVerdict("Our Payments team is hiring a senior engineer based in Germany."),
+    "out",
+  );
+});
+
+test("country restriction: clients earlier in the sentence do not excuse 'you will be based in'", () => {
+  assert.equal(
+    countryVerdict(
+      "Working closely with our clients, you will be based in London, United Kingdom.",
+    ),
+    "out",
+  );
+});
+
+test("country restriction: 'must' between teams and 'based in' still restricts", () => {
+  assert.equal(
+    countryVerdict("You will partner with teams across the company and must be based in Canada."),
+    "out",
+  );
+});
+
+test("country restriction: a team hiring someone who must be based in Germany restricts", () => {
+  assert.equal(
+    countryVerdict("Our Payments team is hiring a senior engineer who must be based in Germany."),
+    "out",
+  );
+});
+
+test("country restriction: a second 'based in' about the role restricts after an excused first", () => {
+  assert.equal(
+    countryVerdict("Teammates based in Europe work with us, and this role is based in Germany."),
+    "out",
+  );
+});
+
 test("missing languages: 'Delphi is a nice to have' welcomes the language", () => {
   const { reasons } = judgeText(posting({ body: "Delphi is a nice to have." }), criteria());
   assert.equal(reasonFor(reasons, "missing_languages").verdict, "in");

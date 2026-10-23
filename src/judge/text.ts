@@ -352,33 +352,59 @@ const RESIDENCY_SIGNALS = [
 // not the United States. "based in the Philippines" needs it.
 //
 // "based in" also describes people and notices, not the role: "roles based in
-// Canada", "customers and partners are based in Europe", "the team ... based
-// in Helsinki", a privacy notice. Those sentences are skipped for that one
-// signal; "This is a hybrid role based in India" still restricts. "team ... is
-// based in" still restricts too ("The team you would join is based in the
-// Philippines"); only the appositive "team ..., based in" is skipped.
+// Canada", "customers and partners are based in Europe", "the team ... , based
+// in Helsinki", a privacy notice. Such an occurrence is skipped for that one
+// signal; "This is a hybrid role based in India" still restricts.
+//
+// The people must be the subject of "based in", so they are read only right
+// before it, with at most "is"/"are" between ("partners are based in"): in
+// "Working closely with our clients, you will be based in London" the
+// clients are not who is based there. "team" is read right before it too
+// ("a team based in"), or as the clause before an appositive comma ("The
+// team is well-established and senior, based in Helsinki"), but never when
+// "must", "will", "you" or "should" sits between: "teams across the company
+// and must be based in Canada" binds the reader, not the team. "team ... is
+// based in" still restricts ("The team you would join is based in the
+// Philippines"), as does a team that is only the clause's subject ("Our
+// Payments team is hiring a senior engineer based in Germany").
+//
+// Every "based in" in a sentence is read: "Teammates based in Europe ...,
+// and this role is based in Germany" restricts on the second.
 const PLURAL_ROLE_WORDS = /\b(?:roles|positions|jobs)\s*$/i;
-const NON_ROLE_SUBJECTS = /\b(?:customers|partners|clients|colleagues|teammates)\b/i;
-const TEAM_SUBJECTS = /\bteams?\b/i;
-const COPULA_AT_END = /\b(?:is|are)\s*$/i;
+const NON_ROLE_SUBJECT_BEFORE =
+  /\b(?:customers|partners|clients|colleagues|teammates)\s+(?:(?:is|are)\s+)?$/i;
+const TEAM_BEFORE = /\bteams?\s*$/i;
+const TEAM_APPOSITIVE_BEFORE = /\bteams?\b([^,]*),\s*$/i;
+const BINDS_THE_READER = /\b(?:must|will|you|should)\b/i;
 const PRIVACY_NOTICE = /\b(?:privacy notice|privacy policy|personal data)\b/i;
+
+function teamIsTheSubject(before: string): boolean {
+  if (TEAM_BEFORE.test(before)) return true;
+  const appositive = TEAM_APPOSITIVE_BEFORE.exec(before);
+  return appositive !== null && !BINDS_THE_READER.test(appositive[1] ?? "");
+}
 
 function basedInDescribesNotTheRole(sentence: string, index: number): boolean {
   const before = sentence.slice(0, index);
   return (
     PLURAL_ROLE_WORDS.test(before) ||
-    NON_ROLE_SUBJECTS.test(before) ||
-    (TEAM_SUBJECTS.test(before) && !COPULA_AT_END.test(before)) ||
+    NON_ROLE_SUBJECT_BEFORE.test(before) ||
+    teamIsTheSubject(before) ||
     PRIVACY_NOTICE.test(sentence)
   );
 }
 
+const BASED_IN = new RegExp(wholeWordPattern("based in"), "gi");
+
 function residencySignal(
   sentence: string,
 ): { readonly term: string; readonly index: number } | null {
-  const signal = matchesAny(sentence, RESIDENCY_SIGNALS);
-  if (signal === null || signal.term !== "based in") return signal;
-  if (!basedInDescribesNotTheRole(sentence, signal.index)) return signal;
+  const folded = foldApostrophes(sentence);
+  for (const match of folded.matchAll(BASED_IN)) {
+    if (!basedInDescribesNotTheRole(folded, match.index)) {
+      return { term: "based in", index: match.index };
+    }
+  }
   return matchesAny(
     sentence,
     RESIDENCY_SIGNALS.filter((term) => term !== "based in"),
