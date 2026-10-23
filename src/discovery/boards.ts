@@ -29,13 +29,15 @@ const PATH_HOSTS = new Map<string, Platform>([
 ]);
 
 // Boards named by the host's first label: `{id}.bamboohr.com`. iCIMS's id
-// is its `jibeapply.com` slug, not an `icims.com` host.
+// is its `jibeapply.com` slug, not an `icims.com` host. Every
+// `{id}.hrmdirect.com` now redirects to `apply.clearcompany.com/{id}`, so
+// an HRMDirect URL binds the ClearCompany board under the same id.
 const SUBDOMAIN_SUFFIXES: ReadonlyArray<readonly [string, Platform]> = [
   [".bamboohr.com", "bamboohr"],
   [".breezy.hr", "breezy"],
   [".applytojob.com", "jazzhr"],
   [".recruitee.com", "recruitee"],
-  [".hrmdirect.com", "hrmdirect"],
+  [".hrmdirect.com", "clearcompany"],
   [".clearcompany.com", "clearcompany"],
   [".avature.net", "avature"],
   [".jibeapply.com", "icims"],
