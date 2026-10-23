@@ -16,15 +16,28 @@ export function parseClearcompanySiteId(html: string): string | null {
   return SITE_ID.exec(html)?.[1] ?? null;
 }
 
+function places(job: Record<string, unknown>): Record<string, unknown>[] {
+  return asArray(job["locations"]).map(asRecord);
+}
+
 function isRemote(job: Record<string, unknown>): boolean {
-  return asArray(job["locations"]).some((place) => asRecord(place)["isRemote"] === true);
+  return places(job).some((place) => place["isRemote"] === true);
+}
+
+// The API states no currency: Escalent's India jobs carry "1600000" rupees
+// and its London jobs "30000" pounds in the same fields as its US dollars
+// (checked live 2026-10-23). Pay is read as dollars only when every place
+// the job names is in the US, this reader's stand-in for `isUsd`.
+function paidInUsd(job: Record<string, unknown>): boolean {
+  const jobPlaces = places(job);
+  return jobPlaces.length > 0 && jobPlaces.every((place) => place["country"] === "US");
 }
 
 // The salary fields are strings ("95000"), and "0" stands for a side left
 // blank. Annual pay usually states no `salaryType` at all, so only "Per
 // Hour" is refused: an hourly "30" would otherwise read as $30 a year.
 function pay(job: Record<string, unknown>, field: string): number | null {
-  if (job["salaryType"] === "Per Hour") return null;
+  if (job["salaryType"] === "Per Hour" || !paidInUsd(job)) return null;
   const value = Number(asText(job[field]) ?? "");
   return Number.isFinite(value) && value > 0 ? value : null;
 }
@@ -43,7 +56,8 @@ function toListing(raw: unknown): Listing {
     id: String(job["id"] ?? ""),
     title: asText(asText(job["positionTitle"])?.trim()),
     url: asText(job["applyLink"]),
-    location: remote ? "Remote" : asText(job["location"]),
+    // As stated ("Remote (IN)", "Remote (US)"), so a remote job keeps its country.
+    location: asText(job["location"]),
     compLow: pay(job, "salaryRangeLow"),
     compHigh: pay(job, "salaryRangeHigh"),
     postedAt: postedOn(job["postedDate"]),
