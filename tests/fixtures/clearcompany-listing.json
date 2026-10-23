@@ -1,0 +1,180 @@
+{
+  "results": [
+    {
+      "id": "8cbc38f3-f46f-b442-2e34-cd83dcb69aa0",
+      "userDefinedId": "2012",
+      "positionTitle": "Insights Director, Consumer/Telecom - Remote (PT/MT zone preferred)",
+      "description": "<p><u><strong>Who We Are</strong></u></p>\n\n<p>Escalent is an award-winning data analytics and advisory firm that helps clients understand human and market behaviors to navigate disruption. As catalysts of progress for more than 40 years, our strategies guide the world’s leading brands. We accelerate growth by creating a seamless flow between primary, secondary, syndicated, and internal business data, providing consulting and advisory services from insights through implementation. Based on a profound understanding of what drives human beings and markets, we identify actions that build brands, enhance customer experiences, inspire product innovation and boost business productivity. We listen, learn, question, discover, innovate, and deliver—for each other and our clients—to make the world work better for people.</p>",
+      "openDate": "2026-10-08T00:00:00",
+      "postedDate": "2026-10-08T00:00:00",
+      "departmentId": "7DDC92C8-A601-7CB8-6055-84ABB433B99E",
+      "departmentName": "Consumer/Telecom : C/T Delivery",
+      "officeId": "E534DDE3-A773-99AA-C695-227894792462",
+      "officeName": "Virtual - USA",
+      "jobFunctionId": "D5C7AF8E-F666-FEC4-6FF9-EBD900AEBA49",
+      "jobFunctionName": "Research",
+      "location": "Remote (US)",
+      "locations": [
+        {
+          "city": null,
+          "subdivision": "",
+          "subdivisionFullName": "",
+          "country": "US",
+          "postalCode": null,
+          "addressLine1": null,
+          "addressLine2": null,
+          "isRemote": true,
+          "isNationwide": true,
+          "isStatewide": false,
+          "latitude": null,
+          "longitude": null
+        }
+      ],
+      "brandName": "Escalent",
+      "applyLink": "https://escalent.clearcompany.com/careers/jobs/8cbc38f3-f46f-b442-2e34-cd83dcb69aa0/apply",
+      "canSelfSchedule": false,
+      "salaryRangeLow": "95000",
+      "salaryRangeHigh": "150000",
+      "salaryType": null,
+      "customFieldAnswers": [
+        {
+          "customFieldId": "406A0B76-2416-0D69-5155-99A8774EC572",
+          "customFieldName": "Role Function / Position Family Code",
+          "customFieldOptionId": "34329F85-8829-7A6C-D3A5-5F57827080B8",
+          "customFieldOptionName": "Quantitative Insights"
+        }
+      ]
+    },
+    {
+      "id": "d96e0410-61fd-d068-e240-8fdeab7dcdef",
+      "userDefinedId": "2003",
+      "positionTitle": "Associate Consultant - Health",
+      "description": "<p><strong>Who We Are:</strong></p>",
+      "openDate": "2026-09-17T00:00:00",
+      "postedDate": "2026-09-17T00:00:00",
+      "departmentId": "8ABE822F-EEF8-CB0F-9A5E-76ECDF7FE3DE",
+      "departmentName": "Life Sciences : Life Sciences Delivery",
+      "officeId": "18B1B723-9F70-B1FE-4E4E-426769F3D044",
+      "officeName": "Boston Area - Co-Working Space",
+      "jobFunctionId": "D5C7AF8E-F666-FEC4-6FF9-EBD900AEBA49",
+      "jobFunctionName": "Research",
+      "location": "Boston MA",
+      "locations": [
+        {
+          "city": "Boston",
+          "subdivision": "MA",
+          "subdivisionFullName": "Massachusetts",
+          "country": "US",
+          "postalCode": "02110",
+          "addressLine1": null,
+          "addressLine2": null,
+          "isRemote": false,
+          "isNationwide": false,
+          "isStatewide": false,
+          "latitude": null,
+          "longitude": null
+        }
+      ],
+      "brandName": "C Space",
+      "applyLink": "https://escalent.clearcompany.com/careers/jobs/d96e0410-61fd-d068-e240-8fdeab7dcdef/apply",
+      "canSelfSchedule": false,
+      "salaryRangeLow": "50000",
+      "salaryRangeHigh": "58500",
+      "salaryType": "Per Year",
+      "customFieldAnswers": [
+        {
+          "customFieldId": "406A0B76-2416-0D69-5155-99A8774EC572",
+          "customFieldName": "Role Function / Position Family Code",
+          "customFieldOptionId": "FC0EA09E-3CAC-B58C-8336-5999FC376693",
+          "customFieldOptionName": "Communities"
+        }
+      ]
+    },
+    {
+      "id": "6c0f188a-dd55-8766-4b41-0b02fcc941d6",
+      "userDefinedId": "1918",
+      "positionTitle": "Consultant ",
+      "description": "<p><strong>Who We Are</strong></p>",
+      "openDate": "2026-06-17T00:00:00",
+      "postedDate": "2026-06-17T00:00:00",
+      "departmentId": "F10E35F0-E627-E0C9-42B7-FD9CD18225AF",
+      "departmentName": "Evergreen",
+      "officeId": "E534DDE3-A773-99AA-C695-227894792462",
+      "officeName": "Virtual - USA",
+      "jobFunctionId": null,
+      "jobFunctionName": null,
+      "location": "Remote (US)",
+      "locations": [
+        {
+          "city": null,
+          "subdivision": "",
+          "subdivisionFullName": "",
+          "country": "US",
+          "postalCode": null,
+          "addressLine1": null,
+          "addressLine2": null,
+          "isRemote": true,
+          "isNationwide": true,
+          "isStatewide": false,
+          "latitude": null,
+          "longitude": null
+        }
+      ],
+      "brandName": "C Space",
+      "applyLink": "https://escalent.clearcompany.com/careers/jobs/6c0f188a-dd55-8766-4b41-0b02fcc941d6/apply",
+      "canSelfSchedule": false,
+      "salaryRangeLow": "0",
+      "salaryRangeHigh": "0",
+      "salaryType": null,
+      "customFieldAnswers": []
+    },
+    {
+      "id": "8d10224e-f40b-144b-d0b3-c9e821224c6f",
+      "userDefinedId": "1170",
+      "positionTitle": "Q.A. Inspector",
+      "description": "<p><span style=\"font-family: Arial, Helvetica, sans-serif\"><span style=\"font-size: 12px\"><strong>Flexjet, an award-winning organization, is looking to add a talented </strong><strong>Quality Control Inspector to the team!</strong></span></span></p>",
+      "openDate": "2026-09-18T00:00:00",
+      "postedDate": "2026-09-18T00:00:00",
+      "departmentId": "B0FEB440-A90E-BADC-DBAB-9A7B8468DC6B",
+      "departmentName": "300 Direct Labor",
+      "officeId": "D1F11694-95EC-CCA5-4750-20FFA83B264A",
+      "officeName": "Peterborough, ON",
+      "jobFunctionId": "302CC492-6699-AC11-EC72-C56174EB9E61",
+      "jobFunctionName": "Quality Assurance",
+      "location": "Peterborough ON",
+      "locations": [
+        {
+          "city": "Peterborough",
+          "subdivision": "ON",
+          "subdivisionFullName": "Ontario",
+          "country": "CA",
+          "postalCode": "K9J6X6",
+          "addressLine1": "901 Airport  Rd",
+          "addressLine2": "",
+          "isRemote": false,
+          "isNationwide": false,
+          "isStatewide": false,
+          "latitude": null,
+          "longitude": null
+        }
+      ],
+      "brandName": "Flexjet",
+      "applyLink": "https://flexjet.clearcompany.com/careers/jobs/8d10224e-f40b-144b-d0b3-c9e821224c6f/apply",
+      "canSelfSchedule": false,
+      "salaryRangeLow": "30",
+      "salaryRangeHigh": "40",
+      "salaryType": "Per Hour",
+      "customFieldAnswers": [
+        {
+          "customFieldId": "BFE666A4-7978-768C-D18A-E1B17D32D871",
+          "customFieldName": null,
+          "customFieldOptionId": "8D02B2A5-504B-2CC9-651D-038AE8FF3E2E",
+          "customFieldOptionName": null
+        }
+      ]
+    }
+  ],
+  "currentPageIndex": 0,
+  "totalCount": 21,
+  "currentPageCount": 21
+}

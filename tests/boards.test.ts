@@ -167,9 +167,15 @@ const BOARD_AND_POSTING_URLS: ReadonlyArray<readonly [string, string, Board]> = 
     { platform: "recruitee", id: "acme" },
   ],
   [
-    "https://acme.hrmdirect.com/employment/job-openings.php?search=true",
+    // Every HRMDirect host now redirects to its ClearCompany board.
+    "https://acme.hrmdirect.com/employment/job-openings.php",
     "https://acme.hrmdirect.com/employment/job-opening.php?req=123456&req_loc=7890",
-    { platform: "hrmdirect", id: "acme" },
+    { platform: "clearcompany", id: "acme" },
+  ],
+  [
+    "https://apply.clearcompany.com/acme",
+    "https://acme.clearcompany.com/careers/jobs/8cbc38f3-f46f-b442-2e34-cd83dcb69aa0/apply",
+    { platform: "clearcompany", id: "acme" },
   ],
   [
     "https://acme.avature.net/careers",
@@ -217,7 +223,7 @@ const ROUND_TRIP_BOARDS: readonly Board[] = [
   { platform: "breezy", id: "acme" },
   { platform: "jazzhr", id: "acme" },
   { platform: "recruitee", id: "acme" },
-  { platform: "hrmdirect", id: "acme" },
+  { platform: "clearcompany", id: "acme" },
   { platform: "avature", id: "acme" },
   { platform: "personio", id: "acme.jobs.personio.de" },
   { platform: "amazon", id: "amazon" },
@@ -229,8 +235,21 @@ for (const board of ROUND_TRIP_BOARDS) {
   });
 }
 
-test("boardUrl: the round-trip list covers every platform in PLATFORMS", () => {
-  assert.deepEqual(new Set(ROUND_TRIP_BOARDS.map((board) => board.platform)), new Set(PLATFORMS));
+// HRMDirect is exempt from the round trip: its host now redirects to
+// ClearCompany, so its link parses back as the ClearCompany board under the
+// same id. It stays in PLATFORMS for the historical rows that name it.
+test("boardUrl: an HRMDirect board's link parses back as the ClearCompany board of the same id", () => {
+  assert.deepEqual(parseBoardUrl(boardUrl({ platform: "hrmdirect", id: "acme" })), {
+    platform: "clearcompany",
+    id: "acme",
+  });
+});
+
+test("boardUrl: the round-trip list and the HRMDirect exemption cover every platform in PLATFORMS", () => {
+  assert.deepEqual(
+    new Set([...ROUND_TRIP_BOARDS.map((board) => board.platform), "hrmdirect"]),
+    new Set(PLATFORMS),
+  );
 });
 
 // --- null cases ------------------------------------------------------------

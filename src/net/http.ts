@@ -267,12 +267,15 @@ async function fetchWithRetry(
         // Node's fetch throws `TypeError: fetch failed` for a network-level
         // fault (ECONNRESET, EAI_AGAIN, a dropped TLS handshake), with the
         // real cause in `.cause`; a whole host's boards can fail this way
-        // for a few minutes at a time.
+        // for a few minutes at a time. `TypeError: terminated` is undici's
+        // report that the server closed the connection mid-body, which
+        // `response.text()` above surfaces; it is the same kind of fault.
         if (
           attempt < retries &&
           (lastError.name === "AbortError" ||
             lastError.message.includes("HTTP") ||
-            (lastError instanceof TypeError && lastError.message === "fetch failed"))
+            (lastError instanceof TypeError &&
+              (lastError.message === "fetch failed" || lastError.message === "terminated")))
         ) {
           // Rather than hot-looping against the host least able to answer.
           await sleepFn(RETRY_DELAYS[attempt]);

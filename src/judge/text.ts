@@ -350,11 +350,72 @@ const RESIDENCY_SIGNALS = [
 // arrest-record notice reading "For positions based in San Francisco or Los
 // Angeles") but safe here: the sentence must also name a foreign country and
 // not the United States. "based in the Philippines" needs it.
+//
+// "based in" also describes people and notices, not the role: "roles based in
+// Canada", "customers and partners are based in Europe", "the team ... , based
+// in Helsinki", a privacy notice. Such an occurrence is skipped for that one
+// signal; "This is a hybrid role based in India" still restricts.
+//
+// The people must be the subject of "based in", so they are read only right
+// before it, with at most "is"/"are" between ("partners are based in"): in
+// "Working closely with our clients, you will be based in London" the
+// clients are not who is based there. "team" is read right before it too
+// ("a team based in"), or as the clause before an appositive comma ("The
+// team is well-established and senior, based in Helsinki"), but never when
+// "must", "will", "you" or "should" sits between: "teams across the company
+// and must be based in Canada" binds the reader, not the team. "team ... is
+// based in" still restricts ("The team you would join is based in the
+// Philippines"), as does a team that is only the clause's subject ("Our
+// Payments team is hiring a senior engineer based in Germany").
+//
+// Every "based in" in a sentence is read: "Teammates based in Europe ...,
+// and this role is based in Germany" restricts on the second.
+const PLURAL_ROLE_WORDS = /\b(?:roles|positions|jobs)\s*$/i;
+const NON_ROLE_SUBJECT_BEFORE =
+  /\b(?:customers|partners|clients|colleagues|teammates)\s+(?:(?:is|are)\s+)?$/i;
+const TEAM_BEFORE = /\bteams?\s*$/i;
+const TEAM_APPOSITIVE_BEFORE = /\bteams?\b([^,]*),\s*$/i;
+const BINDS_THE_READER = /\b(?:must|will|you|should)\b/i;
+const PRIVACY_NOTICE = /\b(?:privacy notice|privacy policy|personal data)\b/i;
+
+function teamIsTheSubject(before: string): boolean {
+  if (TEAM_BEFORE.test(before)) return true;
+  const appositive = TEAM_APPOSITIVE_BEFORE.exec(before);
+  return appositive !== null && !BINDS_THE_READER.test(appositive[1] ?? "");
+}
+
+function basedInDescribesNotTheRole(sentence: string, index: number): boolean {
+  const before = sentence.slice(0, index);
+  return (
+    PLURAL_ROLE_WORDS.test(before) ||
+    NON_ROLE_SUBJECT_BEFORE.test(before) ||
+    teamIsTheSubject(before) ||
+    PRIVACY_NOTICE.test(sentence)
+  );
+}
+
+const BASED_IN = new RegExp(wholeWordPattern("based in"), "gi");
+
+function residencySignal(
+  sentence: string,
+): { readonly term: string; readonly index: number } | null {
+  const folded = foldApostrophes(sentence);
+  for (const match of folded.matchAll(BASED_IN)) {
+    if (!basedInDescribesNotTheRole(folded, match.index)) {
+      return { term: "based in", index: match.index };
+    }
+  }
+  return matchesAny(
+    sentence,
+    RESIDENCY_SIGNALS.filter((term) => term !== "based in"),
+  );
+}
+
 function judgeCountryRestriction(body: string): Reason {
   for (const sentence of splitSentences(body)) {
     const foreign = foreignPlace(sentence);
     if (foreign === null) continue;
-    const signal = matchesAny(sentence, RESIDENCY_SIGNALS);
+    const signal = residencySignal(sentence);
     if (signal === null) continue;
     if (unitedStatesPlace(sentence) !== null) continue;
     return {
@@ -390,6 +451,59 @@ const WELCOME_SIGNALS = [
   "not needed",
 ] as const;
 
+// Unlike `WELCOME_SIGNALS`, these welcome a language only when they describe
+// it: the shape has to follow the mention inside the mention's span. So
+// "Production Go is a major advantage; Rust is also valued" welcomes both,
+// while "Java services that deliver valuable insights", "taking full
+// advantage of the JVM" and "Proficiency in Go; Java is also welcome" still
+// require Java, Java and Go.
+const CLAUSE_WELCOME_SIGNALS: readonly RegExp[] = [
+  /\b(?:is|are) (?:also )?(?:valuable|beneficial|welcome|valued|not required)\b/i,
+  /\b(?:is|are) (?:also )?an? (?:plus|bonus)\b/i,
+  /\b(?:is|are) (?:also )?an? (?:(?:major|strong|big) )?advantage\b/i,
+  /\bstrong advantage\b/i,
+  /\badvantageous\b/i,
+  /\b(?:will )?provides? valuable\b/i,
+];
+
+// A span that still states a requirement is not welcomed by a shape in it
+// ("Experience in Go is required to deliver valuable results"). Only the
+// verbs of requiring count: the qualification nouns in `REQUIREMENT_SIGNALS`
+// name what is being welcomed ("Go experience is valuable").
+const SPAN_REQUIREMENT_WORDS = ["must", "require", "required", "requires", "should have"] as const;
+
+// The span runs from the mention to the next ";", ")" or comma. A comma that
+// goes on to another language or to "or" is inside a list the shape
+// describes whole ("Rust, C++, or comparable experience is also valued").
+// An opening parenthesis does not end it: "Java for backend development
+// (strong advantage)".
+function mentionSpan(sentence: string, mentionIndex: number): string {
+  for (let index = mentionIndex; index < sentence.length; index++) {
+    const character = sentence[index];
+    if (character === ";" || character === ")") return sentence.slice(mentionIndex, index);
+    if (character === "," && !listContinues(sentence.slice(index + 1))) {
+      return sentence.slice(mentionIndex, index);
+    }
+  }
+  return sentence.slice(mentionIndex);
+}
+
+function listContinues(after: string): boolean {
+  const next = after.trimStart();
+  if (/^or\b/i.test(next)) return true;
+  return LANGUAGE_NAMES.some((name) =>
+    new RegExp(`^${wholeWordPattern(name)}(?![\\w+#])`, "i").test(next),
+  );
+}
+
+function welcomedInClause(sentence: string, mentionIndex: number): boolean {
+  const span = mentionSpan(sentence, mentionIndex);
+  if (matchesAny(span.replace(/\bnot required\b/gi, ""), SPAN_REQUIREMENT_WORDS) !== null) {
+    return false;
+  }
+  return CLAUSE_WELCOME_SIGNALS.some((shape) => shape.test(span));
+}
+
 // "go"/"golang" match only capitalized: "go" is an ordinary English word,
 // and case-insensitive it reads almost every culture blurb as a language
 // requirement.
@@ -399,10 +513,11 @@ function properNoun(term: string): string {
   return term.charAt(0).toUpperCase() + term.slice(1);
 }
 
-// A web address is not a mention: "visit www.thunderbird.net" read as a
-// .NET requirement. Blanked to spaces of its own length, so an index into
-// the result is an index into the sentence.
-const WEB_ADDRESS = /(?:https?:\/\/|\bwww\.)\S+/gi;
+// A web address or email address is not a mention: "visit www.thunderbird.net"
+// read as a .NET requirement, and "hiringaccommodations@thunderbird.net" also
+// read as .NET. Blanked to spaces of its own length, so an index into the
+// result is an index into the sentence.
+const WEB_ADDRESS = /(?:https?:\/\/|\bwww\.)\S+|\S+@\S+/gi;
 
 function withoutWebAddresses(sentence: string): string {
   return sentence.replace(WEB_ADDRESS, (address) => " ".repeat(address.length));
@@ -568,11 +683,20 @@ function opensLanguageAlternatives(sentence: string): boolean {
 const LANGUAGE_FAMILY =
   /\b(?:jvm|compiled|systems|low-level|type-safe|statically typed|strongly typed)\s+(?:programming\s+)?languages?\b/i;
 
-// "ideally" welcomes only what comes after it: "ideally also Delphi"
-// welcomes Delphi, "proficient in Delphi and ideally also Python" does not.
-function ideallyBefore(sentence: string, mentionIndex: number): boolean {
-  const ideally = matchesAny(sentence, ["ideally"]);
-  return ideally !== null && ideally.index < mentionIndex;
+// These words welcome only what comes after them: "ideally also Delphi"
+// welcomes Delphi, "proficient in Delphi and ideally also Python" does not,
+// and "Delphi microservices, preferably in Spring Boot" still requires
+// Delphi. A sentence naming a `LANGUAGE_FAMILY` still requires the family,
+// so the preference inside it welcomes nothing ("a JVM language,
+// preferably Java").
+const PREFERENCE_WORDS = ["ideally", "preferably"] as const;
+
+function preferenceBefore(sentence: string, mentionIndex: number): boolean {
+  if (LANGUAGE_FAMILY.test(sentence)) return false;
+  return PREFERENCE_WORDS.some((word) => {
+    const index = findWholeWord(sentence, word);
+    return index !== null && index < mentionIndex;
+  });
 }
 
 // A heading that opens a list of what the company runs on; the languages
@@ -634,7 +758,7 @@ const REQUIREMENT_SIGNALS = [
   "years",
 ] as const;
 
-// A mention requires the language by default; these four shapes welcome it
+// A mention requires the language by default; these shapes welcome it
 // instead.
 function judgeMissingLanguages(body: string, criteria: Criteria): Reason {
   let inStackListing = false;
@@ -657,7 +781,8 @@ function judgeMissingLanguages(body: string, criteria: Criteria): Reason {
       if (mentionIndex === null) continue;
       if (ENGLISH_WORD_TERMS.has(term) && matchesAny(sentence, PROGRAMMING_CUES) === null) continue;
       if (matchesAny(sentence, WELCOME_SIGNALS) !== null) continue;
-      if (ideallyBefore(sentence, mentionIndex)) continue;
+      if (welcomedInClause(sentence, mentionIndex)) continue;
+      if (preferenceBefore(sentence, mentionIndex)) continue;
       if (opensLanguageAlternatives(sentence) && !LANGUAGE_FAMILY.test(sentence)) continue;
       if (acceptedLanguage(sentence, criteria) !== null) continue;
       return {

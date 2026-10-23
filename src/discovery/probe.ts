@@ -27,6 +27,10 @@
 // names the board's owner. A slug that answers says only that some account
 // holds it. Its boards arrive as a pasted board URL; rippling.ts, the
 // reader, is unchanged.
+// HRMDirect is no longer probed: every `{slug}.hrmdirect.com` now redirects
+// to `apply.clearcompany.com/{slug}`, which the ClearCompany probe already
+// asks, so an HRMDirect request cost one wasted round trip a name. A pasted
+// HRMDirect URL binds the ClearCompany board (boards.ts).
 // A slug answering is never the whole of the evidence: a board counts only
 // when the name it reports matches the one asked about, or a slug
 // collision would file another company's postings under this one. Most
@@ -37,7 +41,7 @@
 // names nobody, is refused and returned as such, so discover.ts can tell
 // "wrong company" from "no board". A page that does not answer throws
 // instead (`pageReported` says why).
-import { getJson, getText, HttpError, type HttpOptions } from "../net/http.ts";
+import { getJson, getText, htmlToText, HttpError, type HttpOptions } from "../net/http.ts";
 import { asArray, asRecord, asText } from "../ats/ats.ts";
 import type { Board } from "../schema.ts";
 import { avatureSiteName, readBoardName } from "./boards.ts";
@@ -53,7 +57,7 @@ export const SLUG_PLATFORMS = [
   "breezy",
   "jazzhr",
   "recruitee",
-  "hrmdirect",
+  "clearcompany",
 ] as const;
 
 export type SlugPlatform = (typeof SLUG_PLATFORMS)[number];
@@ -67,7 +71,7 @@ const TEXT_PLATFORMS = new Set<(typeof SLUG_PLATFORMS)[number]>([
   "jobvite",
   "avature",
   "jazzhr",
-  "hrmdirect",
+  "clearcompany",
 ]);
 
 // Dropped from the end of a name, alongside a leading "the", for the
@@ -260,12 +264,17 @@ function recruiteeReported(data: unknown): Reported {
   return { name: asText(asRecord(first)["company_name"]) };
 }
 
-// HRMDirect's listing states the account's name in its <title>
-// ("Careers At {Name}", confirmed live on one tenant). A page without that
-// title is no evidence of a board.
-function hrmdirectReported(data: unknown): Reported {
-  const name = titleName(typeof data === "string" ? data : "", "Careers At ", "");
-  return name === null ? null : { name };
+// ClearCompany's board page states the account's name in its <title>,
+// entity-encoded: "Escalent &#x2013; Careers" (checked live on five boards
+// 2026-10-22). An unknown slug answers 404 with the bare title "Careers".
+// A page without the suffix is no evidence of a board.
+const CLEARCOMPANY_TITLE_SUFFIX = " \u2013 Careers";
+
+function clearcompanyReported(data: unknown): Reported {
+  const title = htmlToText(TITLE_TAG.exec(typeof data === "string" ? data : "")?.[1] ?? "");
+  if (!title.endsWith(CLEARCOMPANY_TITLE_SUFFIX)) return null;
+  const name = title.slice(0, -CLEARCOMPANY_TITLE_SUFFIX.length).trim();
+  return name === "" ? null : { name };
 }
 
 const REPORTED: Record<
@@ -282,7 +291,7 @@ const REPORTED: Record<
   breezy: breezyReported,
   jazzhr: jazzhrReported,
   recruitee: recruiteeReported,
-  hrmdirect: hrmdirectReported,
+  clearcompany: clearcompanyReported,
 };
 
 function urlFor(platform: (typeof SLUG_PLATFORMS)[number], slug: string): string {
@@ -307,8 +316,8 @@ function urlFor(platform: (typeof SLUG_PLATFORMS)[number], slug: string): string
       return `https://${slug}.applytojob.com/apply/`;
     case "recruitee":
       return `https://${slug}.recruitee.com/api/offers`;
-    case "hrmdirect":
-      return `https://${slug}.hrmdirect.com/employment/job-openings.php?search=true`;
+    case "clearcompany":
+      return `https://apply.clearcompany.com/${slug}`;
   }
 }
 
@@ -316,7 +325,7 @@ function urlFor(platform: (typeof SLUG_PLATFORMS)[number], slug: string): string
 // loop below already reads any failure as "no evidence", moving straight to
 // the next candidate - so http.ts's ladder (2s, 4s, 8s, 16s) buys nothing
 // and costs the whole discover phase. Measured live 2026-09-22, one wrong
-// slug: breezy 0.1s, recruitee 0.2s, hrmdirect 0.3s, jazzhr 0.9s - but
+// slug: breezy 0.1s, recruitee 0.2s, jazzhr 0.9s - but
 // avature 30.1s, a DNS failure the ladder retries in full. At up
 // to four candidates per platform that one alone cost ~120s per company
 // name against under 8s for all the rest together. (Personio measured 33.3s

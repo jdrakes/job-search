@@ -635,3 +635,19 @@ test("representativeByKey: a gone representative is skipped, so the next latest 
   assert.equal(map.size, 1);
   assert.equal([...map.values()][0], "acme::2");
 });
+
+test("fullJudgment: email addresses are blanked before language search", () => {
+  const result = fullJudgment(
+    posting({
+      title: "Staff Backend Engineer",
+      comp_high: 250000,
+      body: "This is a fully remote position. Please email hiringaccommodations@thunderbird.net for more information.",
+    }),
+    criteria({ missing_languages: ["cobol", "fortran", "delphi"] }),
+  );
+
+  const missingLanguagesReason = result.reasons.find(
+    (reason) => reason.criterion === "missing_languages",
+  );
+  assert.equal(missingLanguagesReason?.verdict, "in");
+});
