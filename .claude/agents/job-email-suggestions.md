@@ -39,7 +39,8 @@ One JSON object: `{ "after": "YYYY/MM/DD", "project_id": "<supabase project ref>
    match.indeed.com), Glassdoor, Wellfound, BuiltIn, Dice, ZipRecruiter,
    Workable digests and any other alert; and recruiter outreach naming a
    role (inmail-hit-reply@linkedin.com, hit-reply@linkedin.com, direct
-   recruiter emails).
+   recruiter emails). The city on an alert is the alert's search location,
+   not a sign the role is open to a remote hire.
 2. Open each with `messageFormat: PLAIN_TEXT` and extract every role a
    digest lists: company, title, location or remote, pay if stated, source,
    date. Keep one row per role across repeats.
@@ -48,7 +49,8 @@ One JSON object: `{ "after": "YYYY/MM/DD", "project_id": "<supabase project ref>
    listing names, and when it names none, say "employer not named".
 4. Check the store only for roles that could fit: Staff, Senior Staff,
    Principal, Architect or Senior; backend, full-stack or platform; US
-   remote or Austin, TX. For each:
+   remote. A role that needs an office, on-site or hybrid, in any city is
+   NO. For each:
    - `postings` by company (`ilike`, try short forms) and a similar title:
      key, status, kept, reasons.
    - `companies`: watched, which board, dropped?
@@ -64,8 +66,9 @@ One JSON object: `{ "after": "YYYY/MM/DD", "project_id": "<supabase project ref>
    **company dropped**, or
    **employer not named**.
 6. Label fit: FIT is Staff or above, backend, full-stack or platform, US
-   remote or Austin, and the top of the range at or above `comp_floor`, or
-   no pay stated. MAYBE is close on one of those. NO is the rest.
+   remote, and the top of the range at or above `comp_floor`, or no pay
+   stated. MAYBE is close on one of those. NO is the rest, and any role that
+   needs an office is NO, not MAYBE.
 
 ## Reply
 
