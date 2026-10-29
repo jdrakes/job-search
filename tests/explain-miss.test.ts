@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
   failingCriterion,
+  findCompany,
   missCause,
   titleMatches,
   workdaySearchHit,
@@ -27,6 +28,32 @@ const rejected: Match = {
 
 test("an unknown company is named before anything else", () => {
   assert.equal(missCause({ ...base, companyKnown: false, boardCount: 0 }), "company unknown");
+});
+
+const pantheons = [{ name: "Pantheon Systems, Inc" }, { name: "Pantheon Platform" }];
+
+test("a company is found by its whole name, ignoring case", () => {
+  assert.deepEqual(findCompany(pantheons, "pantheon platform"), {
+    ok: true,
+    value: { name: "Pantheon Platform" },
+  });
+});
+
+test("a company is found by the start of its name when only one starts so", () => {
+  assert.deepEqual(findCompany(pantheons, "Pantheon Systems"), {
+    ok: true,
+    value: { name: "Pantheon Systems, Inc" },
+  });
+});
+
+test("a name no company carries is null", () => {
+  assert.deepEqual(findCompany(pantheons, "Systems"), { ok: true, value: null });
+});
+
+test("a name that starts several companies is returned, not guessed", () => {
+  const result = findCompany(pantheons, "Pantheon");
+  assert.equal(result.ok, false);
+  assert.match(!result.ok ? result.reason : "", /starts 2 company names/);
 });
 
 test("a known company with no board has no board", () => {

@@ -102,6 +102,26 @@ export function titleMatches(title: string | null, wanted: string): boolean {
   return words(wanted).every((word) => have.has(word));
 }
 
+// The company the name names: the one whose name matches ignoring case, else
+// the one whose name starts with it, since the job email agents drop a
+// suffix ("Pantheon Systems" for "Pantheon Systems, Inc"). A name no company
+// carries is null; a name that starts several is returned, not guessed.
+export function findCompany<Row extends { readonly name: string }>(
+  companies: readonly Row[],
+  name: string,
+): { ok: true; value: Row | null } | { ok: false; reason: string } {
+  const wanted = name.toLowerCase();
+  const exact = companies.find((row) => row.name.toLowerCase() === wanted);
+  if (exact !== undefined) return { ok: true, value: exact };
+  const prefixed = companies.filter((row) => row.name.toLowerCase().startsWith(wanted));
+  if (prefixed.length <= 1) return { ok: true, value: prefixed[0] ?? null };
+  const names = prefixed.map((row) => row.name).join(", ");
+  return {
+    ok: false,
+    reason: `"${name}" starts ${prefixed.length} company names (${names}); pass one in full`,
+  };
+}
+
 // The first criterion the title and place rules fail, judged as the storage
 // gate judges: a board that reads a detail page and states no pay is judged
 // at the pay floor.
@@ -177,8 +197,14 @@ async function main(): Promise<void> {
   const readers = await resolveReaders(loadSettings());
 
   const companies = await store.select<Company>("companies", undefined, COMPANY_FIELDS);
-  const company = companies.find((row) => row.name.toLowerCase() === companyName.toLowerCase());
-  const boards = company === undefined ? [] : boardsOf(company);
+  const found = findCompany(companies, companyName);
+  if (!found.ok) {
+    console.error(`explain-miss: ${found.reason}`);
+    process.exitCode = 1;
+    return;
+  }
+  const company = found.value;
+  const boards = company === null ? [] : boardsOf(company);
 
   const matches: Match[] = [];
   let searchHit: boolean | null = null;
@@ -230,7 +256,7 @@ async function main(): Promise<void> {
   }
   if (readFailures > 0) process.exitCode = 1;
   const cause = missCause({
-    companyKnown: company !== undefined,
+    companyKnown: company !== null,
     boardCount: boards.length,
     failedReads: readFailures,
     matches,
