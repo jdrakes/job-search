@@ -1,0 +1,83 @@
+{
+  "results": [
+    {
+      "id": "9fc997de-8bee-c724-346f-d4ca13a989a8",
+      "userDefinedId": "2016",
+      "positionTitle": "Qualtrics Dashboard Specialist",
+      "description": "<p><strong><u>WHO WE ARE</u></strong></p>",
+      "openDate": "2026-09-28T00:00:00",
+      "postedDate": "2026-09-28T00:00:00",
+      "departmentId": "717222C8-30EE-885C-C5EA-0E98D1BBBB20",
+      "departmentName": "Central Delivery: Consumer/Telecom",
+      "officeId": "AFECD4B6-8297-F96E-CBC7-3741F39FD8B4",
+      "officeName": "Virtual - India",
+      "jobFunctionId": "D5C7AF8E-F666-FEC4-6FF9-EBD900AEBA49",
+      "jobFunctionName": "Research",
+      "location": "Remote (IN)",
+      "locations": [
+        {
+          "city": null,
+          "subdivision": "",
+          "subdivisionFullName": "",
+          "country": "IN",
+          "postalCode": null,
+          "addressLine1": null,
+          "addressLine2": null,
+          "isRemote": true,
+          "isNationwide": true,
+          "isStatewide": false,
+          "latitude": null,
+          "longitude": null
+        }
+      ],
+      "brandName": "Escalent",
+      "applyLink": "https://escalent.clearcompany.com/careers/jobs/9fc997de-8bee-c724-346f-d4ca13a989a8/apply",
+      "canSelfSchedule": false,
+      "salaryRangeLow": "1600000",
+      "salaryRangeHigh": "2400000",
+      "salaryType": null,
+      "customFieldAnswers": []
+    },
+    {
+      "id": "6ae967b5-5025-81d2-9f34-a5ac50b85406",
+      "userDefinedId": "2027",
+      "positionTitle": "Qualitative Insight Associate (LATAM Markets)",
+      "description": "<p><strong>About the Role</strong><br>\n<br>\nWe are looking for a bright, committed, and passionate Insight Associate, with fluent written and spoken Spanish and English language skills to join our team.</p>",
+      "openDate": "2026-10-06T00:00:00",
+      "postedDate": "2026-10-06T00:00:00",
+      "departmentId": "C33365F4-8E82-647E-0A56-DB533E841217",
+      "departmentName": "Client Services & Consulting",
+      "officeId": "254330F9-EDF9-1A8D-B03B-6ACDC4EF15C4",
+      "officeName": "London, UK Office",
+      "jobFunctionId": null,
+      "jobFunctionName": null,
+      "location": "London Europe - UK",
+      "locations": [
+        {
+          "city": "London",
+          "subdivision": "Europe - UK",
+          "subdivisionFullName": "Europe - UK",
+          "country": "GB",
+          "postalCode": "SE1 3UD",
+          "addressLine1": "52-56 Bermondsey Street",
+          "addressLine2": null,
+          "isRemote": false,
+          "isNationwide": false,
+          "isStatewide": false,
+          "latitude": null,
+          "longitude": null
+        }
+      ],
+      "brandName": "C Space",
+      "applyLink": "https://escalent.clearcompany.com/careers/jobs/6ae967b5-5025-81d2-9f34-a5ac50b85406/apply",
+      "canSelfSchedule": false,
+      "salaryRangeLow": "30000",
+      "salaryRangeHigh": "32000",
+      "salaryType": "Per Year",
+      "customFieldAnswers": []
+    }
+  ],
+  "currentPageIndex": 0,
+  "totalCount": 22,
+  "currentPageCount": 22
+}

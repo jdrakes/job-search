@@ -374,3 +374,71 @@ test(
     );
   },
 );
+
+test(
+  "the clearcompany_boards migration repoints hrmdirect boards, drops the three bad ones, retires live postings, and is idempotent",
+  testDbSkip === null ? {} : { skip: testDbSkip },
+  async () => {
+    // Breaks if the board rewrite stops keeping the id or extra fields, the
+    // drop list changes, the posting UPDATE touches an already-gone row or
+    // a non-hrmdirect one, or a second run changes anything. One
+    // transaction, rolled back, so no row is left behind.
+    const sql = readFileSync(`${MIGRATIONS_DIR}/20261022000001_clearcompany_boards.sql`, "utf8");
+    const client = new pg.Client({ connectionString: TEST_DB_URL });
+    await client.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `INSERT INTO "companies" ("name", "boards") VALUES
+         ('Flexjet Test', '[{"id":"flexjet","platform":"hrmdirect","last_read":"2026-10-01"},{"id":"tuvoli","platform":"hrmdirect"}]'),
+         ('Pearson Test', '[{"id":"pearson","platform":"hrmdirect"},{"id":"starbucks","platform":"hrmdirect"}]'),
+         ('Mixed Test', '[{"id":"acme","platform":"greenhouse"}]')`,
+      );
+      await client.query(
+        `INSERT INTO "postings" ("key", "company", "platform", "first_seen", "gone_at") VALUES
+         ('hrmdirect:flexjet:1', 'Flexjet Test', 'hrmdirect', now(), NULL),
+         ('hrmdirect:flexjet:2', 'Flexjet Test', 'hrmdirect', now(), '2026-01-01T00:00:00Z'),
+         ('greenhouse:acme:1', 'Mixed Test', 'greenhouse', now(), NULL)`,
+      );
+      const read = async () => ({
+        boards: (
+          await client.query(
+            `SELECT "name", "boards" FROM "companies" WHERE "name" LIKE '% Test' ORDER BY "name"`,
+          )
+        ).rows,
+        gone: (
+          await client.query(
+            `SELECT "key", "gone_at" FROM "postings" WHERE "company" LIKE '% Test' ORDER BY "key"`,
+          )
+        ).rows,
+      });
+
+      await client.query(sql);
+      const first = await read();
+      assert.deepEqual(first.boards, [
+        {
+          name: "Flexjet Test",
+          boards: [{ id: "flexjet", platform: "clearcompany", last_read: "2026-10-01" }],
+        },
+        { name: "Mixed Test", boards: [{ id: "acme", platform: "greenhouse" }] },
+        { name: "Pearson Test", boards: [] },
+      ]);
+      const [untouched, retired, keptGone] = first.gone;
+      assert.equal(untouched?.["key"], "greenhouse:acme:1");
+      assert.equal(untouched?.["gone_at"], null);
+      assert.equal(retired?.["key"], "hrmdirect:flexjet:1");
+      assert.ok(retired?.["gone_at"] instanceof Date);
+      assert.equal(
+        (keptGone?.["gone_at"] as Date).toISOString(),
+        "2026-01-01T00:00:00.000Z",
+        "an already-gone row keeps its gone_at",
+      );
+
+      await client.query(sql);
+      assert.deepEqual(await read(), first);
+    } finally {
+      await client.query("ROLLBACK");
+      await client.end();
+    }
+  },
+);

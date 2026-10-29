@@ -25,16 +25,20 @@ const PATH_HOSTS = new Map<string, Platform>([
   ["jobs.jobvite.com", "jobvite"],
   ["ats.rippling.com", "rippling"],
   ["apply.workable.com", "workable"],
+  ["apply.clearcompany.com", "clearcompany"],
 ]);
 
 // Boards named by the host's first label: `{id}.bamboohr.com`. iCIMS's id
-// is its `jibeapply.com` slug, not an `icims.com` host.
+// is its `jibeapply.com` slug, not an `icims.com` host. Every
+// `{id}.hrmdirect.com` now redirects to `apply.clearcompany.com/{id}`, so
+// an HRMDirect URL binds the ClearCompany board under the same id.
 const SUBDOMAIN_SUFFIXES: ReadonlyArray<readonly [string, Platform]> = [
   [".bamboohr.com", "bamboohr"],
   [".breezy.hr", "breezy"],
   [".applytojob.com", "jazzhr"],
   [".recruitee.com", "recruitee"],
-  [".hrmdirect.com", "hrmdirect"],
+  [".hrmdirect.com", "clearcompany"],
+  [".clearcompany.com", "clearcompany"],
   [".avature.net", "avature"],
   [".jibeapply.com", "icims"],
 ];
@@ -186,6 +190,8 @@ export function boardUrl(board: Board): string {
       return `https://${board.id}.recruitee.com`;
     case "hrmdirect":
       return `https://${board.id}.hrmdirect.com/employment/job-openings.php`;
+    case "clearcompany":
+      return `https://apply.clearcompany.com/${board.id}`;
     case "avature":
       return `https://${board.id}.avature.net/careers`;
     case "icims":

@@ -7,7 +7,7 @@ import { HttpError } from "../src/net/http.ts";
 
 // Anything not listed answers 404, as Greenhouse/Ashby/Lever do for a slug
 // that does not exist. A string route is served as raw HTML (for
-// Jobvite/Avature/JazzHR/HRMDirect), anything else JSON-encoded.
+// Jobvite/Avature/JazzHR/ClearCompany), anything else JSON-encoded.
 function fakeFetch(routes: Record<string, unknown>): typeof fetch {
   const impl: typeof fetch = async (input) => {
     const url = String(input);
@@ -793,52 +793,79 @@ test("probe: no Personio URL is ever requested, even one that would answer a fee
   );
 });
 
-test("probe: HRMDirect with a matching account name is accepted", async () => {
-  const fetchImpl = fakeFetch({
+// HRMDirect left SLUG_PLATFORMS: every `{slug}.hrmdirect.com` now redirects
+// to `apply.clearcompany.com/{slug}`, which the ClearCompany probe asks
+// already. Even a page that would once have matched must never be asked.
+test("probe: no HRMDirect URL is ever requested, even one that would once have matched", async () => {
+  const requested: string[] = [];
+  const answers = fakeFetch({
     "https://acme.hrmdirect.com/employment/job-openings.php?search=true":
       "<title>Careers At Acme</title>",
+  });
+  const fetchImpl: typeof fetch = async (input, init) => {
+    requested.push(String(input));
+    return answers(input, init);
+  };
+
+  const { boards } = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
+
+  assert.deepEqual(boards, []);
+  assert.deepEqual(
+    requested.filter((url) => url.includes("hrmdirect")),
+    [],
+  );
+});
+
+// The title as tests/fixtures/clearcompany-page.html states it, en dash
+// entity-encoded: the entity must decode before the suffix is cut.
+test("probe: ClearCompany's entity-encoded title ('{Name} &#x2013; Careers') reports the name", async () => {
+  const fetchImpl = fakeFetch({
+    "https://apply.clearcompany.com/acme": "<title>Acme &#x2013; Careers</title>",
   });
 
   const { boards } = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
 
   assert.deepEqual(
-    boards.filter((board) => board.platform === "hrmdirect"),
-    [{ platform: "hrmdirect", id: "acme" }],
+    boards.filter((board) => board.platform === "clearcompany"),
+    [{ platform: "clearcompany", id: "acme" }],
   );
 });
 
-test("probe: HRMDirect with a reported account name that does not match is refused", async () => {
+test("probe: ClearCompany with a reported account name that does not match is refused", async () => {
   const fetchImpl = fakeFetch({
-    "https://acme.hrmdirect.com/employment/job-openings.php?search=true":
-      "<title>Careers At Other Co</title>",
+    "https://apply.clearcompany.com/acme": "<title>Other Co &#x2013; Careers</title>",
   });
 
-  const { boards } = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
-
-  assert.equal(
-    boards.some((board) => board.platform === "hrmdirect"),
-    false,
-  );
-});
-
-// The live HRMDirect listing shape, whitespace and all, matching
-// tests/fixtures/hrmdirect-listing.html: the "Careers At " prefix must
-// strip cleanly before `namesMatch` sees the reported name underneath.
-test("probe: HRMDirect's live title ('Careers At {Name}') prefix-strips cleanly", async () => {
-  const fetchImpl = fakeFetch({
-    "https://graphicdesigninstitute.hrmdirect.com/employment/job-openings.php?search=true":
-      "<title>\n\t\tCareers At Graphic Design Institute\t</title>",
-  });
-
-  const { boards } = await probe("Graphic Design Institute", {
+  const { refused } = await probe("Acme", {
     fetchImpl,
     userAgent: TEST_USER_AGENT,
     sleep: noSleep,
   });
 
   assert.deepEqual(
-    boards.filter((board) => board.platform === "hrmdirect"),
-    [{ platform: "hrmdirect", id: "graphicdesigninstitute" }],
+    refused.filter((refusal) => refusal.board.platform === "clearcompany"),
+    [{ board: { platform: "clearcompany", id: "acme" }, reported: "Other Co" }],
+  );
+});
+
+// An unknown slug answers 404 with this bare title; were it ever served
+// with 200, it still names no account.
+test("probe: a ClearCompany page titled only 'Careers' is no evidence of a board", async () => {
+  const fetchImpl = fakeFetch({
+    "https://apply.clearcompany.com/acme": "<title>Careers</title>",
+  });
+
+  const { boards, refused } = await probe("Acme", {
+    fetchImpl,
+    userAgent: TEST_USER_AGENT,
+    sleep: noSleep,
+  });
+
+  assert.equal(
+    [...boards, ...refused.map((refusal) => refusal.board)].some(
+      (board) => board.platform === "clearcompany",
+    ),
+    false,
   );
 });
 
@@ -908,16 +935,16 @@ const after = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 // order the hosts happen to be quick in. discover.ts reads the *first*
 // returned board another company already carries to decide an alias, so the
 // result must stay in SLUG_PLATFORMS order: Greenhouse (first in the table)
-// ahead of HRMDirect (last), even though HRMDirect answered first here. An
+// ahead of ClearCompany (last), even though ClearCompany answered first here. An
 // implementation that pushed each board as it settled would return them the
 // other way round.
 test("probe: boards come back in platform order, not in the order the hosts answered", async () => {
   const answered: string[] = [];
   const fetchImpl: typeof fetch = async (input) => {
     const url = String(input);
-    if (url === "https://acme.hrmdirect.com/employment/job-openings.php?search=true") {
-      answered.push("hrmdirect");
-      return new Response("<title>Careers At Acme</title>", { status: 200 });
+    if (url === "https://apply.clearcompany.com/acme") {
+      answered.push("clearcompany");
+      return new Response("<title>Acme &#x2013; Careers</title>", { status: 200 });
     }
     if (url === "https://boards-api.greenhouse.io/v1/boards/acme/jobs?content=true") {
       await after(25);
@@ -931,10 +958,10 @@ test("probe: boards come back in platform order, not in the order the hosts answ
 
   const { boards } = await probe("Acme", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep });
 
-  assert.deepEqual(answered, ["hrmdirect", "greenhouse"]);
+  assert.deepEqual(answered, ["clearcompany", "greenhouse"]);
   assert.deepEqual(boards, [
     { platform: "greenhouse", id: "acme" },
-    { platform: "hrmdirect", id: "acme" },
+    { platform: "clearcompany", id: "acme" },
   ]);
 });
 

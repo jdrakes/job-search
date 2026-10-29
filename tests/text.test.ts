@@ -599,6 +599,116 @@ test("country restriction: the arrest-record notice naming US cities is not a co
   );
 });
 
+function countryVerdict(body: string): string {
+  return reasonFor(judgeText(posting({ body }), criteria()).reasons, "country_restriction").verdict;
+}
+
+// Sentences below are copied from stored postings, except where noted.
+test("country restriction: 'roles' plural before 'based in' is not a restriction", () => {
+  assert.equal(
+    countryVerdict(
+      "For roles based in Canada, please note that we are not currently able to hire in Quebec.",
+    ),
+    "in",
+  );
+});
+
+test("country restriction: customers and partners based in Europe is not a restriction", () => {
+  assert.equal(
+    countryVerdict(
+      "Many of Thunderbolt\u2019s customers and partners are based in Europe, so some regular overlap with European business hours is expected.",
+    ),
+    "in",
+  );
+});
+
+test("country restriction: colleagues based in a region is not a restriction", () => {
+  assert.equal(
+    countryVerdict(
+      "- You\u2019re comfortable operating across time zones with a globally distributed team, including colleagues based in APAC and EMEA.",
+    ),
+    "in",
+  );
+});
+
+test("country restriction: a team based in Helsinki is not a restriction", () => {
+  assert.equal(
+    countryVerdict("The team is well-established and senior, based in Helsinki, Finland."),
+    "in",
+  );
+});
+
+// No stored posting has a privacy-notice sentence with "based in" and a
+// foreign country (singlestore's reads "residing in", a different signal), so
+// this sentence is written to match the rule's shape.
+test("country restriction: a privacy notice with 'based in' is not a restriction", () => {
+  assert.equal(
+    countryVerdict("If you are based in Germany, see our Recruitment Privacy Notice."),
+    "in",
+  );
+});
+
+test("country restriction: a privacy notice does not excuse another signal", () => {
+  assert.equal(
+    countryVerdict(
+      "For candidates residing in the EEA, UK, and Switzerland, please see our EEA, UK, and Swiss Recruitment Privacy Notice.",
+    ),
+    "out",
+  );
+});
+
+// The stored sentence names Bangalore, which the place list does not know, so
+// it is "in" with or without this change; India stands in for it here.
+test("country restriction: 'a hybrid role based in India' still restricts", () => {
+  assert.equal(
+    countryVerdict(
+      "This is a hybrid role based in India, reporting to the Senior Manager, Software Development Engineering in the Exposure Management & Security Operations department.",
+    ),
+    "out",
+  );
+});
+
+// The people or team excuse "based in" only as its subject, right before it.
+// Each sentence below was "out" before that excuse existed; it breaks if the
+// subject is read anywhere before "based in", or if only the first "based
+// in" in a sentence is read.
+test("country restriction: a team that is hiring is not who is based in Germany", () => {
+  assert.equal(
+    countryVerdict("Our Payments team is hiring a senior engineer based in Germany."),
+    "out",
+  );
+});
+
+test("country restriction: clients earlier in the sentence do not excuse 'you will be based in'", () => {
+  assert.equal(
+    countryVerdict(
+      "Working closely with our clients, you will be based in London, United Kingdom.",
+    ),
+    "out",
+  );
+});
+
+test("country restriction: 'must' between teams and 'based in' still restricts", () => {
+  assert.equal(
+    countryVerdict("You will partner with teams across the company and must be based in Canada."),
+    "out",
+  );
+});
+
+test("country restriction: a team hiring someone who must be based in Germany restricts", () => {
+  assert.equal(
+    countryVerdict("Our Payments team is hiring a senior engineer who must be based in Germany."),
+    "out",
+  );
+});
+
+test("country restriction: a second 'based in' about the role restricts after an excused first", () => {
+  assert.equal(
+    countryVerdict("Teammates based in Europe work with us, and this role is based in Germany."),
+    "out",
+  );
+});
+
 test("missing languages: 'Delphi is a nice to have' welcomes the language", () => {
   const { reasons } = judgeText(posting({ body: "Delphi is a nice to have." }), criteria());
   assert.equal(reasonFor(reasons, "missing_languages").verdict, "in");
@@ -984,6 +1094,116 @@ test("missing languages: 'ideally' does not welcome a language named before it",
 test("missing languages: 'ideally' welcomes a language named after it", () => {
   assert.equal(missingLanguagesVerdict("You know Python and ideally also Delphi."), "in");
 });
+
+// Real sentences from postings that were ruled out on a language they only
+// welcome. Breaks if "preferably" stops working like "ideally", or if a
+// clause welcome shape ("is valuable", "strong advantage", "is beneficial",
+// "is also welcome", "is also valued", "will provide valuable") stops
+// welcoming the language it follows in its span.
+const JVM_MISSING: Partial<Criteria> = { missing_languages: ["java", "kotlin", "scala"] };
+const SYSTEMS_MISSING: Partial<Criteria> = {
+  missing_languages: ["java", "go", "golang", "rust", "c++"],
+};
+
+const WELCOMING_SENTENCES: readonly [string, Partial<Criteria>][] = [
+  [
+    "Your expertise in Node.js will be essential, while knowledge of Java will provide valuable flexibility in our diverse technology ecosystem.",
+    JVM_MISSING,
+  ],
+  [
+    "Experience with Scala is beneficial for supporting and evolving existing platform components.",
+    JVM_MISSING,
+  ],
+  [
+    "5+ years of professional expertise in at least one object oriented language, preferably Java",
+    JVM_MISSING,
+  ],
+  ["Experience with Java for backend development (strong advantage)", JVM_MISSING],
+  [
+    "Experience with additional backend languages (Java is valuable in our environment)",
+    JVM_MISSING,
+  ],
+  [
+    "- Strong Software Engineering experience with a track record of delivering results (preferably, in Java)",
+    JVM_MISSING,
+  ],
+  [
+    "Production Go is a major advantage; Rust, C++, or comparable systems-language experience is also valued.",
+    SYSTEMS_MISSING,
+  ],
+  [
+    "Deep experience in at least one backend language; Go experience is valuable but not required.",
+    SYSTEMS_MISSING,
+  ],
+  [
+    "Strong backend development experience, preferably with Java and modern service-oriented architectures",
+    JVM_MISSING,
+  ],
+];
+
+for (const [sentence, overrides] of WELCOMING_SENTENCES) {
+  test(`missing languages: welcomed, not required: ${sentence}`, () => {
+    assert.equal(missingLanguagesVerdict(sentence, overrides), "in");
+  });
+}
+
+// Breaks if "preferably" welcomes a language named before it.
+test("missing languages: 'preferably' does not welcome a language named before it", () => {
+  assert.equal(
+    missingLanguagesVerdict(
+      "Three to six years of experience in cloud-based Java microservices development, preferably in Spring Boot, with a strong grounding in multi-threading, memory optimization, and object-oriented programming and design patterns.",
+      JVM_MISSING,
+    ),
+    "out",
+  );
+  assert.equal(
+    missingLanguagesVerdict(
+      "• Experience with Java, preferably version 21 or greater",
+      JVM_MISSING,
+    ),
+    "out",
+  );
+});
+
+// Breaks if a preference word welcomes a language inside a family the
+// sentence still requires.
+test("missing languages: 'a JVM language, preferably Java' still requires the family", () => {
+  assert.equal(
+    missingLanguagesVerdict(
+      "5+ years of software engineering experience, with backend experience using a JVM language, preferably Java",
+      JVM_MISSING,
+    ),
+    "out",
+  );
+});
+
+// Breaks if a clause welcome word governs the whole sentence instead of
+// its own clause: "welcome" sits in the second clause, Go in the first.
+test("missing languages: a welcome word in one clause leaves the other clause required", () => {
+  const sentence =
+    "- Proficiency writing production-quality concurrent code in Go; experience with Java, C++, or similar systems languages is also welcome.";
+  const reason = reasonFor(
+    judgeText(posting({ body: sentence }), criteria(SYSTEMS_MISSING)).reasons,
+    "missing_languages",
+  );
+  assert.equal(reason.verdict, "out");
+  assert.match(reason.detail, /^body requires "go"/);
+});
+
+// Breaks if a clause welcome word welcomes a language it does not describe:
+// "valuable" and "advantage" anywhere in the sentence, rather than in a
+// predicate after the mention, or a predicate after a stated requirement.
+const REQUIRING_SENTENCES: readonly [string, Partial<Criteria>][] = [
+  ["You will write Java services that deliver valuable insights to our customers.", JVM_MISSING],
+  ["5+ years building Java microservices, taking full advantage of the JVM.", JVM_MISSING],
+  ["Experience in Go is required to deliver valuable results.", SYSTEMS_MISSING],
+];
+
+for (const [sentence, overrides] of REQUIRING_SENTENCES) {
+  test(`missing languages: a soft word that does not describe the language: ${sentence}`, () => {
+    assert.equal(missingLanguagesVerdict(sentence, overrides), "out");
+  });
+}
 
 // Breaks if "sometimes" is a welcome signal again.
 test("missing languages: 'sometimes' is not a welcome signal", () => {
