@@ -363,6 +363,14 @@ export function companiesAppliedTo(postings: readonly PostingSummary[]): Readonl
   return new Set(postings.filter(isApplication).map((posting) => posting.company));
 }
 
+/**
+ * A stated pay band: a low, a high, or both. A single figure counts, as it
+ * does on the card, which shows it. The "Has pay band" filter keeps these.
+ */
+export function hasPayBand(posting: PostingSummary): boolean {
+  return midpoint(posting) !== null;
+}
+
 export const QueueView = defineComponent({
   name: "QueueView",
   components: { ArrangeBar, PostingCard, EmptyState, SearchBox, Toast },
@@ -421,13 +429,17 @@ export const QueueView = defineComponent({
     // Not remembered either: restored tomorrow it would hide every company
     // he applied to today with nothing on screen but the box saying why.
     const notAppliedTo = ref(false);
+    // Not remembered either: restored tomorrow it would hide every unpaid
+    // posting with nothing on screen but the box saying why.
+    const payBandOnly = ref(false);
     const acted = computed(() => actedWith(props.history, props.postings));
     const appliedCompanies = computed(() => companiesAppliedTo(acted.value));
     const filtering = computed(
       () =>
         query.value.trim() !== "" ||
         (minScore.value !== null && props.compFloor !== null) ||
-        notAppliedTo.value,
+        notAppliedTo.value ||
+        payBandOnly.value,
     );
     /** Waiting on James: no status, whether the store wrote it or he just did. */
     const isWaiting = (posting: PostingSummary): boolean => posting.status === null;
@@ -443,7 +455,8 @@ export const QueueView = defineComponent({
         (posting) =>
           matchesQuery(posting, query.value) &&
           meetsMinScore(posting, minScore.value, props.compFloor, props.productWords) &&
-          !(notAppliedTo.value && appliedCompanies.value.has(posting.company)),
+          !(notAppliedTo.value && appliedCompanies.value.has(posting.company)) &&
+          (!payBandOnly.value || hasPayBand(posting)),
       ),
     );
     /*
@@ -532,6 +545,7 @@ export const QueueView = defineComponent({
       setMinScore,
       MIN_SCORES,
       notAppliedTo,
+      payBandOnly,
       emptyText,
       isCollapsed,
       toggleCompany,
@@ -553,6 +567,10 @@ export const QueueView = defineComponent({
         <label class="not-applied">
           <input type="checkbox" :checked="notAppliedTo" @change="notAppliedTo = $event.target.checked" />
           <span>Not applied to</span>
+        </label>
+        <label class="pay-band">
+          <input type="checkbox" :checked="payBandOnly" @change="payBandOnly = $event.target.checked" />
+          <span>Has pay band</span>
         </label>
         <p class="matched" role="status">{{ matchedText }}</p>
       </div>

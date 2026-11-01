@@ -46,6 +46,7 @@ import {
   companiesAppliedTo,
   companyHeadLabel,
   headAt,
+  hasPayBand,
   headOf,
   isApplication,
   matchesQuery,
@@ -2724,6 +2725,59 @@ test("a closed role does not count as applying, a rejected one does", async () =
     const text = textOf(app.root);
     assert.match(text, /Top role/, "closing Acme's other role was not applying");
     assert.doesNotMatch(text, /Mid role/, "a rejection at Bevel means he applied there");
+  } finally {
+    app.unmount();
+    restoreDom();
+  }
+});
+
+test("hasPayBand is true for a low, a high or both, false for neither", () => {
+  assert.equal(hasPayBand(posting("a::both", { comp_low: 1, comp_high: 2 })), true);
+  assert.equal(hasPayBand(posting("a::low", { comp_low: 1, comp_high: null })), true);
+  assert.equal(hasPayBand(posting("a::high", { comp_low: null, comp_high: 2 })), true);
+  assert.equal(hasPayBand(posting("a::none", { comp_low: null, comp_high: null })), false);
+});
+
+function payBandCheckbox(root: TreeNode): TreeNode {
+  const label = elementsWithClass(root, "pay-band")[0];
+  if (label === undefined) throw new Error("the queue rendered no pay-band filter");
+  const box = allNodes(label).find((node) => node.props["type"] === "checkbox");
+  if (box === undefined) throw new Error("the pay-band filter has no checkbox");
+  return box;
+}
+
+test("the has-pay-band filter hides postings with no band, and says how many", async () => {
+  const restoreDom = stubDom();
+  const unpaid = posting("cobalt::unpaid", {
+    company: "Cobalt",
+    title: "Unpaid role",
+    comp_low: null,
+    comp_high: null,
+  });
+  const app = mountTree(QueueView, {
+    postings: [ACME_TOP, unpaid, BEVEL_MID],
+    config: CONFIG,
+    freshToken: FRESH_TOKEN,
+    compFloor: null,
+  });
+  try {
+    assert.match(textOf(app.root), /Unpaid role/, "unchecked shows every posting");
+    (payBandCheckbox(app.root).props["onChange"] as (event: object) => void)({
+      target: { checked: true },
+    });
+    await nextTick();
+    assert.equal(textOf(matchedLine(app.root)!), "2 of 3");
+    const text = textOf(app.root);
+    assert.match(text, /Top role/);
+    assert.match(text, /Mid role/);
+    assert.doesNotMatch(text, /Unpaid role/);
+
+    (payBandCheckbox(app.root).props["onChange"] as (event: object) => void)({
+      target: { checked: false },
+    });
+    await nextTick();
+    assert.equal(textOf(matchedLine(app.root)!), "", "unchecked is no filter");
+    assert.match(textOf(app.root), /Unpaid role/);
   } finally {
     app.unmount();
     restoreDom();
