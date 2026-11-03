@@ -31,8 +31,13 @@ Run every command from the repository root.
 
   A nonzero exit stops here: show James its stderr.
 
-Every store read and write goes through `mcp__claude_ai_Supabase__execute_sql`
-with that ref. Load it, and nothing else, with ToolSearch first.
+Every store read and write goes through the Supabase `execute_sql` tool
+with that ref. Load it, and nothing else, with ToolSearch first: it is
+`mcp__claude_ai_Supabase__execute_sql` where connectors carry readable
+names, `mcp__fb8238cb-b279-482d-8cff-5e7e3467ad50__execute_sql` where they
+carry their IDs. The agents' `tools:` lines list both schemes, so a session
+with either launches them; a connector re-added under a new ID needs its
+new name added there.
 
 ## 2. Read, in parallel
 

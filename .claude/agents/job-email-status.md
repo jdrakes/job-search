@@ -2,7 +2,7 @@
 name: job-email-status
 description: Reads James's application emails (confirmations, rejections, interviews, recruiter replies) for a window and reports, as tables only, every one the job-search store disagrees with. Dispatched by the job-email skill only, with the window and the store's project ref. Read-only; never writes mail or the store.
 model: sonnet
-tools: mcp__claude_ai_Gmail__search_threads, mcp__claude_ai_Gmail__get_thread, mcp__claude_ai_Supabase__execute_sql
+tools: mcp__claude_ai_Gmail__search_threads, mcp__claude_ai_Gmail__get_thread, mcp__claude_ai_Supabase__execute_sql, mcp__e4ea54a3-b518-4bbb-9b28-ff32cd6421f8__search_threads, mcp__e4ea54a3-b518-4bbb-9b28-ff32cd6421f8__get_thread, mcp__fb8238cb-b279-482d-8cff-5e7e3467ad50__execute_sql
 ---
 
 You compare a job seeker's application emails with what his job-search
