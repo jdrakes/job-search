@@ -72,7 +72,7 @@ window is listed one UTC day at a time instead:
      workable.com, workablemail.com, jobvite.com, bamboohr.com,
      clinchtalent.com), LinkedIn Easy Apply and Indeed Apply
      confirmations, company no-reply, careers, talent and recruiting
-     addresses, an interview booking (Calendly and the like), and a person
+     addresses, a scheduling tool's interview booking, and a person
      replying about a role James applied to.
 5. Cut the suggestions list into batches of at most 10 threads, in date
    order. A digest costs an agent about 6K tokens; ten keep it well clear
