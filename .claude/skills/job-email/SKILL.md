@@ -6,14 +6,15 @@ argument-hint: "[since: YYYY-MM-DD or Nd, default 7d]"
 
 # job-email
 
-Two read-only agents read the mail in parallel: `job-email-status`
+This skill lists the window's mail itself, then read-only agents read the
+threads it hands them, in parallel: `job-email-status`
 (`.claude/agents/job-email-status.md`) compares application emails with the
 store, and `job-email-suggestions` (`.claude/agents/job-email-suggestions.md`)
-lists suggested roles the tool did not show, each with its cause. This
-skill shows both, proposes corrections, and writes only the ones James
-picks. Design: the job email check bullet under Discovery in `docs/design.md`.
+lists suggested roles the tool did not show, each with its cause. The skill
+checks every handed thread was opened, shows both, proposes corrections,
+and writes only the ones James picks. Design: the job email check bullet under Discovery in `docs/design.md`.
 
-**Nothing is written until James has chosen.** Step 4 is a stop.
+**Nothing is written until James has chosen.** Step 5 is a stop.
 
 Run every command from the repository root.
 
@@ -22,7 +23,8 @@ Run every command from the repository root.
 - `since`: the argument. `YYYY-MM-DD` as given; `Nd` means N days before
   today; none means 7 days before today. Overlap with an earlier run is
   harmless: rows already right come back as MATCH. Gmail wants it as
-  `YYYY/MM/DD`.
+  `YYYY/MM/DD`, and reads a date as UTC midnight, so the window starts at
+  7pm Central the evening before; that overlap is harmless too.
 - The store's project ref is the first label of `SUPABASE_URL`:
 
   ```sh
@@ -32,23 +34,82 @@ Run every command from the repository root.
   A nonzero exit stops here: show James its stderr.
 
 Every store read and write goes through the Supabase `execute_sql` tool
-with that ref. Load it, and nothing else, with ToolSearch first: it is
-`mcp__claude_ai_Supabase__execute_sql` where connectors carry readable
-names, `mcp__fb8238cb-b279-482d-8cff-5e7e3467ad50__execute_sql` where they
-carry their IDs. The agents' `tools:` lines list both schemes, so a session
-with either launches them; a connector re-added under a new ID needs its
-new name added there.
+with that ref, and the mail is listed with Gmail's `search_threads`. Load
+those two, and nothing else, with ToolSearch first. Where connectors carry
+readable names they are `mcp__claude_ai_Supabase__execute_sql` and
+`mcp__claude_ai_Gmail__search_threads`; where they carry their IDs,
+`mcp__fb8238cb-b279-482d-8cff-5e7e3467ad50__execute_sql` and
+`mcp__e4ea54a3-b518-4bbb-9b28-ff32cd6421f8__search_threads`. The agents'
+`tools:` lines list both schemes, so a session with either launches them;
+a connector re-added under a new ID needs its new name added there.
 
-## 2. Read, in parallel
+## 2. List the mail
 
-Dispatch both agents in one message so they run at the same time. Each
-prompt is one JSON object and nothing else:
+Gmail's search returns at most 50 threads, in no date order, and never a
+next page, so a search that hits the cap drops threads at random. The
+window is listed one UTC day at a time instead:
+
+1. For each day D from `since` through today: `after:D before:D+1`,
+   `pageSize` 50, `view` `THREAD_VIEW_MINIMAL`.
+2. A search is cut off when it returns 50 threads or its
+   `resultCountEstimate` is more than it returned. Run a cut-off search
+   again as two, one with `category:updates` added and one with
+   `-category:updates`. A half still cut off is incomplete: keep its day
+   for step 4.
+3. Dedupe by thread id; a thread that spans days comes back on each.
+4. Sort each thread by sender and subject into two lists. One that could
+   be either goes in both; one that is neither (personal mail,
+   newsletters, receipts, sign-in codes) in neither.
+   - **Suggestions**: job alerts and digests (LinkedIn jobs and job
+     alerts, Indeed jobalert and match, Glassdoor, Wellfound, BuiltIn,
+     Dice, ZipRecruiter, Workable digests, getclera.com, talenthop.com,
+     Ladders, Raydar, Jobgether, any other alert), and recruiter outreach
+     naming a role (LinkedIn hit-reply and inmail-hit-reply, a person
+     whose subject names a role).
+   - **Status**: ATS senders (ashbyhq.com, greenhouse-mail.io,
+     greenhouse.io, lever.co, myworkday.com, icims.com but not its
+     nurture marketing, rippling.com, gem.com, smartrecruiters.com,
+     workable.com, workablemail.com, jobvite.com, bamboohr.com,
+     clinchtalent.com), LinkedIn Easy Apply and Indeed Apply
+     confirmations, company no-reply, careers, talent and recruiting
+     addresses, an interview booking (Calendly and the like), and a person
+     replying about a role James applied to.
+5. Cut the suggestions list into batches of at most 10 threads, in date
+   order. A digest costs an agent about 6K tokens; ten keep it well clear
+   of its context.
+
+Keep the counts for step 4: days searched, threads listed, threads in each
+list, batches.
+
+## 3. Read, in parallel
+
+Dispatch, in one message so they run at the same time, one
+`job-email-status` agent with the whole status list and one
+`job-email-suggestions` agent per batch. Each prompt is one JSON object
+and nothing else:
 
 ```json
-{ "after": "<since as YYYY/MM/DD>", "project_id": "<ref>" }
+{ "after": "<since as YYYY/MM/DD>", "project_id": "<ref>", "threads": ["<id>", "..."] }
 ```
 
-## 3. Show James
+When every agent has returned:
+
+1. **Coverage.** Each agent lists the thread ids it opened. Any id it was
+   given and did not open goes once more, alone with the others it
+   missed, to a fresh agent of the same kind. An id still unopened is
+   named in step 4 with its sender and subject.
+2. **Merge the suggestions.** One row per role across batches, matched on
+   company and title ignoring case and punctuation. Keep the earliest
+   date and every source and date. Where two batches gave one role a
+   different cause or fit, show both and mark the row. Count roles,
+   fit-checked and missed from the merged rows; never add up the agents'
+   counts.
+
+## 4. Show James
+
+Above the tables, one line each: days searched, threads listed, threads
+in each list, agents run; any day still cut off; any thread no agent
+opened.
 
 Lead with what needs him, in this order, as tables:
 
@@ -69,10 +130,9 @@ Lead with what needs him, in this order, as tables:
 6. **Recruiters waiting on a reply**.
 7. Anything else worth knowing, one line each. MATCH rows only as a count.
 
-Relay quotes as the agents wrote them. When an agent says it did not read
-every page, say so above its tables.
+Relay quotes as the agents wrote them.
 
-## 4. Propose, and stop
+## 5. Propose, and stop
 
 Number every proposed write:
 
@@ -94,7 +154,7 @@ What can be proposed:
 Then ask: **"Which do I write? Numbers, `all`, `none`, or a row for each
 ambiguous one."** Wait for the answer.
 
-## 5. Write what he chose
+## 6. Write what he chose
 
 Each write is guarded on the values the agent saw, so a row James changed
 since is skipped, not overwritten. Today's date is `<today>` below.
@@ -153,7 +213,7 @@ values ('<name>', null, '<source, date, role and pay as the alert gave them>', '
 returning id, name, outcome;
 ```
 
-## 6. Report
+## 7. Report
 
 One table of what was written: row | before | after | result. Any
 SKIPPED row is named with the reason. End with one line on how to undo:
