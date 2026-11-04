@@ -1,7 +1,7 @@
 // The Postgres store adapter: `pg` straight onto the database, the archive
 // container or Supabase's session pooler. Every verb is one statement, with
 // the one exception the protocol forces in `upsert`. A failed query throws,
-// as `pg` already does.
+// as `pg` already does, after one more try when its connection was dead.
 import pg from "pg";
 
 import type { Table } from "../schema.ts";
@@ -99,15 +99,38 @@ function byColumns(rows: readonly object[]): readonly (readonly [readonly string
   return [...groups.values()];
 }
 
+// The socket failures of a pooled connection that died while idle at the
+// pooler or a NAT: the statement may never have reached the server.
+const DEAD_CONNECTION_CODES = new Set(["ETIMEDOUT", "ECONNRESET", "EPIPE"]);
+
+function deadConnection(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" && DEAD_CONNECTION_CODES.has(code);
+}
+
 export function postgresStore(config: PostgresConfig): Store {
   const query = config.queryImpl ?? pooledQuery(config.url);
 
-  async function run(text: string, values: readonly unknown[]): Promise<QueryResult> {
+  async function attempt(text: string, values: readonly unknown[]): Promise<QueryResult> {
     const started = performance.now();
     try {
       return await query(text, values);
     } finally {
       recordStoreRequests(1, performance.now() - started);
+    }
+  }
+
+  // One more try on a dead connection: `pg` has already discarded that
+  // client, so the pool dials a fresh one. Every statement here is safe to
+  // send twice: a select, an upsert on the primary key (every caller sets
+  // the key, a candidate's `id` included), an update or a delete by key.
+  // A second failure is thrown: the store is down, not one socket.
+  async function run(text: string, values: readonly unknown[]): Promise<QueryResult> {
+    try {
+      return await attempt(text, values);
+    } catch (error) {
+      if (!deadConnection(error)) throw error;
+      return await attempt(text, values);
     }
   }
 

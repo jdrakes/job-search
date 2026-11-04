@@ -567,3 +567,63 @@ test("no test reads JOB_SEARCH_DB_URL from the environment: the store of record 
   );
   assert.deepEqual(offenders, []);
 });
+
+// A query that fails with each of `failures` in turn, then answers `rows`.
+function failingQuery(
+  failures: readonly Error[],
+  rows: readonly Record<string, unknown>[] = [],
+): { calls: () => number; store: Store } {
+  let calls = 0;
+  const store = postgresStore({
+    url: "postgres://never-dialled",
+    queryImpl: async () => {
+      calls += 1;
+      const failure = failures[calls - 1];
+      if (failure !== undefined) throw failure;
+      return { rows, rowCount: rows.length };
+    },
+  });
+  return { calls: () => calls, store };
+}
+
+function withCode(message: string, code: string): Error {
+  return Object.assign(new Error(message), { code });
+}
+
+test("postgres repeats a statement once when its connection timed out, and returns the second answer", async () => {
+  const { calls, store } = failingQuery(
+    [withCode("read ETIMEDOUT", "ETIMEDOUT")],
+    [{ key: "Acme::1" }],
+  );
+
+  const rows = await store.select("postings");
+
+  assert.deepEqual(rows, [{ key: "Acme::1" }]);
+  assert.equal(calls(), 2);
+});
+
+test("postgres repeats a statement once when its connection was reset", async () => {
+  const { calls, store } = failingQuery([withCode("read ECONNRESET", "ECONNRESET")]);
+
+  await store.delete("postings", ["Acme::1"]);
+
+  assert.equal(calls(), 2);
+});
+
+test("postgres throws a second connection failure rather than repeating again", async () => {
+  const { calls, store } = failingQuery([
+    withCode("read ETIMEDOUT", "ETIMEDOUT"),
+    withCode("read ETIMEDOUT", "ETIMEDOUT"),
+  ]);
+
+  await assert.rejects(store.select("postings"), /ETIMEDOUT/);
+  assert.equal(calls(), 2);
+});
+
+test("postgres never repeats a statement the database refused", async () => {
+  // 23505 is Postgres's unique violation: the statement reached the server.
+  const { calls, store } = failingQuery([withCode("duplicate key value", "23505")]);
+
+  await assert.rejects(store.upsert("postings", [{ key: "Acme::1" }]), /duplicate key/);
+  assert.equal(calls(), 1);
+});
