@@ -272,6 +272,10 @@ test("parseBoardUrl: Eightfold's shared app host names no board", () => {
   assert.equal(parseBoardUrl("https://app.eightfold.ai/careers?domain=contoso.com"), null);
 });
 
+test("parseBoardUrl: Eightfold's error-reporting host names no board", () => {
+  assert.equal(parseBoardUrl("https://vs-errors.eightfold.ai/api/report"), null);
+});
+
 test("parseBoardUrl: a company's own careers host names no board, even when Eightfold serves it", () => {
   assert.equal(parseBoardUrl("https://careers.contoso.com/careers/job/12345"), null);
 });
