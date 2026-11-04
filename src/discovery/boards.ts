@@ -44,8 +44,9 @@ const SUBDOMAIN_SUFFIXES: ReadonlyArray<readonly [string, Platform]> = [
 ];
 
 // A vendor's own labels under its board domain, never a company's board:
-// `www.bamboohr.com`, the shared `app.eightfold.ai`.
-const VENDOR_LABELS = new Set(["www", "app"]);
+// `www.bamboohr.com`, the shared `app.eightfold.ai`, and the error reporter
+// `vs-errors.eightfold.ai` that an Eightfold careers page embeds.
+const VENDOR_LABELS = new Set(["www", "app", "vs-errors"]);
 
 // Personio's reader reads the whole listing host, `.de` or `.com`.
 const PERSONIO_HOST = /^[a-z0-9-]+\.jobs\.personio\.(de|com)$/;
