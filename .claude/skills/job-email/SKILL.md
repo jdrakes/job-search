@@ -45,17 +45,20 @@ a connector re-added under a new ID needs its new name added there.
 
 ## 2. List the mail
 
-Gmail's search returns at most 50 threads, in no date order, and never a
-next page, so a search that hits the cap drops threads at random. The
-window is listed one UTC day at a time instead:
+Gmail's search returns at most 50 threads, in no date order, and only
+sometimes a next page (none on 2026-11-03, one on 2026-11-04), so a search
+that hits the cap can drop threads at random. The window is listed one
+UTC day at a time:
 
 1. For each day D from `since` through today: `after:D before:D+1`,
-   `pageSize` 50, `view` `THREAD_VIEW_MINIMAL`.
-2. A search is cut off when it returns 50 threads or its
-   `resultCountEstimate` is more than it returned. Run a cut-off search
-   again as two, one with `category:updates` added and one with
-   `-category:updates`. A half still cut off is incomplete: keep its day
-   for step 4.
+   `pageSize` 50, `view` `THREAD_VIEW_MINIMAL`. While a reply carries a
+   `nextPageToken`, ask again with it.
+2. A search is cut off when its last page came with no `nextPageToken`
+   and it returned 50 threads in all, or fewer than its
+   `resultCountEstimate`. Run a cut-off search again as two, one with
+   `category:updates` added and one with `-category:updates`, each paged
+   the same way. A half still cut off is incomplete: keep its day for
+   step 4.
 3. Dedupe by thread id; a thread that spans days comes back on each.
 4. Sort each thread by sender and subject into two lists. One that could
    be either goes in both; one that is neither (personal mail,
