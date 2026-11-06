@@ -1681,7 +1681,10 @@ test("remote: a label or heading that only carries the word does not count as re
     "Work From Home Support",
     "Work From Home Opportunities",
   ]) {
-    const { reasons } = judgeText(posting({ body, location: "Boston, MA", workplace: null }), criteria());
+    const { reasons } = judgeText(
+      posting({ body, location: "Boston, MA", workplace: null }),
+      criteria(),
+    );
     assert.equal(reasonFor(reasons, "remote").verdict, "out", body);
   }
 });
@@ -1695,10 +1698,17 @@ test("remote: a Remote Type naming remote still affirms", () => {
 });
 
 test("remote: hybrid in the location is out unless it also names remote", () => {
-  const body = "We expect regular attendance, whether you're working in-office, hybrid, or fully remote.";
-  const out = judgeText(posting({ body, location: "San Francisco, CA - Hybrid", workplace: null }), criteria());
+  const body =
+    "We expect regular attendance, whether you're working in-office, hybrid, or fully remote.";
+  const out = judgeText(
+    posting({ body, location: "San Francisco, CA - Hybrid", workplace: null }),
+    criteria(),
+  );
   assert.equal(reasonFor(out.reasons, "remote").verdict, "out");
-  const both = judgeText(posting({ body, location: "Remote or Hybrid - Denver", workplace: null }), criteria());
+  const both = judgeText(
+    posting({ body, location: "Remote or Hybrid - Denver", workplace: null }),
+    criteria(),
+  );
   assert.equal(reasonFor(both.reasons, "remote").verdict, "in");
 });
 
@@ -1708,7 +1718,10 @@ test("remote: a stated hybrid arrangement overrules a mention of remote", () => 
     "This is a full-time, hybrid position within our NYC office.",
     "Team members in this role must live within commuting distance of our San Francisco hub. We offer flexibility to work from home.",
   ]) {
-    const { reasons } = judgeText(posting({ body, location: "New York, NY", workplace: null }), criteria());
+    const { reasons } = judgeText(
+      posting({ body, location: "New York, NY", workplace: null }),
+      criteria(),
+    );
     assert.equal(reasonFor(reasons, "remote").verdict, "out", body);
   }
 });
@@ -1762,7 +1775,11 @@ test("clearance: a required clearance is out", () => {
     "Active Secret Security Clearance with the ability to obtain Top Secret.",
     "Desired Qualifications:\nExperience with TAK.\nClearance Requirements:\nActive Secret clearance is required with the ability to obtain TS/SCI.",
   ]) {
-    assert.equal(reasonFor(judgeText(posting({ body }), criteria()).reasons, "clearance").verdict, "out", body);
+    assert.equal(
+      reasonFor(judgeText(posting({ body }), criteria()).reasons, "clearance").verdict,
+      "out",
+      body,
+    );
   }
 });
 
@@ -1776,6 +1793,10 @@ test("clearance: optional or obtainable is in", () => {
     "An interim and/or final U.S. Secret Clearance Post-Start is required.",
     "Only US persons can interview for this role due to security clearance requirements by our customers.",
   ]) {
-    assert.equal(reasonFor(judgeText(posting({ body }), criteria()).reasons, "clearance").verdict, "in", body);
+    assert.equal(
+      reasonFor(judgeText(posting({ body }), criteria()).reasons, "clearance").verdict,
+      "in",
+      body,
+    );
   }
 });

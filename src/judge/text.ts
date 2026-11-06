@@ -323,7 +323,8 @@ const INELIGIBILITY_SIGNALS = [
 // one. Pay-transparency notices and lists of states a role is closed in also
 // name several states, and say nothing of the kind.
 const STATE_ALLOW_LIST = /\bonly available\b|\bbased only in\b|\bin the following states\b/i;
-const NOT_AN_ALLOW_LIST = /\bnot considering\b|\bnot eligible\b|\bpay\b|\bsalary\b|\bcompensation\b/i;
+const NOT_AN_ALLOW_LIST =
+  /\bnot considering\b|\bnot eligible\b|\bpay\b|\bsalary\b|\bcompensation\b/i;
 
 function judgeExcludedStates(body: string, criteria: Criteria): Reason {
   const sentences = splitSentences(body);
@@ -1026,7 +1027,8 @@ const CLEARANCE_REQUIRED =
 const CLEARANCE_OPTIONAL =
   /\bnot required\b|\bplus\b|\bpreferred\b|\bor the ability\b|\bnice to have\b|\bno (?:security )?clearance\b|\bpost-start\b/i;
 const PREFERRED_HEADING = /^(?:-\s*)?(?:preferred|nice to have|bonus|desired)\b[^.]{0,40}:?$/i;
-const REQUIRED_HEADING = /^(?:-\s*)?[^.]{0,40}\b(?:required|requirements|qualifications)\b[^.]{0,30}:?$/i;
+const REQUIRED_HEADING =
+  /^(?:-\s*)?[^.]{0,40}\b(?:required|requirements|qualifications)\b[^.]{0,30}:?$/i;
 
 function judgeClearance(body: string): Reason {
   let underPreferred = false;
@@ -1041,7 +1043,11 @@ function judgeClearance(body: string): Reason {
     }
     if (underPreferred) continue;
     if (CLEARANCE_REQUIRED.test(sentence) && !CLEARANCE_OPTIONAL.test(sentence)) {
-      return { criterion: "clearance", verdict: "out", detail: `body requires a clearance: "${sentence}"` };
+      return {
+        criterion: "clearance",
+        verdict: "out",
+        detail: `body requires a clearance: "${sentence}"`,
+      };
     }
   }
   return { criterion: "clearance", verdict: "in", detail: "body requires no clearance" };
