@@ -33,7 +33,7 @@ elsewhere.
   every posting a job alert or recruiter suggested that the tool did not
   show him, each with its cause from the five above: that list is the
   recall measure. A role he already acted on, a role that has closed, a title
-  carrying a word he excluded and a title naming platform work are not misses. It writes nothing until James chooses; then it writes
+  carrying a word he excluded, a title naming platform work and a stored row his criteria hid are not misses. It writes nothing until James chooses; then it writes
   only what he chose, as he would in the list: a status and its dates,
   a row for an application the tool never read, a company as a candidate
   of origin James. A job-listing site (Ladders, Clera, Raydar) is not the
