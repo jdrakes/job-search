@@ -275,3 +275,14 @@ test("getThread falls back to the status line, and catches a network failure", a
   assert.ok(!network.ok && network.reason.includes("ECONNRESET"));
   assert.ok(!network.ok && !network.reason.includes(TOKEN));
 });
+
+// Breaks if the reason goes back to quoting the parser's error: V8's message
+// holds a fragment of the body, which can hold mail, and the skill shows
+// failure reasons in the session.
+test("getThread gives a plain reason when the reply is not JSON", async () => {
+  const marker = "periwinkle-offer-from-tobias";
+  const { fetch } = recordingFetch(() => new Response(`${marker} is not json`, { status: 200 }));
+  const result = await getThread(TOKEN, "t1", fetch);
+  assert.deepEqual(result, { ok: false, reason: "Gmail reply was not JSON" });
+  assert.ok(!JSON.stringify(result).includes(marker));
+});

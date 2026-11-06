@@ -54,10 +54,12 @@ async function getJson(
   if (!response.ok) {
     return { ok: false, reason: `Gmail request failed: ${await failureReason(response)}` };
   }
+  // The parser's message quotes the text it failed on, which can hold mail,
+  // and the skill shows failure reasons in the session, so it is dropped.
   try {
     return { ok: true, value: await response.json() };
-  } catch (error) {
-    return { ok: false, reason: `Gmail reply was not JSON: ${describeError(error)}` };
+  } catch {
+    return { ok: false, reason: "Gmail reply was not JSON" };
   }
 }
 
