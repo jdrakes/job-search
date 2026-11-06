@@ -59,6 +59,7 @@ const COUNTRY_TERMS = [
   "Bosnia",
   "Botswana",
   "Brazil",
+  "Brasil",
   "Brunei",
   "Bulgaria",
   "Burkina Faso",

@@ -1207,3 +1207,7 @@ test("judgeCountry: a title naming no country leaves the location verdict alone"
   assert.equal(judgeCountry("Warsaw", criteria(), "Staff Engineer").verdict, "in");
   assert.equal(judgeCountry("Toronto, Canada", criteria(), "Staff Engineer").verdict, "out");
 });
+
+test("country: Brasil, the Portuguese spelling, is a foreign country", () => {
+  assert.equal(judgeCountry("Brasil", criteria()).verdict, "out");
+});
