@@ -225,14 +225,16 @@ test("refreshToken posts the refresh token and keeps it in the result", async ()
   ]);
 });
 
-test("needsRefresh is true within 60 seconds of expiry and false an hour out", () => {
+// Breaks if the margin in oauth.ts moves off 10 minutes: below 9 the first case
+// fails and above 11 the second does.
+test("needsRefresh is true with 9 minutes left and false with 11", () => {
   const expiringIn = (seconds: number): Token => ({
     ...STORED,
     expiresAt: new Date(NOW.getTime() + seconds * 1000).toISOString(),
   });
-  assert.equal(needsRefresh(expiringIn(30), NOW), true);
+  assert.equal(needsRefresh(expiringIn(9 * 60), NOW), true);
+  assert.equal(needsRefresh(expiringIn(11 * 60), NOW), false);
   assert.equal(needsRefresh(expiringIn(-30), NOW), true);
-  assert.equal(needsRefresh(expiringIn(3600), NOW), false);
 });
 
 test("keychainStore reads the named item and parses its JSON, ignoring the trailing newline", async () => {

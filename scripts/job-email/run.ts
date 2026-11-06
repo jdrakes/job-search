@@ -2,10 +2,11 @@
 //
 //   node --env-file=.env scripts/job-email/run.ts [since]
 //
-// `since` is YYYY-MM-DD or Nd, default 7d. Mail stays on this machine: it goes
-// from Gmail to the local model to files under captures/job-email/<since>/,
-// which .gitignore covers. The one printed line is the path of summary.json;
-// the log carries thread ids only.
+// `since` is YYYY-MM-DD or Nd, default 7d. This script sends mail only to the
+// local model, and writes rows to files under captures/job-email/<since>/, which
+// .gitignore covers. Those rows are not private to this machine: the agents read
+// them, so their quotes and full_text reach the agents' model. The one printed
+// line is the path of summary.json; the log carries thread ids only.
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import process from "node:process";
@@ -120,8 +121,8 @@ function batchOf(path: string, rows: readonly Row[]): Batch {
 
 function writeSuggestionBatches(directory: string, rows: readonly Row[]): readonly Batch[] {
   removeSuggestionBatches(directory);
-  const byDate = rows.toSorted((a, b) =>
-    (a.messages[0]?.date ?? "").localeCompare(b.messages[0]?.date ?? ""),
+  const byDate = rows.toSorted((first, second) =>
+    (first.messages[0]?.date ?? "").localeCompare(second.messages[0]?.date ?? ""),
   );
   const batches: Batch[] = [];
   for (let start = 0; start < byDate.length; start += SUGGESTIONS_BATCH_SIZE) {

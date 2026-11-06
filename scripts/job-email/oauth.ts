@@ -45,9 +45,10 @@ export interface TokenStore {
 }
 
 export const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
-// A token this close to expiry is refreshed first, so it cannot lapse
-// between being read and being used.
-const REFRESH_MARGIN_MS = 60_000;
+// A token this close to expiry is refreshed first. One token serves a run's
+// whole read of hundreds of threads, so it must outlast that read, not only the
+// next request.
+const REFRESH_MARGIN_MS = 600_000;
 
 const KEYCHAIN_SERVICE = "job-search-gmail";
 const KEYCHAIN_ACCOUNT = "token";
