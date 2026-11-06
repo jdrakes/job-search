@@ -60,16 +60,19 @@ test("extractItems rejects an item whose kind is not in the enum", async () => {
   assert.equal(result.ok, false);
 });
 
-test("extractItems returns ok false for a reply that is not JSON", async () => {
-  const { fetch } = recordingFetch(() => chatReply("not json at all"));
+test("a model reply that is not JSON gives a plain reason that does not quote it", async () => {
+  const { fetch } = recordingFetch(() => chatReply("Dear Wren Halloway, your offer is ready"));
   const result = await extractItems("mail", fetch);
-  assert.equal(result.ok, false);
+  assert.deepEqual(result, { ok: false, reason: "reply is not JSON" });
+  assert.ok(!JSON.stringify(result).includes("Halloway"));
 });
 
-test("extractItems returns ok false when the body is not JSON", async () => {
-  const { fetch } = recordingFetch(() => new Response("<html>oops</html>"));
+test("an HTTP body that is not JSON gives a plain reason that does not quote it", async () => {
+  // The marker sits at the start because the parser's error quotes the opening of the text.
+  const { fetch } = recordingFetch(() => new Response("Halloway offer letter"));
   const result = await extractItems("mail", fetch);
-  assert.equal(result.ok, false);
+  assert.deepEqual(result, { ok: false, reason: "reply is not JSON" });
+  assert.ok(!JSON.stringify(result).includes("Halloway"));
 });
 
 test("extractItems returns ok false with the error for a 500", async () => {

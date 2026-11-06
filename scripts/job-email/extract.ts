@@ -129,6 +129,16 @@ export async function ollamaReady(
   }
 }
 
+// The reason never quotes the text or the parser's error: the skill shows failure reasons in the
+// session, and either can hold a fragment of personal mail.
+function parseJson(text: string): Result<unknown> {
+  try {
+    return { ok: true, value: JSON.parse(text) };
+  } catch {
+    return { ok: false, reason: "reply is not JSON" };
+  }
+}
+
 export async function extractItems(
   email: string,
   fetch: typeof globalThis.fetch = globalThis.fetch,
@@ -150,7 +160,9 @@ export async function extractItems(
       }),
       signal: AbortSignal.timeout(280_000),
     });
-    const body: unknown = await response.json();
+    const parsedBody = parseJson(await response.text());
+    if (!parsedBody.ok) return parsedBody;
+    const body = parsedBody.value;
     if (!isRecord(body)) return { ok: false, reason: "reply is not an object" };
     if (!response.ok)
       return { ok: false, reason: `status ${response.status}: ${String(body["error"])}` };
@@ -165,13 +177,9 @@ export async function extractItems(
     if (!isRecord(message) || typeof message["content"] !== "string") {
       return { ok: false, reason: "reply has no message content" };
     }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(message["content"]);
-    } catch {
-      return { ok: false, reason: `reply is not JSON: ${message["content"].slice(0, 120)}` };
-    }
-    return parseItems(parsed);
+    const parsed = parseJson(message["content"]);
+    if (!parsed.ok) return parsed;
+    return parseItems(parsed.value);
   } catch (error) {
     return { ok: false, reason: `request failed: ${describeError(error)}` };
   }
