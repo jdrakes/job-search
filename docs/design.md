@@ -39,6 +39,14 @@ elsewhere.
   of origin James. A job-listing site (Ladders, Clera, Raydar) is not the
   employer; the employer it names is. A recruiter's screen for a role he
   did not apply to is not an application.
+- The queue review, a skill run by hand, judges what the criteria cannot: each
+  queue row is sorted into close, keep or James's call, with quoted evidence,
+  from his close notes, his goals and what he did at that company. Each close
+  group is tested against what he did with similar rows. It writes nothing until
+  he chooses, and then only `closed` with the reason in the note, which the next
+  review learns from, or a note that he kept the row, so it is not judged again.
+  His preferences live in the store and his goals, not in the skill. A close a criteria rule should have caught is named as a filter gap
+  and fixed separately.
 - A candidate is a claim that a name may be worth reading. A company is an
   employer the tool reads. Every name enters as a candidate, whatever
   suggested it, and discovery alone turns candidates into companies. The
