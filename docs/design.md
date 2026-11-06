@@ -200,8 +200,15 @@ elsewhere.
     nothing and its location does; a stated office requirement in the text
     overrules either, unless the text also carries the recruiter's own
     remote tag or the location names Remote — a posting tagged or labelled
-    remote is remote, whatever else its prose says. Excluded states, until
-    the restriction lifts.
+    remote is remote, whatever else its prose says. A location that says
+    hybrid and does not name Remote is out. A field label or benefit heading
+    that only carries the word ("Remote Days: Monday and Friday", "Work From
+    Home Support") affirms nothing. Excluded states, until the restriction
+    lifts: out where the text names one as ineligible, and where it lists
+    the only states a role is open in and leaves one out.
+  - No required clearance: a posting that requires a security clearance he
+    would need to hold on day one is out, since he holds none. One that
+    prefers a clearance, or asks only for the ability to obtain one, is in.
   - United States only: a posting whose location names another country, or
     whose text restricts it to one, is out, and so is one whose title names
     another country when neither the title nor the location names a place

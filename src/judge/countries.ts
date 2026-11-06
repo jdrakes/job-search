@@ -59,6 +59,7 @@ const COUNTRY_TERMS = [
   "Bosnia",
   "Botswana",
   "Brazil",
+  "Brasil",
   "Brunei",
   "Bulgaria",
   "Burkina Faso",
@@ -401,6 +402,16 @@ function firstMatch(text: string, patterns: readonly (readonly [string, RegExp])
     if (pattern.test(normalized)) return term;
   }
   return null;
+}
+
+// The states a text names, by name or by capitalised abbreviation, as names.
+// The two lists run in the same order.
+export function usStatesNamed(text: string): readonly string[] {
+  return US_STATE_NAMES.filter(
+    (name, index) =>
+      new RegExp(`\\b${name}\\b`, "i").test(text) ||
+      new RegExp(`\\b${US_STATE_ABBREVIATIONS[index]}\\b`).test(text),
+  );
 }
 
 // Null is the design's default case, "a posting that names no country is

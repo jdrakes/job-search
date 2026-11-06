@@ -1,7 +1,7 @@
 // The five criteria judged off a posting's body; `judge.ts` runs them only
 // on what `listing.ts` kept.
 import type { Criteria, Posting, Workplace } from "../schema.ts";
-import { foreignPlace, unitedStatesPlace } from "./countries.ts";
+import { foreignPlace, unitedStatesPlace, usStatesNamed } from "./countries.ts";
 import type { Reason } from "./listing.ts";
 import { findWholeWord, wholeWordPattern } from "./whole-word.ts";
 
@@ -108,8 +108,15 @@ const HYBRID_REMOTE_LINE = /^(?:hybrid\s*\/\s*remote|remote\s*\/\s*hybrid)$/i;
 // its prose says.
 const RECRUITER_REMOTE_TAG = /#LI[\s-]?remote\b/i;
 
+// Field labels and benefit headings that carry the word without saying the
+// role is remote: "Remote Days: Monday and Friday", "Remote Type: In-Office",
+// "Work From Home Support". "Remote Type: Fully Remote" still affirms.
+const NOT_A_REMOTE_STATEMENT =
+  /^(?:remote days?\b|remote type:?\s*(?:in[- ]office|on[- ]?site|hybrid)\b|work from home (?:support|opportunities)$)/i;
+
 function affirmsRemoteRole(sentence: string): boolean {
   const stripped = sentence.startsWith("- ") ? sentence.slice(2) : sentence;
+  if (NOT_A_REMOTE_STATEMENT.test(stripped)) return false;
   // "Work from home allowance" is a perk, not the role's arrangement.
   const unconditional = matchesAny(sentence, UNCONDITIONAL_REMOTE_AFFIRMATIONS);
   if (unconditional !== null && matchesAny(sentence, PERK_SIGNALS) === null) return true;
@@ -207,10 +214,20 @@ function partialRemoteWithOffice(sentence: string): string | null {
   return null;
 }
 
+// These state the arrangement outright, so they are read before the sentence
+// is asked whether it also mentions remote: "flexibility to work remotely"
+// follows "considered a hybrid" in the same sentence. A clause conditioned on
+// where the candidate lives ("if you live within commuting distance") is not
+// a requirement.
+const STATED_HYBRID =
+  /\bwithin commuting distance\b|\bfull-time, hybrid (?:role|position)\b|\bconsidered a hybrid\b/i;
+
 // The office requirement this clause states, or null: a clause that says the
 // role is remote is answering the question, and a perks clause is not a
 // requirement.
 function officeRequirement(sentence: string): string | null {
+  const stated = STATED_HYBRID.exec(sentence);
+  if (stated !== null && !insideConditionalClause(sentence, stated.index)) return stated[0];
   const partial = partialRemoteWithOffice(sentence);
   if (partial !== null) return partial;
   if (affirmsRemoteRole(sentence)) return null;
@@ -257,6 +274,9 @@ function judgeRemote(body: string, location: string | null, workplace: Workplace
       detail: `board states ${workplace}`,
     };
   }
+  if (location !== null && /\bhybrid\b/i.test(location) && !locationAffirmsRemote(location)) {
+    return { criterion: "remote", verdict: "out", detail: `location says hybrid: "${location}"` };
+  }
   const sentences = splitSentences(body);
   if (!RECRUITER_REMOTE_TAG.test(body) && !locationAffirmsRemote(location)) {
     for (const sentence of sentences) {
@@ -299,6 +319,13 @@ const INELIGIBILITY_SIGNALS = [
   "restricted from",
 ] as const;
 
+// A sentence listing the only states a role is open in rules out every other
+// one. Pay-transparency notices and lists of states a role is closed in also
+// name several states, and say nothing of the kind.
+const STATE_ALLOW_LIST = /\bonly available\b|\bbased only in\b|\bin the following states\b/i;
+const NOT_AN_ALLOW_LIST =
+  /\bnot considering\b|\bnot eligible\b|\bpay\b|\bsalary\b|\bcompensation\b/i;
+
 function judgeExcludedStates(body: string, criteria: Criteria): Reason {
   const sentences = splitSentences(body);
   for (const sentence of sentences) {
@@ -310,6 +337,19 @@ function judgeExcludedStates(body: string, criteria: Criteria): Reason {
         criterion: "excluded_states",
         verdict: "out",
         detail: `body names "${state.term}" as ineligible: "${sentence}"`,
+      };
+    }
+  }
+  for (const sentence of sentences) {
+    if (!STATE_ALLOW_LIST.test(sentence) || NOT_AN_ALLOW_LIST.test(sentence)) continue;
+    const named = usStatesNamed(sentence);
+    if (named.length < 2) continue;
+    const missing = criteria.excluded_states.find((state) => !named.includes(state));
+    if (missing !== undefined) {
+      return {
+        criterion: "excluded_states",
+        verdict: "out",
+        detail: `body lists the states it hires in, without "${missing}": "${sentence}"`,
       };
     }
   }
@@ -979,6 +1019,40 @@ function judgeBonus(compHigh: number | null, body: string, criteria: Criteria): 
   };
 }
 
+// A clearance the posting asks for outright. James holds none. "Ability to
+// obtain" and "Post-Start" are not asked of him on day one, and a bare "An active clearance"
+// line under a Preferred heading only welcomes one.
+const CLEARANCE_REQUIRED =
+  /(?:\bclearance\b|\bTS\/SCI\b)[^.]{0,40}\brequired\b|^(?:-\s*)?(?:possess\s+an?\s+|an?\s+)?(?:active|current)\b.{0,60}(?:\bclearance\b|\bTS\/SCI\b)/i;
+const CLEARANCE_OPTIONAL =
+  /\bnot required\b|\bplus\b|\bpreferred\b|\bor the ability\b|\bnice to have\b|\bno (?:security )?clearance\b|\bpost-start\b/i;
+const PREFERRED_HEADING = /^(?:-\s*)?(?:preferred|nice to have|bonus|desired)\b[^.]{0,40}:?$/i;
+const REQUIRED_HEADING =
+  /^(?:-\s*)?[^.]{0,40}\b(?:required|requirements|qualifications)\b[^.]{0,30}:?$/i;
+
+function judgeClearance(body: string): Reason {
+  let underPreferred = false;
+  for (const sentence of splitSentences(body)) {
+    if (PREFERRED_HEADING.test(sentence)) {
+      underPreferred = true;
+      continue;
+    }
+    if (REQUIRED_HEADING.test(sentence)) {
+      underPreferred = false;
+      continue;
+    }
+    if (underPreferred) continue;
+    if (CLEARANCE_REQUIRED.test(sentence) && !CLEARANCE_OPTIONAL.test(sentence)) {
+      return {
+        criterion: "clearance",
+        verdict: "out",
+        detail: `body requires a clearance: "${sentence}"`,
+      };
+    }
+  }
+  return { criterion: "clearance", verdict: "in", detail: "body requires no clearance" };
+}
+
 export function judgeText(
   posting: Pick<Posting, "body" | "location" | "comp_high" | "workplace">,
   criteria: Criteria,
@@ -989,6 +1063,7 @@ export function judgeText(
     judgeExcludedStates(body, criteria),
     judgeCountryRestriction(body),
     judgeMissingLanguages(body, criteria),
+    judgeClearance(body),
     judgeBonus(posting.comp_high, body, criteria),
   ];
   return { kept: reasons.every((reason) => reason.verdict === "in"), reasons };

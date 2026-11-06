@@ -1673,3 +1673,130 @@ test("remote: an if or unless clause covers only itself, not the sentence's requ
     assert.match(remote.detail, /^body requires office attendance/, body);
   }
 });
+
+test("remote: a label or heading that only carries the word does not count as remote", () => {
+  for (const body of [
+    "Work Model: Hybrid\nRemote Days: Monday and Friday",
+    "Remote Type: In-Office",
+    "Work From Home Support",
+    "Work From Home Opportunities",
+  ]) {
+    const { reasons } = judgeText(
+      posting({ body, location: "Boston, MA", workplace: null }),
+      criteria(),
+    );
+    assert.equal(reasonFor(reasons, "remote").verdict, "out", body);
+  }
+});
+
+test("remote: a Remote Type naming remote still affirms", () => {
+  const { reasons } = judgeText(
+    posting({ body: "Remote Type: Fully Remote", location: "Boston, MA", workplace: null }),
+    criteria(),
+  );
+  assert.equal(reasonFor(reasons, "remote").verdict, "in");
+});
+
+test("remote: hybrid in the location is out unless it also names remote", () => {
+  const body =
+    "We expect regular attendance, whether you're working in-office, hybrid, or fully remote.";
+  const out = judgeText(
+    posting({ body, location: "San Francisco, CA - Hybrid", workplace: null }),
+    criteria(),
+  );
+  assert.equal(reasonFor(out.reasons, "remote").verdict, "out");
+  const both = judgeText(
+    posting({ body, location: "Remote or Hybrid - Denver", workplace: null }),
+    criteria(),
+  );
+  assert.equal(reasonFor(both.reasons, "remote").verdict, "in");
+});
+
+test("remote: a stated hybrid arrangement overrules a mention of remote", () => {
+  for (const body of [
+    "This role is considered a hybrid, which means you'll be assigned to an office and given the flexibility to work remotely.",
+    "This is a full-time, hybrid position within our NYC office.",
+    "Team members in this role must live within commuting distance of our San Francisco hub. We offer flexibility to work from home.",
+  ]) {
+    const { reasons } = judgeText(
+      posting({ body, location: "New York, NY", workplace: null }),
+      criteria(),
+    );
+    assert.equal(reasonFor(reasons, "remote").verdict, "out", body);
+  }
+});
+
+test("remote: commuting distance inside a condition is not a requirement", () => {
+  const { reasons } = judgeText(
+    posting({
+      body: "This is a remote position. If you live within commuting distance of an office, you are welcome to use it.",
+      location: "United States",
+      workplace: null,
+    }),
+    criteria(),
+  );
+  assert.equal(reasonFor(reasons, "remote").verdict, "in");
+});
+
+test("excluded states: a list of the only states open, without his, is out", () => {
+  const body =
+    "This position is only available for remote employment in the United States in the following states: CA, GA, NY, NC, TN, TX, and WA";
+  const { reasons } = judgeText(posting({ body }), criteria({ excluded_states: ["Alabama"] }));
+  const excluded = reasonFor(reasons, "excluded_states");
+  assert.equal(excluded.verdict, "out");
+  assert.match(excluded.detail, /Alabama/);
+});
+
+test("excluded states: a list of the only states open that names his is in", () => {
+  for (const body of [
+    "Only available in the following states: AL, GA, and TN.",
+    "This role is only available to candidates in Alabama, Georgia and Texas.",
+  ]) {
+    const { reasons } = judgeText(posting({ body }), criteria({ excluded_states: ["Alabama"] }));
+    assert.equal(reasonFor(reasons, "excluded_states").verdict, "in", body);
+  }
+});
+
+test("excluded states: a pay notice or a closed-states list is not a list of open states", () => {
+  for (const body of [
+    "Pay transparency laws apply to employers in the following states: California, Colorado.",
+    "We are not considering candidates residing in the following states: AK, DE, IA.",
+    "Equity is only available after one year.",
+  ]) {
+    const { reasons } = judgeText(posting({ body }), criteria({ excluded_states: ["Alabama"] }));
+    assert.equal(reasonFor(reasons, "excluded_states").verdict, "in", body);
+  }
+});
+
+test("clearance: a required clearance is out", () => {
+  for (const body of [
+    "An active or rein-statable TS/SCI with Polygraph security clearance is REQUIRED. Please do not apply otherwise.",
+    "Remote Type: In-Office\nClearance required: Current Top Secret.",
+    "Active Secret Security Clearance with the ability to obtain Top Secret.",
+    "Desired Qualifications:\nExperience with TAK.\nClearance Requirements:\nActive Secret clearance is required with the ability to obtain TS/SCI.",
+  ]) {
+    assert.equal(
+      reasonFor(judgeText(posting({ body }), criteria()).reasons, "clearance").verdict,
+      "out",
+      body,
+    );
+  }
+});
+
+test("clearance: optional or obtainable is in", () => {
+  for (const body of [
+    "Clearance: not required. An active or previous clearance is a plus.",
+    "Active US Secret Clearance or the ability to obtain a U.S. Security Clearance.",
+    "Ability to obtain an active U.S. Security Clearance for which the U.S. Government requires U.S. Citizenship.",
+    "Preferred\nAn active government security clearance.\nExperience with federal programs.",
+    "No security clearance required.",
+    "An interim and/or final U.S. Secret Clearance Post-Start is required.",
+    "Only US persons can interview for this role due to security clearance requirements by our customers.",
+  ]) {
+    assert.equal(
+      reasonFor(judgeText(posting({ body }), criteria()).reasons, "clearance").verdict,
+      "in",
+      body,
+    );
+  }
+});
