@@ -46,11 +46,14 @@ window's mail, and checks that you opened each one.
    TalentHop list other companies' roles: match on the employer the
    listing names, and when it names none, say "employer not named".
 4. Check the store only for roles that could fit: Staff, Senior Staff,
-   Principal, Architect or Senior; backend, full-stack or platform; US
-   remote. A role that needs an office, on-site or hybrid, in any city is
-   NO. For each:
+   Architect or Senior; backend, full-stack or platform; US remote. A role
+   that needs an office, on-site or hybrid, in any city is NO, and so is a
+   title carrying an `excluded_title_words` word, because James ruled those
+   out. For each:
    - `postings` by company (`ilike`, try short forms) and a similar title:
-     key, status, kept, reasons.
+     key, status, kept, reasons, gone_at. A matching row with a status, or
+     with `gone_at` set, is not a miss: James already acted on it or it has
+     closed. It goes in "In the store" and gets no cause or fit.
    - `companies`: watched, which board, dropped?
    - `candidates`: pending, or which outcome?
 5. Give each miss its cause, one of: **company unknown** (no company, no
@@ -63,10 +66,11 @@ window's mail, and checks that you opened each one.
    place or pay fails, or `reasons` names a rule; name the word or rule),
    **company dropped**, or
    **employer not named**.
-6. Label fit: FIT is Staff or above, backend, full-stack or platform, US
-   remote, and the top of the range at or above `comp_floor`, or no pay
-   stated. MAYBE is close on one of those. NO is the rest, and any role that
-   needs an office is NO, not MAYBE.
+6. Label fit: FIT carries a `level_words` word and no `excluded_title_words`
+   word, is backend, full-stack or platform, US remote, and the top of the
+   range is at or above `comp_floor`, or no pay stated. MAYBE is close on one
+   of those. NO is the rest, and any role that needs an office or carries an
+   excluded word is NO, not MAYBE.
 
 ## Reply
 
