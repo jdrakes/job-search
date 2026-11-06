@@ -53,7 +53,10 @@ window's mail, and checks that you opened each one.
    - `postings` by company (`ilike`, try short forms) and a similar title:
      key, status, kept, reasons, gone_at. A matching row with a status, or
      with `gone_at` set, is not a miss: James already acted on it or it has
-     closed. It goes in "In the store" and gets no cause or fit.
+     closed. It goes in "In the store" and gets no cause or fit. A matching
+     row with `kept` false and a rule in `reasons` is NO, whatever its title
+     and pay: the rule is one James set, such as `missing_languages` or
+     `age`, which the title never shows. Name the rule as its cause.
    - `companies`: watched, which board, dropped?
    - `candidates`: pending, or which outcome?
 5. Give each miss its cause, one of: **company unknown** (no company, no
@@ -70,7 +73,7 @@ window's mail, and checks that you opened each one.
    word, is backend or full-stack, US remote, and the top of the range is at
    or above `comp_floor`, or no pay stated. MAYBE is close on one of those. NO
    is the rest, and any role that needs an office, carries an excluded word or
-   names platform work is NO, not MAYBE.
+   names platform work, or that a stored row's `reasons` hid, is NO, not MAYBE.
 
 ## Reply
 
