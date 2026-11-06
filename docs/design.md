@@ -38,6 +38,14 @@ elsewhere.
   of origin James. A job-listing site (Ladders, Clera, Raydar) is not the
   employer; the employer it names is. A recruiter's screen for a role he
   did not apply to is not an application.
+  A model on his own machine reads the mail one thread at a time, with no tools,
+  and returns rows: the roles and application updates it names, with a quote the
+  check proves word for word. An agent compares those rows with a read-only copy
+  of the store. A thread that could change a status, or that James replied on,
+  also reaches the agent whole, because a row can lose what the email meant: a
+  hold is not a rejection. The agents hold no mail access and no way to write;
+  the session he talks to writes, after he chooses. This is the check's model,
+  not the run's: the run still has none.
 - A candidate is a claim that a name may be worth reading. A company is an
   employer the tool reads. Every name enters as a candidate, whatever
   suggested it, and discovery alone turns candidates into companies. The
