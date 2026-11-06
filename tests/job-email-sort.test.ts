@@ -53,10 +53,24 @@ test("row 5: mixed senders are both", () => {
   }
 });
 
-test("row 5: a ladders or raydar label makes it both", () => {
-  assert.equal(sorted(message("a@unknown.example", "Hi", ["Ladders"])), "both");
-  assert.equal(sorted(message("a@unknown.example", "Receipt", ["theladders"])), "both");
-  assert.equal(sorted(message("a@unknown.example", "Receipt", ["raydar"])), "both");
+test("row 5: a Ladders sender with a promotions label is both", () => {
+  const ladders = message("alerts@mail.theladders.com", "New roles", ["CATEGORY_PROMOTIONS"]);
+  assert.equal(sorted(ladders), "both");
+});
+
+test("row 5: a Raydar sender with a promotions label is both", () => {
+  const raydar = message("hello@mail.raydar.example", "An intro", ["CATEGORY_PROMOTIONS"]);
+  assert.equal(sorted(raydar), "both");
+});
+
+test("row 5 reads the sender's domain: a Gmail label of that name changes nothing", () => {
+  assert.equal(sorted(message("a@shop.example", "Receipt", ["theladders"])), "neither");
+  assert.equal(sorted(message("a@shop.example", "Receipt", ["raydar"])), "neither");
+});
+
+test("row 5 matches a whole domain label: a lookalike domain is not a listing site", () => {
+  const lookalike = message("a@notraydar.example", "Sale", ["CATEGORY_PROMOTIONS"]);
+  assert.equal(sorted(lookalike), "neither");
 });
 
 test("row 6: ATS vendors are status", () => {

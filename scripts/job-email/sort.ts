@@ -24,7 +24,8 @@ const MIXED_DOMAINS = [
   "workable.com",
   "workablemail.com",
 ];
-const MIXED_LABELS = ["ladders", "theladders", "raydar"];
+// DNS labels of the sender's domain, not Gmail labels: mail.theladders.com has "theladders".
+const MIXED_DOMAIN_LABELS = ["ladders", "theladders", "raydar"];
 const STATUS_DOMAINS = [
   "ashbyhq.com",
   "greenhouse-mail.io",
@@ -62,7 +63,10 @@ export function sortThread(thread: GmailThread, windowMessages: readonly GmailMe
   if (first.sender === ALERT_SENDER) return "suggestions";
   if (inDomains(domain, ALERT_DOMAINS)) return "suggestions";
   if (inDomains(domain, BOARD_DOMAINS)) return "suggestions";
-  if (inDomains(domain, MIXED_DOMAINS) || windowLabels.some((l) => MIXED_LABELS.includes(l))) {
+  if (
+    inDomains(domain, MIXED_DOMAINS) ||
+    domain.split(".").some((domainLabel) => MIXED_DOMAIN_LABELS.includes(domainLabel))
+  ) {
     return "both";
   }
   if (inDomains(domain, STATUS_DOMAINS)) return "status";
