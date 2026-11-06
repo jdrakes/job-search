@@ -233,6 +233,37 @@ test("a thread with no items is unclassified and in no rows file or threads list
   });
 });
 
+// Breaks if the rows file is written without full_text, which the status agent
+// reads to judge a rejection.
+test("a rejected thread's full_text reaches the rows file", async () => {
+  await withRoot(async (root) => {
+    const { summary } = await runOk(root, {
+      threads: [
+        {
+          id: "r1",
+          sender: STATUS_SENDER,
+          subject: "Your application",
+          items: [{ ...ROLE_ITEM, kind: "application_update", status: "rejected" }],
+        },
+      ],
+    });
+    const rows = readFileSync(summary.status.rows, "utf8")
+      .split("\n")
+      .filter((line) => line !== "")
+      .map((line) => JSON.parse(line) as { thread: string; full_text: string | null });
+    assert.deepEqual(
+      rows.map(({ thread, full_text }) => ({ thread, full_text })),
+      [
+        {
+          thread: "r1",
+          full_text:
+            "From: no-reply@ashbyhq.com\nSubject: Your application\nDate: 2026-01-02T08:00:00Z\n\nBody of r1. Platform Engineer at Fernwood Labs.",
+        },
+      ],
+    );
+  });
+});
+
 // Breaks if neither threads are sent to the model or go uncounted.
 test("a neither thread gets no model call and counts in neitherCount and neither.jsonl", async () => {
   await withRoot(async (root) => {

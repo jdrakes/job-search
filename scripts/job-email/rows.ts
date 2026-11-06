@@ -8,7 +8,8 @@
 //    Jobgether) moves to listing_site and company becomes null. A literal
 //    "null" string in any text field becomes null first.
 // 3. quote_verified: the quote is a substring of that text after turning
-//    curly apostrophes straight, lower-casing and collapsing whitespace.
+//    curly apostrophes straight, lower-casing and collapsing whitespace. A
+//    quote that is empty after that is not verified.
 // 4. full_text carries every message of the thread, older ones included, when
 //    an item's status is rejected, interviewing or offer, or the seeker sent
 //    a message in the thread (label SENT) and the thread yielded any item.
@@ -39,7 +40,10 @@ export function windowMessages(thread: GmailThread, windowStart: string): readon
 
 export function threadText(messages: readonly GmailMessage[]): string {
   return messages
-    .map((m) => `From: ${m.sender}\nSubject: ${m.subject}\nDate: ${m.date}\n\n${m.text}`)
+    .map(
+      (message) =>
+        `From: ${message.sender}\nSubject: ${message.subject}\nDate: ${message.date}\n\n${message.text}`,
+    )
     .join("\n\n---\n\n");
 }
 
@@ -49,6 +53,12 @@ function normalize(text: string): string {
 
 function nullIfNullString(value: string | null): string | null {
   return value === "null" ? null : value;
+}
+
+// The empty check matters: every string includes the empty string.
+function isQuoteIn(quote: string | null, checkedText: string): boolean {
+  const normalizedQuote = normalize(quote ?? "");
+  return normalizedQuote !== "" && normalize(checkedText).includes(normalizedQuote);
 }
 
 function rowItemOf(item: Item, checkedText: string): RowItem {
@@ -63,7 +73,7 @@ function rowItemOf(item: Item, checkedText: string): RowItem {
     pay: nullIfNullString(item.pay),
     quote,
     listing_site: isListingSite ? company : null,
-    quote_verified: quote !== null && normalize(checkedText).includes(normalize(quote)),
+    quote_verified: isQuoteIn(quote, checkedText),
   };
 }
 

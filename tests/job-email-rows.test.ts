@@ -101,6 +101,19 @@ test("a null quote is not verified", () => {
   assert.equal(row.items[0]?.quote_verified, false);
 });
 
+// Breaks if the non-empty check on the normalized quote is dropped: every
+// string includes the empty string.
+test("an empty quote is not verified", () => {
+  const row = rowOf(THREAD, "2026-11-01", [item({ quote: "" })]);
+  assert.equal(row.items[0]?.quote_verified, false);
+});
+
+// Breaks if the check runs before normalizing, which trims this to empty.
+test("a whitespace-only quote is not verified", () => {
+  const row = rowOf(THREAD, "2026-11-01", [item({ quote: " \n\t " })]);
+  assert.equal(row.items[0]?.quote_verified, false);
+});
+
 test("a rejected item gives full_text that carries the older message", () => {
   const row = rowOf(THREAD, "2026-11-01", [item({ status: "rejected" })]);
   assert.ok(row.full_text?.includes("Quillfeather team"));
