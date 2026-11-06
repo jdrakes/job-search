@@ -123,6 +123,7 @@ test("fullJudgment: text criteria run and can keep a posting the listing criteri
     "excluded_states",
     "country_restriction",
     "missing_languages",
+    "clearance",
     "bonus",
   ]);
 });
@@ -196,6 +197,7 @@ const KEPT_CRITERIA = [
   "excluded_states",
   "country_restriction",
   "missing_languages",
+  "clearance",
   "bonus",
 ];
 

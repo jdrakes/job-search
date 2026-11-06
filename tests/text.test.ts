@@ -1674,7 +1674,7 @@ test("remote: an if or unless clause covers only itself, not the sentence's requ
   }
 });
 
-test("remote: a field label or benefit heading does not affirm the role", () => {
+test("remote: a label or heading that only carries the word does not count as remote", () => {
   for (const body of [
     "Work Model: Hybrid\nRemote Days: Monday and Friday",
     "Remote Type: In-Office",
@@ -1752,5 +1752,30 @@ test("excluded states: a pay notice or a closed-states list is not a list of ope
   ]) {
     const { reasons } = judgeText(posting({ body }), criteria({ excluded_states: ["Alabama"] }));
     assert.equal(reasonFor(reasons, "excluded_states").verdict, "in", body);
+  }
+});
+
+test("clearance: a required clearance is out", () => {
+  for (const body of [
+    "An active or rein-statable TS/SCI with Polygraph security clearance is REQUIRED. Please do not apply otherwise.",
+    "Remote Type: In-Office\nClearance required: Current Top Secret.",
+    "Active Secret Security Clearance with the ability to obtain Top Secret.",
+    "Desired Qualifications:\nExperience with TAK.\nClearance Requirements:\nActive Secret clearance is required with the ability to obtain TS/SCI.",
+  ]) {
+    assert.equal(reasonFor(judgeText(posting({ body }), criteria()).reasons, "clearance").verdict, "out", body);
+  }
+});
+
+test("clearance: optional or obtainable is in", () => {
+  for (const body of [
+    "Clearance: not required. An active or previous clearance is a plus.",
+    "Active US Secret Clearance or the ability to obtain a U.S. Security Clearance.",
+    "Ability to obtain an active U.S. Security Clearance for which the U.S. Government requires U.S. Citizenship.",
+    "Preferred\nAn active government security clearance.\nExperience with federal programs.",
+    "No security clearance required.",
+    "An interim and/or final U.S. Secret Clearance Post-Start is required.",
+    "Only US persons can interview for this role due to security clearance requirements by our customers.",
+  ]) {
+    assert.equal(reasonFor(judgeText(posting({ body }), criteria()).reasons, "clearance").verdict, "in", body);
   }
 });

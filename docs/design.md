@@ -206,6 +206,9 @@ elsewhere.
     Home Support") affirms nothing. Excluded states, until the restriction
     lifts: out where the text names one as ineligible, and where it lists
     the only states a role is open in and leaves one out.
+  - No required clearance: a posting that requires a security clearance he
+    would need to hold on day one is out, since he holds none. One that
+    prefers a clearance, or asks only for the ability to obtain one, is in.
   - United States only: a posting whose location names another country, or
     whose text restricts it to one, is out, and so is one whose title names
     another country when neither the title nor the location names a place

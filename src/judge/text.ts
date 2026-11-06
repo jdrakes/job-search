@@ -1018,6 +1018,35 @@ function judgeBonus(compHigh: number | null, body: string, criteria: Criteria): 
   };
 }
 
+// A clearance the posting asks for outright. James holds none. "Ability to
+// obtain" and "Post-Start" are not asked of him on day one, and a bare "An active clearance"
+// line under a Preferred heading only welcomes one.
+const CLEARANCE_REQUIRED =
+  /(?:\bclearance\b|\bTS\/SCI\b)[^.]{0,40}\brequired\b|^(?:-\s*)?(?:possess\s+an?\s+|an?\s+)?(?:active|current)\b.{0,60}(?:\bclearance\b|\bTS\/SCI\b)/i;
+const CLEARANCE_OPTIONAL =
+  /\bnot required\b|\bplus\b|\bpreferred\b|\bor the ability\b|\bnice to have\b|\bno (?:security )?clearance\b|\bpost-start\b/i;
+const PREFERRED_HEADING = /^(?:-\s*)?(?:preferred|nice to have|bonus|desired)\b[^.]{0,40}:?$/i;
+const REQUIRED_HEADING = /^(?:-\s*)?[^.]{0,40}\b(?:required|requirements|qualifications)\b[^.]{0,30}:?$/i;
+
+function judgeClearance(body: string): Reason {
+  let underPreferred = false;
+  for (const sentence of splitSentences(body)) {
+    if (PREFERRED_HEADING.test(sentence)) {
+      underPreferred = true;
+      continue;
+    }
+    if (REQUIRED_HEADING.test(sentence)) {
+      underPreferred = false;
+      continue;
+    }
+    if (underPreferred) continue;
+    if (CLEARANCE_REQUIRED.test(sentence) && !CLEARANCE_OPTIONAL.test(sentence)) {
+      return { criterion: "clearance", verdict: "out", detail: `body requires a clearance: "${sentence}"` };
+    }
+  }
+  return { criterion: "clearance", verdict: "in", detail: "body requires no clearance" };
+}
+
 export function judgeText(
   posting: Pick<Posting, "body" | "location" | "comp_high" | "workplace">,
   criteria: Criteria,
@@ -1028,6 +1057,7 @@ export function judgeText(
     judgeExcludedStates(body, criteria),
     judgeCountryRestriction(body),
     judgeMissingLanguages(body, criteria),
+    judgeClearance(body),
     judgeBonus(posting.comp_high, body, criteria),
   ];
   return { kept: reasons.every((reason) => reason.verdict === "in"), reasons };
