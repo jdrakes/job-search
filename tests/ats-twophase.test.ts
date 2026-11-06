@@ -1,7 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert";
 import { readFileSync } from "node:fs";
-import { parseWorkdayListing, parseWorkdayDetail, workdayReader } from "../src/ats/workday.ts";
+import {
+  makeWorkdayReader,
+  parseWorkdayListing,
+  parseWorkdayDetail,
+  workdayReader,
+} from "../src/ats/workday.ts";
 import {
   parseEightfoldListing,
   parseEightfoldJob,
@@ -353,7 +358,7 @@ test("Workday: a detail found by searching its id costs one search and one detai
     text === "4400101" ? [SECOND_ENTRY, FIRST_ENTRY] : [],
   );
 
-  const listing = await workdayReader.body?.(FABRIKAM_BOARD, "4400101", board.options);
+  const listing = await makeWorkdayReader().body?.(FABRIKAM_BOARD, "4400101", board.options);
 
   assert.deepEqual(board.posts, ["4400101"]);
   assert.deepEqual(board.gets, [FABRIKAM_CXS + FIRST_REQ_PATH]);
@@ -364,7 +369,7 @@ test("Workday: a detail found by searching its id costs one search and one detai
 test("Workday: a detail the id search misses falls back to the listing scan", async () => {
   const board = detailBoard(LISTED, (text) => (text === "4400101" ? [SECOND_ENTRY] : []));
 
-  const listing = await workdayReader.body?.(FABRIKAM_BOARD, "4400101", board.options);
+  const listing = await makeWorkdayReader().body?.(FABRIKAM_BOARD, "4400101", board.options);
 
   assert.deepEqual(board.posts, ["4400101", ""]);
   assert.deepEqual(board.gets, [FABRIKAM_CXS + FIRST_REQ_PATH]);
@@ -375,11 +380,80 @@ test("Workday: a detail the id search misses falls back to the listing scan", as
 test("Workday: a requisition neither the search nor the scan finds reads as absent", async () => {
   const board = detailBoard(LISTED, () => []);
 
-  const listing = await workdayReader.body?.(FABRIKAM_BOARD, "4400199", board.options);
+  const listing = await makeWorkdayReader().body?.(FABRIKAM_BOARD, "4400199", board.options);
 
   assert.equal(listing, null);
   assert.deepEqual(board.posts, ["4400199", ""]);
   assert.deepEqual(board.gets, []);
+});
+
+test("Workday: a posting the list phase read needs only its detail request", async () => {
+  const board = detailBoard(LISTED, () => []);
+  const reader = makeWorkdayReader();
+
+  await reader.list(FABRIKAM_BOARD, board.options);
+  board.posts.length = 0;
+  const listing = await reader.body?.(FABRIKAM_BOARD, "4400101", board.options);
+
+  assert.deepEqual(board.posts, []);
+  assert.deepEqual(board.gets, [FABRIKAM_CXS + FIRST_REQ_PATH]);
+  assert.equal(listing?.id, "4400101");
+});
+
+test("Workday: a posting the list phase did not read is searched for, never rescanned", async () => {
+  const board = detailBoard(LISTED, () => []);
+  const reader = makeWorkdayReader();
+
+  await reader.list(FABRIKAM_BOARD, board.options);
+  board.posts.length = 0;
+  const listing = await reader.body?.(FABRIKAM_BOARD, "4400199", board.options);
+
+  assert.equal(listing, null);
+  assert.deepEqual(board.posts, ["4400199"]);
+});
+
+test("Workday: a large tenant's posting outside the remembered listing is still found by search", async () => {
+  const board = detailBoard([SECOND_ENTRY], (text) => (text === "4400101" ? [FIRST_ENTRY] : []));
+  const reader = makeWorkdayReader();
+
+  await reader.list(FABRIKAM_BOARD, board.options);
+  const listing = await reader.body?.(FABRIKAM_BOARD, "4400101", board.options);
+
+  assert.equal(listing?.id, "4400101");
+  assert.deepEqual(board.gets, [FABRIKAM_CXS + FIRST_REQ_PATH]);
+});
+
+test("Workday: several missed postings on an unlisted board scan it once", async () => {
+  const board = detailBoard(LISTED, () => []);
+  const reader = makeWorkdayReader();
+
+  await reader.body?.(FABRIKAM_BOARD, "4400198", board.options);
+  await reader.body?.(FABRIKAM_BOARD, "4400199", board.options);
+
+  assert.deepEqual(board.posts, ["4400198", "", "4400199"]);
+});
+
+test("Workday: a failed scan is not remembered, so the next posting tries again", async () => {
+  const board = detailBoard(LISTED, () => []);
+  let scans = 0;
+  const options = {
+    ...board.options,
+    fetchImpl: (async (input, init) => {
+      const request = JSON.parse(String(init?.body)) as { searchText: string };
+      if (request.searchText === "") {
+        scans += 1;
+        if (scans === 1) return new Response("{}", { status: 400 });
+      }
+      return board.options.fetchImpl(input, init);
+    }) as typeof fetch,
+  };
+  const reader = makeWorkdayReader();
+
+  await assert.rejects(async () => reader.body?.(FABRIKAM_BOARD, "4400198", options));
+  const listing = await reader.body?.(FABRIKAM_BOARD, "4400199", options);
+
+  assert.equal(listing, null);
+  assert.equal(scans, 2);
 });
 
 test("Eightfold: a board that never runs out of pages stops at the cap", async () => {
