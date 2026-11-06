@@ -6,13 +6,14 @@ argument-hint: "[since: YYYY-MM-DD or Nd, default 7d]"
 
 # job-email
 
-This skill lists the window's mail itself, then read-only agents read the
-threads it hands them, in parallel: `job-email-status`
-(`.claude/agents/job-email-status.md`) compares application emails with the
-store, and `job-email-suggestions` (`.claude/agents/job-email-suggestions.md`)
-lists suggested roles the tool did not show, each with its cause. The skill
-checks every handed thread was opened, shows both, proposes corrections,
-and writes only the ones James picks. Design: the job email check bullet under Discovery in `docs/design.md`.
+A script reads the window's mail with a local model and writes rows and a
+read-only copy of the store. Read-only agents read those files, in parallel:
+`job-email-status` (`.claude/agents/job-email-status.md`) compares
+application emails with the store, and `job-email-suggestions`
+(`.claude/agents/job-email-suggestions.md`) lists suggested roles the tool
+did not show, each with its cause. The skill checks every handed thread was
+read, shows both reports, proposes corrections, and writes only the ones
+James picks. Design: the job email check bullet under Discovery in `docs/design.md`.
 
 **Nothing is written until James has chosen.** Step 5 is a stop.
 
@@ -22,9 +23,9 @@ Run every command from the repository root.
 
 - `since`: the argument. `YYYY-MM-DD` as given; `Nd` means N days before
   today; none means 7 days before today. Overlap with an earlier run is
-  harmless: rows already right come back as MATCH. Gmail wants it as
-  `YYYY/MM/DD`, and reads a date as UTC midnight, so the window starts at
-  7pm Central the evening before; that overlap is harmless too.
+  harmless: rows already right come back as MATCH. The script reads a date
+  as UTC midnight, so the window starts at 7pm Central the evening before;
+  that overlap is harmless too.
 - The store's project ref is the first label of `SUPABASE_URL`:
 
   ```sh
@@ -33,74 +34,58 @@ Run every command from the repository root.
 
   A nonzero exit stops here: show James its stderr.
 
-Every store read and write goes through the Supabase `execute_sql` tool
-with that ref, and the mail is listed with Gmail's `search_threads`. Load
-those two, and nothing else, with ToolSearch first. Where connectors carry
-readable names they are `mcp__claude_ai_Supabase__execute_sql` and
-`mcp__claude_ai_Gmail__search_threads`; where they carry their IDs,
-`mcp__fb8238cb-b279-482d-8cff-5e7e3467ad50__execute_sql` and
-`mcp__e4ea54a3-b518-4bbb-9b28-ff32cd6421f8__search_threads`. The agents'
-`tools:` lines list both schemes, so a session with either launches them;
-a connector re-added under a new ID needs its new name added there.
+- Ollama: James starts it by hand in its own terminal, and the skill never
+  starts it. If the script reports Ollama is not answering, show James its
+  message and stop.
 
-## 2. List the mail
+The Supabase `execute_sql` tool, with that ref, is loaded only for step 6's
+writes and checks. Load it with ToolSearch then. Where connectors carry
+readable names it is `mcp__claude_ai_Supabase__execute_sql`; where they
+carry their IDs, `mcp__fb8238cb-b279-482d-8cff-5e7e3467ad50__execute_sql`.
 
-Gmail's search returns at most 50 threads, in no date order, and only
-sometimes a next page (none on 2026-11-03, one on 2026-11-04), so a search
-that hits the cap can drop threads at random. The window is listed one
-UTC day at a time:
+## 2. Run the script
 
-1. For each day D from `since` through today: `after:D before:D+1`,
-   `pageSize` 50, `view` `THREAD_VIEW_MINIMAL`. While a reply carries a
-   `nextPageToken`, ask again with it.
-2. A search is cut off when its last page came with no `nextPageToken`
-   and it returned 50 threads in all, or fewer than its
-   `resultCountEstimate`. Run a cut-off search again as two, one with
-   `category:updates` added and one with `-category:updates`, each paged
-   the same way. A half still cut off is incomplete: keep its day for
-   step 4.
-3. Dedupe by thread id; a thread that spans days comes back on each.
-4. Sort each thread by sender and subject into two lists. One that could
-   be either goes in both; one that is neither (personal mail,
-   newsletters, receipts, sign-in codes) in neither.
-   - **Suggestions**: job alerts and digests (LinkedIn jobs and job
-     alerts, Indeed jobalert and match, Glassdoor, Wellfound, BuiltIn,
-     Dice, ZipRecruiter, Workable digests, getclera.com, talenthop.com,
-     Ladders, Raydar, Jobgether, any other alert), and recruiter outreach
-     naming a role (LinkedIn hit-reply and inmail-hit-reply, a person
-     whose subject names a role).
-   - **Status**: ATS senders (ashbyhq.com, greenhouse-mail.io,
-     greenhouse.io, lever.co, myworkday.com, icims.com but not its
-     nurture marketing, rippling.com, gem.com, smartrecruiters.com,
-     workable.com, workablemail.com, jobvite.com, bamboohr.com,
-     clinchtalent.com), LinkedIn Easy Apply and Indeed Apply
-     confirmations, company no-reply, careers, talent and recruiting
-     addresses, a scheduling tool's interview booking, and a person
-     replying about a role James applied to.
-5. Cut the suggestions list into batches of at most 10 threads, in date
-   order. A digest costs an agent about 6K tokens; ten keep it well clear
-   of its context.
+Run this in the background (`run_in_background`), because the model reads
+one thread at a time and a long window takes longer than a foreground
+command may run. A window of 270 threads took 40 minutes.
 
-Keep the counts for step 4: days searched, threads listed, threads in each
-list, batches.
+```sh
+node --env-file=.env scripts/job-email/run.ts <since>
+```
+
+A nonzero exit stops here: show James its stderr. It covers no token (run
+`node scripts/job-email/consent.ts` in a terminal) and a refused refresh.
+
+On success it prints the path of `summary.json`. Read that file. Its fields:
+`after`, `store`, `daysSearched`, `threadsListed`, `status` and each of
+`suggestions` (`{ rows, threads }`), `neitherCount`, `neither`,
+`unclassified`, `failed`.
 
 ## 3. Read, in parallel
 
 Dispatch, in one message so they run at the same time, one
-`job-email-status` agent with the whole status list and one
-`job-email-suggestions` agent per batch. Each prompt is one JSON object
-and nothing else:
+`job-email-status` agent with `summary.status`, skipped if it has no
+threads, and one `job-email-suggestions` agent per `summary.suggestions`
+batch. Each prompt is one JSON object and nothing else, with `after` from
+`summary.after`, `store` from `summary.store`, and `rows` and `threads`
+from the list or batch:
 
 ```json
-{ "after": "<since as YYYY/MM/DD>", "project_id": "<ref>", "threads": ["<id>", "..."] }
+{
+  "after": "<YYYY/MM/DD>",
+  "rows": "<absolute path>",
+  "store": "<absolute path>",
+  "threads": ["<id>", "..."]
+}
 ```
 
 When every agent has returned:
 
 1. **Coverage.** Each agent lists the thread ids it opened. Any id it was
    given and did not open goes once more, alone with the others it
-   missed, to a fresh agent of the same kind. An id still unopened is
-   named in step 4 with its sender and subject.
+   missed, to a fresh agent of the same kind, with the same `rows` and
+   `store` paths. An id still unopened is named in step 4 with its sender
+   and subject.
 2. **Merge the suggestions.** One row per role across batches, matched on
    company and title ignoring case and punctuation. Keep the earliest
    date and every source and date. Where two batches gave one role a
@@ -111,8 +96,16 @@ When every agent has returned:
 ## 4. Show James
 
 Above the tables, one line each: days searched, threads listed, threads
-in each list, agents run; any day still cut off; any thread no agent
-opened.
+in each list, threads sorted out (`neitherCount` and the `neither.jsonl`
+path), agents run; any thread no agent opened.
+
+Below that, as tables, always shown even when empty:
+
+- **Threads the model found nothing in**: every `summary.unclassified` line
+  with sender, subject and date, or `none`. The check cannot classify these,
+  and James reads any that matter.
+- **Threads not read**: every `summary.failed` line with its reason, or
+  `none`.
 
 Lead with what needs him, in this order, as tables:
 
