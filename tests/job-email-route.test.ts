@@ -44,6 +44,33 @@ for (const path of AGENTS) {
     assert.deepEqual(jsonKeys(dispatch[1] ?? ""), DISPATCH_KEYS);
     assert.ok(!text.includes("project_id"));
   });
+
+  const prose = text.replace(/\s+/g, " ");
+
+  // Breaks if the agent loses the way past a row too long for offset and limit to split.
+  test(`${path} re-reads a refused long row with allow_large`, () => {
+    assert.ok(prose.includes("Read that row again with `allow_large: true`"));
+  });
+
+  // Breaks if the date limit goes back to cutting older messages out of full_text.
+  test(`${path} reads full_text whole and limits only what it reports`, () => {
+    assert.ok(prose.includes("full_text is read whole"));
+    assert.ok(prose.includes("a hold in an older message still counts"));
+    assert.ok(prose.includes("report only its messages dated on or after `after`"));
+    assert.ok(!prose.includes("use only its messages"));
+  });
+
+  // Breaks if the agent stops being told a hold or a pause differs from a rejection.
+  test(`${path} does not read a hold as a rejection`, () => {
+    assert.ok(prose.includes("which is not a rejection"));
+  });
+
+  // Breaks if the agent goes back to assuming threads lists every id in the rows file.
+  test(`${path} reports only the thread ids it was given`, () => {
+    assert.ok(prose.includes("the file may hold others, so report only these"));
+    assert.ok(!prose.includes("every thread id in the rows file"));
+    assert.ok(!prose.includes("the skill listed and sorted"));
+  });
 }
 
 // Breaks if the skill's dispatch and the agents' dispatch drift apart.
