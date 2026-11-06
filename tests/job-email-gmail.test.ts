@@ -171,6 +171,80 @@ test("parseThread fails on a message with no internalDate", () => {
   assert.equal(parseThread({ id: "t", messages: [{ payload: { headers: [] } }] }).ok, false);
 });
 
+test("parseThread leaves an out-of-range entity undecoded and decodes the highest valid one", () => {
+  const html =
+    "<p>Bad &#99999999; and &#x110000; huge &#x1000000000000000000; top &#x10FFFF; ok &#65;</p>";
+  const result = parseThread(
+    singleMessage({ mimeType: "text/html", headers: [], body: { data: b64(html) } }),
+  );
+  assert.equal(
+    result.ok && result.value.messages[0].text,
+    "Bad &#99999999; and &#x110000; huge &#x1000000000000000000; top \u{10FFFF} ok A\n",
+  );
+});
+
+test("parseThread returns a failure for a null part, at the top or nested", () => {
+  const top = singleMessage({ mimeType: "multipart/mixed", headers: [], parts: [null] });
+  assert.deepEqual(parseThread(top), {
+    ok: false,
+    reason: "Gmail thread t has a malformed message",
+  });
+  const nested = singleMessage({
+    mimeType: "multipart/mixed",
+    headers: [],
+    parts: [
+      { mimeType: "text/plain", body: { data: b64("Fine.") } },
+      { mimeType: "multipart/alternative", parts: [null] },
+    ],
+  });
+  assert.equal(parseThread(nested).ok, false);
+});
+
+test("parseThread returns a failure for a part or payload that is not an object", () => {
+  const part = singleMessage({ mimeType: "multipart/mixed", headers: [], parts: ["text"] });
+  assert.equal(parseThread(part).ok, false);
+  assert.equal(parseThread(singleMessage(true)).ok, false);
+});
+
+test("parseThread returns a failure for an internalDate too large to be a date", () => {
+  const thread = {
+    id: "t",
+    messages: [{ internalDate: "99999999999999999", payload: { headers: [] } }],
+  };
+  assert.equal(parseThread(thread).ok, false);
+});
+
+test("parseThread falls back to HTML when the plain part is empty or blank", () => {
+  for (const plain of ["", "  \r\n "]) {
+    const result = parseThread(
+      singleMessage({
+        mimeType: "multipart/alternative",
+        headers: [],
+        parts: [
+          { mimeType: "text/plain", body: { data: b64(plain) } },
+          { mimeType: "text/html", body: { data: b64("<p>Html body.</p>") } },
+        ],
+      }),
+    );
+    assert.equal(result.ok && result.value.messages[0].text, "Html body.\n");
+  }
+});
+
+test("parseThread drops a blank plain part when another plain part has text", () => {
+  const result = parseThread(
+    singleMessage({
+      mimeType: "multipart/mixed",
+      headers: [],
+      parts: [
+        { mimeType: "text/plain", body: { data: b64(" \n") } },
+        { mimeType: "text/plain", body: { data: b64("Real text.") } },
+        { mimeType: "text/html", body: { data: b64("<p>Html body.</p>") } },
+      ],
+    }),
+  );
+  assert.equal(result.ok && result.value.messages[0].text, "Real text.");
+});
+
 test("getThread requests format=full and parses the reply", async () => {
   const { fetch, urls } = recordingFetch(() => jsonResponse(MULTIPART));
   const result = await getThread(TOKEN, "thread-1", fetch);

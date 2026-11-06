@@ -115,18 +115,30 @@ interface Part {
   readonly parts?: unknown;
 }
 
-// Depth-first, skipping attachments.
-function collectParts(part: Part, into: Part[]): void {
-  if (typeof part.filename === "string" && part.filename !== "") return;
-  into.push(part);
+// Depth-first, skipping attachments. Null when any part is not an object.
+function collectParts(value: unknown): readonly Part[] | null {
+  if (typeof value !== "object" || value === null) return null;
+  const part = value as Part;
+  if (typeof part.filename === "string" && part.filename !== "") return [];
+  const collected: Part[] = [part];
   if (Array.isArray(part.parts)) {
-    for (const child of part.parts) collectParts(child as Part, into);
+    for (const child of part.parts) {
+      const nested = collectParts(child);
+      if (nested === null) return null;
+      collected.push(...nested);
+    }
   }
+  return collected;
 }
 
 function decodeBody(part: Part): string {
   const data = part.body?.data;
   return typeof data === "string" ? Buffer.from(data, "base64url").toString("utf8") : "";
+}
+
+// An entity past the last Unicode code point stays as written.
+function decodeEntity(entity: string, codePoint: number): string {
+  return codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : entity;
 }
 
 function htmlToText(html: string): string {
@@ -136,8 +148,8 @@ function htmlToText(html: string): string {
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<\/(p|div|tr|li)>/gi, "\n")
     .replace(/<[^>]*>/g, "")
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, decimal: string) => String.fromCodePoint(Number(decimal)))
+    .replace(/&#x([0-9a-f]+);/gi, (entity, hex: string) => decodeEntity(entity, parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (entity, decimal: string) => decodeEntity(entity, Number(decimal)))
     .replace(/&nbsp;/g, " ")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
@@ -146,10 +158,15 @@ function htmlToText(html: string): string {
     .replace(/&amp;/g, "&");
 }
 
-function messageText(payload: Part): string {
-  const parts: Part[] = [];
-  collectParts(payload, parts);
-  const plain = parts.filter((part) => part.mimeType === "text/plain").map(decodeBody);
+// Null when the payload holds a malformed part. A blank plain part does not
+// count as plain text, so it cannot block its HTML sibling.
+function messageText(payload: unknown): string | null {
+  const parts = collectParts(payload);
+  if (parts === null) return null;
+  const plain = parts
+    .filter((part) => part.mimeType === "text/plain")
+    .map(decodeBody)
+    .filter((text) => text.trim() !== "");
   if (plain.length > 0) return plain.join("\n");
   return parts
     .filter((part) => part.mimeType === "text/html")
@@ -180,16 +197,19 @@ function parseMessage(value: unknown): GmailMessage | null {
     payload?: (Part & { headers?: unknown }) | null;
   } | null;
   const epochMs = typeof message?.internalDate === "string" ? Number(message.internalDate) : NaN;
-  if (message === null || !Number.isFinite(epochMs) || !message.payload) return null;
+  const date = new Date(epochMs);
+  if (message === null || Number.isNaN(date.getTime()) || !message.payload) return null;
+  const text = messageText(message.payload);
+  if (text === null) return null;
   const labels = Array.isArray(message.labelIds)
     ? message.labelIds.filter((label): label is string => typeof label === "string")
     : [];
   return {
     sender: senderAddress(headerValue(message.payload.headers, "from")),
     subject: headerValue(message.payload.headers, "subject"),
-    date: new Date(epochMs).toISOString().replace(/\.\d{3}Z$/, "Z"),
+    date: date.toISOString().replace(/\.\d{3}Z$/, "Z"),
     labels,
-    text: messageText(message.payload),
+    text,
   };
 }
 
