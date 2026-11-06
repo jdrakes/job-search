@@ -172,46 +172,69 @@ async function rawListing(cxs: string, options?: HttpOptions): Promise<unknown[]
   return out;
 }
 
-async function list(board: Board, options?: HttpOptions): Promise<Listing[]> {
-  const parsed = parseWorkdayId(board.id);
-  if (parsed === null) throw new Error(`not a Workday board id: ${JSON.stringify(board.id)}`);
-  const site = siteUrl(parsed);
-  const raw = await rawListing(cxsUrl(parsed), options);
-  return raw.map((entry) => {
-    const job = asRecord(entry);
-    return toListing(job, asText(job["externalPath"]) ?? "", site);
-  });
+// A reader remembers each board's listing for its process, which is one run,
+// because the judge can ask for thousands of a board's postings: the list phase
+// has already read the path of each one it found, and a requisition neither
+// that read nor its id search finds is not worth reading the board again for.
+// A read that fails is not remembered, so the next posting tries again.
+export function makeWorkdayReader(): Reader {
+  const listings = new Map<string, Record<string, unknown>[]>();
+
+  async function readListing(
+    cxs: string,
+    options?: HttpOptions,
+  ): Promise<Record<string, unknown>[]> {
+    const entries = (await rawListing(cxs, options)).map(asRecord);
+    listings.set(cxs, entries);
+    return entries;
+  }
+
+  async function list(board: Board, options?: HttpOptions): Promise<Listing[]> {
+    const parsed = parseWorkdayId(board.id);
+    if (parsed === null) throw new Error(`not a Workday board id: ${JSON.stringify(board.id)}`);
+    const site = siteUrl(parsed);
+    const entries = await readListing(cxsUrl(parsed), options);
+    return entries.map((job) => toListing(job, asText(job["externalPath"]) ?? "", site));
+  }
+
+  // The listing entry for one requisition, which holds the path the detail
+  // endpoint is keyed by. A remembered listing answers without a request. A
+  // search with the requisition id as its text finds it in one request
+  // (measured 2026-10-19: 17 of 17 ids across five tenants gave exactly that
+  // requisition), and it still runs after a remembered listing misses, since a
+  // large tenant's listing is only its LARGE_TENANT_QUERIES. The whole-listing
+  // scan, up to MAX_PAGES requests, runs only for a board with no remembered
+  // listing.
+  async function listingEntry(
+    cxs: string,
+    id: string,
+    options?: HttpOptions,
+  ): Promise<Record<string, unknown> | null> {
+    const isRequisition = (entry: Record<string, unknown>): boolean => reqNumber(entry) === id;
+    const remembered = listings.get(cxs) ?? null;
+    const listed = remembered?.find(isRequisition) ?? null;
+    if (listed !== null) return listed;
+    const searched = (await searchPage(cxs, id, 0, options)).entries.map(asRecord);
+    const hit = searched.find(isRequisition) ?? null;
+    if (hit !== null) return hit;
+    if (remembered !== null) return null;
+    return (await readListing(cxs, options)).find(isRequisition) ?? null;
+  }
+
+  async function body(board: Board, id: string, options?: HttpOptions): Promise<Listing | null> {
+    const parsed = parseWorkdayId(board.id);
+    if (parsed === null) throw new Error(`not a Workday board id: ${JSON.stringify(board.id)}`);
+    const cxs = cxsUrl(parsed);
+    const site = siteUrl(parsed);
+    const entry = await listingEntry(cxs, id, options);
+    if (entry === null) return null;
+    const path = asText(entry["externalPath"]);
+    if (path === null) return null;
+    const data = await getJson<unknown>(cxs + path, options);
+    return parseWorkdayDetail(data, path, site);
+  }
+
+  return { platform: "workday", list, body };
 }
 
-// The listing entry for one requisition, which holds the path the detail
-// endpoint is keyed by. A search with the requisition id as its text finds it
-// in one request (measured 2026-10-19: 17 of 17 ids across five tenants gave
-// exactly that requisition), so that comes first. The whole-listing scan, up
-// to MAX_PAGES requests, runs only when the search does not find it.
-async function listingEntry(
-  cxs: string,
-  id: string,
-  options?: HttpOptions,
-): Promise<Record<string, unknown> | null> {
-  const isRequisition = (entry: Record<string, unknown>): boolean => reqNumber(entry) === id;
-  const searched = (await searchPage(cxs, id, 0, options)).entries.map(asRecord);
-  const hit = searched.find(isRequisition);
-  if (hit !== undefined) return hit;
-  return (await rawListing(cxs, options)).map(asRecord).find(isRequisition) ?? null;
-}
-
-// Uncached: each call searches for the requisition, then reads its detail.
-async function body(board: Board, id: string, options?: HttpOptions): Promise<Listing | null> {
-  const parsed = parseWorkdayId(board.id);
-  if (parsed === null) throw new Error(`not a Workday board id: ${JSON.stringify(board.id)}`);
-  const cxs = cxsUrl(parsed);
-  const site = siteUrl(parsed);
-  const entry = await listingEntry(cxs, id, options);
-  if (entry === null) return null;
-  const path = asText(entry["externalPath"]);
-  if (path === null) return null;
-  const data = await getJson<unknown>(cxs + path, options);
-  return parseWorkdayDetail(data, path, site);
-}
-
-export const workdayReader: Reader = { platform: "workday", list, body };
+export const workdayReader: Reader = makeWorkdayReader();
