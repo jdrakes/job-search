@@ -204,7 +204,8 @@ elsewhere.
     hybrid and does not name Remote is out. A field label or benefit heading
     that only carries the word ("Remote Days: Monday and Friday", "Work From
     Home Support") affirms nothing. Excluded states, until the restriction
-    lifts.
+    lifts: out where the text names one as ineligible, and where it lists
+    the only states a role is open in and leaves one out.
   - United States only: a posting whose location names another country, or
     whose text restricts it to one, is out, and so is one whose title names
     another country when neither the title nor the location names a place

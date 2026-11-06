@@ -1,7 +1,7 @@
 // The five criteria judged off a posting's body; `judge.ts` runs them only
 // on what `listing.ts` kept.
 import type { Criteria, Posting, Workplace } from "../schema.ts";
-import { foreignPlace, unitedStatesPlace } from "./countries.ts";
+import { foreignPlace, unitedStatesPlace, usStatesNamed } from "./countries.ts";
 import type { Reason } from "./listing.ts";
 import { findWholeWord, wholeWordPattern } from "./whole-word.ts";
 
@@ -319,6 +319,12 @@ const INELIGIBILITY_SIGNALS = [
   "restricted from",
 ] as const;
 
+// A sentence listing the only states a role is open in rules out every other
+// one. Pay-transparency notices and lists of states a role is closed in also
+// name several states, and say nothing of the kind.
+const STATE_ALLOW_LIST = /\bonly available\b|\bbased only in\b|\bin the following states\b/i;
+const NOT_AN_ALLOW_LIST = /\bnot considering\b|\bnot eligible\b|\bpay\b|\bsalary\b|\bcompensation\b/i;
+
 function judgeExcludedStates(body: string, criteria: Criteria): Reason {
   const sentences = splitSentences(body);
   for (const sentence of sentences) {
@@ -330,6 +336,19 @@ function judgeExcludedStates(body: string, criteria: Criteria): Reason {
         criterion: "excluded_states",
         verdict: "out",
         detail: `body names "${state.term}" as ineligible: "${sentence}"`,
+      };
+    }
+  }
+  for (const sentence of sentences) {
+    if (!STATE_ALLOW_LIST.test(sentence) || NOT_AN_ALLOW_LIST.test(sentence)) continue;
+    const named = usStatesNamed(sentence);
+    if (named.length < 2) continue;
+    const missing = criteria.excluded_states.find((state) => !named.includes(state));
+    if (missing !== undefined) {
+      return {
+        criterion: "excluded_states",
+        verdict: "out",
+        detail: `body lists the states it hires in, without "${missing}": "${sentence}"`,
       };
     }
   }

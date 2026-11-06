@@ -1724,3 +1724,33 @@ test("remote: commuting distance inside a condition is not a requirement", () =>
   );
   assert.equal(reasonFor(reasons, "remote").verdict, "in");
 });
+
+test("excluded states: a list of the only states open, without his, is out", () => {
+  const body =
+    "This position is only available for remote employment in the United States in the following states: CA, GA, NY, NC, TN, TX, and WA";
+  const { reasons } = judgeText(posting({ body }), criteria({ excluded_states: ["Alabama"] }));
+  const excluded = reasonFor(reasons, "excluded_states");
+  assert.equal(excluded.verdict, "out");
+  assert.match(excluded.detail, /Alabama/);
+});
+
+test("excluded states: a list of the only states open that names his is in", () => {
+  for (const body of [
+    "Only available in the following states: AL, GA, and TN.",
+    "This role is only available to candidates in Alabama, Georgia and Texas.",
+  ]) {
+    const { reasons } = judgeText(posting({ body }), criteria({ excluded_states: ["Alabama"] }));
+    assert.equal(reasonFor(reasons, "excluded_states").verdict, "in", body);
+  }
+});
+
+test("excluded states: a pay notice or a closed-states list is not a list of open states", () => {
+  for (const body of [
+    "Pay transparency laws apply to employers in the following states: California, Colorado.",
+    "We are not considering candidates residing in the following states: AK, DE, IA.",
+    "Equity is only available after one year.",
+  ]) {
+    const { reasons } = judgeText(posting({ body }), criteria({ excluded_states: ["Alabama"] }));
+    assert.equal(reasonFor(reasons, "excluded_states").verdict, "in", body);
+  }
+});
