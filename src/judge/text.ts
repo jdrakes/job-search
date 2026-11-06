@@ -108,8 +108,15 @@ const HYBRID_REMOTE_LINE = /^(?:hybrid\s*\/\s*remote|remote\s*\/\s*hybrid)$/i;
 // its prose says.
 const RECRUITER_REMOTE_TAG = /#LI[\s-]?remote\b/i;
 
+// Field labels and benefit headings that carry the word without saying the
+// role is remote: "Remote Days: Monday and Friday", "Remote Type: In-Office",
+// "Work From Home Support". "Remote Type: Fully Remote" still affirms.
+const NOT_A_REMOTE_STATEMENT =
+  /^(?:remote days?\b|remote type:?\s*(?:in[- ]office|on[- ]?site|hybrid)\b|work from home (?:support|opportunities)$)/i;
+
 function affirmsRemoteRole(sentence: string): boolean {
   const stripped = sentence.startsWith("- ") ? sentence.slice(2) : sentence;
+  if (NOT_A_REMOTE_STATEMENT.test(stripped)) return false;
   // "Work from home allowance" is a perk, not the role's arrangement.
   const unconditional = matchesAny(sentence, UNCONDITIONAL_REMOTE_AFFIRMATIONS);
   if (unconditional !== null && matchesAny(sentence, PERK_SIGNALS) === null) return true;
@@ -207,10 +214,20 @@ function partialRemoteWithOffice(sentence: string): string | null {
   return null;
 }
 
+// These state the arrangement outright, so they are read before the sentence
+// is asked whether it also mentions remote: "flexibility to work remotely"
+// follows "considered a hybrid" in the same sentence. A clause conditioned on
+// where the candidate lives ("if you live within commuting distance") is not
+// a requirement.
+const STATED_HYBRID =
+  /\bwithin commuting distance\b|\bfull-time, hybrid (?:role|position)\b|\bconsidered a hybrid\b/i;
+
 // The office requirement this clause states, or null: a clause that says the
 // role is remote is answering the question, and a perks clause is not a
 // requirement.
 function officeRequirement(sentence: string): string | null {
+  const stated = STATED_HYBRID.exec(sentence);
+  if (stated !== null && !insideConditionalClause(sentence, stated.index)) return stated[0];
   const partial = partialRemoteWithOffice(sentence);
   if (partial !== null) return partial;
   if (affirmsRemoteRole(sentence)) return null;
@@ -256,6 +273,9 @@ function judgeRemote(body: string, location: string | null, workplace: Workplace
       verdict: workplace === "remote" ? "in" : "out",
       detail: `board states ${workplace}`,
     };
+  }
+  if (location !== null && /\bhybrid\b/i.test(location) && !locationAffirmsRemote(location)) {
+    return { criterion: "remote", verdict: "out", detail: `location says hybrid: "${location}"` };
   }
   const sentences = splitSentences(body);
   if (!RECRUITER_REMOTE_TAG.test(body) && !locationAffirmsRemote(location)) {

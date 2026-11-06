@@ -1673,3 +1673,54 @@ test("remote: an if or unless clause covers only itself, not the sentence's requ
     assert.match(remote.detail, /^body requires office attendance/, body);
   }
 });
+
+test("remote: a field label or benefit heading does not affirm the role", () => {
+  for (const body of [
+    "Work Model: Hybrid\nRemote Days: Monday and Friday",
+    "Remote Type: In-Office",
+    "Work From Home Support",
+    "Work From Home Opportunities",
+  ]) {
+    const { reasons } = judgeText(posting({ body, location: "Boston, MA", workplace: null }), criteria());
+    assert.equal(reasonFor(reasons, "remote").verdict, "out", body);
+  }
+});
+
+test("remote: a Remote Type naming remote still affirms", () => {
+  const { reasons } = judgeText(
+    posting({ body: "Remote Type: Fully Remote", location: "Boston, MA", workplace: null }),
+    criteria(),
+  );
+  assert.equal(reasonFor(reasons, "remote").verdict, "in");
+});
+
+test("remote: hybrid in the location is out unless it also names remote", () => {
+  const body = "We expect regular attendance, whether you're working in-office, hybrid, or fully remote.";
+  const out = judgeText(posting({ body, location: "San Francisco, CA - Hybrid", workplace: null }), criteria());
+  assert.equal(reasonFor(out.reasons, "remote").verdict, "out");
+  const both = judgeText(posting({ body, location: "Remote or Hybrid - Denver", workplace: null }), criteria());
+  assert.equal(reasonFor(both.reasons, "remote").verdict, "in");
+});
+
+test("remote: a stated hybrid arrangement overrules a mention of remote", () => {
+  for (const body of [
+    "This role is considered a hybrid, which means you'll be assigned to an office and given the flexibility to work remotely.",
+    "This is a full-time, hybrid position within our NYC office.",
+    "Team members in this role must live within commuting distance of our San Francisco hub. We offer flexibility to work from home.",
+  ]) {
+    const { reasons } = judgeText(posting({ body, location: "New York, NY", workplace: null }), criteria());
+    assert.equal(reasonFor(reasons, "remote").verdict, "out", body);
+  }
+});
+
+test("remote: commuting distance inside a condition is not a requirement", () => {
+  const { reasons } = judgeText(
+    posting({
+      body: "This is a remote position. If you live within commuting distance of an office, you are welcome to use it.",
+      location: "United States",
+      workplace: null,
+    }),
+    criteria(),
+  );
+  assert.equal(reasonFor(reasons, "remote").verdict, "in");
+});
