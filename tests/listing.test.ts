@@ -7,7 +7,9 @@ import {
   duplicateKey,
   goneBy,
   judgeCountry,
+  judgeLevel,
   judgeListing,
+  judgeRole,
   NO_BOARDS,
   type Reason,
   unwatchedBy,
@@ -98,6 +100,15 @@ function criteria(overrides: Partial<Criteria> = {}): Criteria {
     max_age_days: null,
     excluded_locations: [],
     product_words: [],
+    work_words: [
+      "engineer",
+      "engineering",
+      "developer",
+      "swe",
+      "programmer",
+      "architect",
+      "technical staff",
+    ],
     assumed_bonus_pct: null,
     updated_at: "2026-09-14T00:00:00Z",
     full_read_at: "2026-09-14T00:00:00Z",
@@ -337,7 +348,7 @@ test("level: in; excluded_words: out when the title is 'Software Engineer Intern
   );
   const level = reasonFor(reasons, "level");
   assert.equal(level.verdict, "in");
-  assert.match(level.detail, /names engineering work/);
+  assert.match(level.detail, /carries work word/);
   assert.equal(kept, false);
   assert.equal(reasonFor(reasons, "excluded_words").verdict, "out");
 });
@@ -370,10 +381,7 @@ test("role: out when the role word names an industry, not engineering work", () 
   );
   const role = reasonFor(reasons, "role");
   assert.equal(role.verdict, "out");
-  assert.match(
-    role.detail,
-    /title carries role word "infrastructure" but names no engineering work/,
-  );
+  assert.match(role.detail, /title carries role word "infrastructure" but no work word/);
 });
 
 test("role: in when the engineering word sits after the role word, past the comma", () => {
@@ -404,7 +412,7 @@ test("role: out when the role word names an org unit, not engineering work", () 
   );
   const role = reasonFor(reasons, "role");
   assert.equal(role.verdict, "out");
-  assert.match(role.detail, /title carries role word "services" but names no engineering work/);
+  assert.match(role.detail, /title carries role word "services" but no work word/);
 });
 
 test("excluded words: out when the title carries an excluded word", () => {
@@ -1210,4 +1218,28 @@ test("judgeCountry: a title naming no country leaves the location verdict alone"
 
 test("country: Brasil, the Portuguese spelling, is a foreign country", () => {
   assert.equal(judgeCountry("Brasil", criteria()).verdict, "out");
+});
+
+// Breaks if the work words go back to being engineering's alone.
+const PRODUCT_WORK = { role_words: ["product manager"], work_words: ["product manager"] };
+
+test("role: in for a product title when the work words name product work", () => {
+  const role = judgeRole("Principal Product Manager", criteria(PRODUCT_WORK));
+  assert.equal(role.verdict, "in");
+});
+
+test("role: out for an engineering title when the work words name only product work", () => {
+  const role = judgeRole(
+    "Product Manager Engineer",
+    criteria({ role_words: ["engineer"], work_words: ["designer"] }),
+  );
+  assert.equal(role.verdict, "out");
+  assert.match(role.detail, /but no work word/);
+});
+
+test("level: a product title with no level is settled by pay, as an engineering one is", () => {
+  const product = criteria(PRODUCT_WORK);
+  assert.equal(judgeLevel("Product Manager", 200000, product).verdict, "in");
+  assert.equal(judgeLevel("Product Manager", null, product).verdict, "out");
+  assert.equal(judgeLevel("Marketing Analyst", 200000, product).verdict, "out");
 });

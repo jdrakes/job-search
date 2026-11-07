@@ -18,11 +18,12 @@ for the source list, and `src/net/http.ts` reads it again for every request it
 makes, so a run makes one read per HTTP request and an edit part way through a
 run takes effect part way through that run.
 
-| Field              | Absent means          | Type             |
-| ------------------ | --------------------- | ---------------- |
-| `userAgent`        | every request refuses | string           |
-| `discoverySources` | every source runs     | array of strings |
-| `extraSourcePath`  | no extra source       | string           |
+| Field                | Absent means          | Type             |
+| -------------------- | --------------------- | ---------------- |
+| `userAgent`          | every request refuses | string           |
+| `discoverySources`   | every source runs     | array of strings |
+| `extraSourcePath`    | no extra source       | string           |
+| `largeBoardSearches` | engineering searches  | array of strings |
 
 A missing `config.json` is not an error. It is an operator who has configured
 nothing yet, so every field is absent and the built-in behaviour applies. A
@@ -67,6 +68,13 @@ have a module for it to point at.
   "extraSourcePath": "settings/sources/your-source.ts"
 }
 ```
+
+### largeBoardSearches
+
+What a Workday tenant with more than 1,000 requisitions is searched for, since
+it is too large to read whole. Absent searches engineer, developer and
+architect, so a search for any other work must set this or it misses those
+tenants' postings.
 
 ## What else belongs here
 

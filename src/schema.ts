@@ -213,6 +213,7 @@ export interface Criteria {
   readonly max_age_days: number | null;
   readonly excluded_locations: readonly string[];
   readonly product_words: readonly string[];
+  readonly work_words: readonly string[];
   readonly assumed_bonus_pct: number | null;
   readonly updated_at: string;
   // Run-owned, unlike every other column here: the `updated_at` the last
@@ -236,6 +237,7 @@ export const CRITERIA_FIELDS = [
   "product_words",
   "assumed_bonus_pct",
   "full_read_at",
+  "work_words",
 ] as const satisfies readonly (keyof Criteria)[];
 
 // Read by `src/store/memory.ts` to answer a select with the table's whole

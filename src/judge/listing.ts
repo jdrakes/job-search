@@ -20,18 +20,6 @@ const ROMAN_LEVELS = ["II", "III", "IV", "V", "VI", "VII", "VIII", "IX"] as cons
 // a title with one is out unless comp_high names a pay band.
 const SENIOR_MARKERS = ["Senior", "Sr.", "Sr"] as const;
 
-// A title naming engineering work but no level is settled by pay, same as
-// the numbered and Senior markers. `judgeLevel` matches these against the
-// role part only (`roleEnd`): "RVP, SOLUTION ENGINEERING, FINANCIAL
-// SERVICES" names a team, not the work. `judgeRole` matches the wider list
-// below against the whole title.
-const ENGINEERING_WORDS = ["engineer", "engineering", "developer", "swe", "programmer"] as const;
-
-// What the role rule reads as engineering work: the level rule's words plus
-// two that are level words in their own right and so never reach
-// `judgeLevel`'s engineering-work branch.
-const ENGINEERING_WORK_WORDS = [...ENGINEERING_WORDS, "architect", "technical staff"] as const;
-
 function matchesAny(
   text: string,
   terms: readonly string[],
@@ -47,6 +35,9 @@ function matchesAny(
 // location alone, whether it would ever pass the listing criteria that
 // title and place decide, without duplicating the rule here and there
 // drifting apart.
+// A title with a work word (`criteria.work_words`) but no level is settled by
+// pay, same as the numbered and Senior markers. It is matched against the role
+// part only (`roleEnd`), so a work word in a team suffix does not count.
 export function judgeLevel(title: string, compHigh: number | null, criteria: Criteria): Reason {
   const word = matchesAny(title, criteria.level_words);
   if (word !== null) {
@@ -100,19 +91,19 @@ export function judgeLevel(title: string, compHigh: number | null, criteria: Cri
       detail: `title carries a bare number "${bareNumber[0]}" used as a level`,
     };
   }
-  const work = matchesAny(title.slice(0, roleEnd(title)), ENGINEERING_WORDS);
+  const work = matchesAny(title.slice(0, roleEnd(title)), criteria.work_words);
   if (work !== null) {
     if (compHigh === null) {
       return {
         criterion: "level",
         verdict: "out",
-        detail: `title names engineering work ("${work.term}") but no level, and no pay is posted to settle it`,
+        detail: `title carries work word "${work.term}" but no level, and no pay is posted to settle it`,
       };
     }
     return {
       criterion: "level",
       verdict: "in",
-      detail: `title names engineering work ("${work.term}") and no level; settled by the posted pay`,
+      detail: `title carries work word "${work.term}" and no level; settled by the posted pay`,
     };
   }
   return { criterion: "level", verdict: "out", detail: "title carries no level word or marker" };
@@ -127,15 +118,17 @@ export function admitsLevel(
   return judgeLevel(posting.title ?? "", posting.comp_high, criteria).verdict === "in";
 }
 
+// A role word counts only in a title that also carries a work word: alone it
+// names a team or an industry.
 export function judgeRole(title: string, criteria: Criteria): Reason {
   const word = matchesAny(title, criteria.role_words);
   if (word !== null) {
-    const work = matchesAny(title, ENGINEERING_WORK_WORDS);
+    const work = matchesAny(title, criteria.work_words);
     if (work === null) {
       return {
         criterion: "role",
         verdict: "out",
-        detail: `title carries role word "${word.term}" but names no engineering work`,
+        detail: `title carries role word "${word.term}" but no work word`,
       };
     }
     return { criterion: "role", verdict: "in", detail: `title carries role word "${word.term}"` };

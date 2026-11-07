@@ -15,6 +15,7 @@ export interface Settings {
   readonly discoverySources?: readonly string[];
   readonly extraSourcePath?: string;
   readonly extraDetailPath?: string;
+  readonly largeBoardSearches?: readonly string[];
 }
 
 // `dir` defaults to `settings/` at the repo root; a caller (a test) passes
@@ -59,6 +60,7 @@ function parseSettings(value: unknown, path: string): Settings {
     discoverySources?: readonly string[];
     extraSourcePath?: string;
     extraDetailPath?: string;
+    largeBoardSearches?: readonly string[];
   } = {};
 
   if ("userAgent" in record) {
@@ -88,6 +90,14 @@ function parseSettings(value: unknown, path: string): Settings {
       throw new Error(`settings: ${path} field "extraDetailPath" must be a string`);
     }
     settings.extraDetailPath = record.extraDetailPath;
+  }
+
+  if ("largeBoardSearches" in record) {
+    const searches = record.largeBoardSearches;
+    if (!Array.isArray(searches) || !searches.every((search) => typeof search === "string")) {
+      throw new Error(`settings: ${path} field "largeBoardSearches" must be an array of strings`);
+    }
+    settings.largeBoardSearches = searches as readonly string[];
   }
 
   return settings;

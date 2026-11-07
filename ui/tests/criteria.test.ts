@@ -32,6 +32,7 @@ const CRITERIA: Criteria = {
   max_age_days: null,
   excluded_locations: [],
   product_words: [],
+  work_words: ["engineer", "developer"],
   assumed_bonus_pct: null,
   updated_at: "2026-09-01T00:00:00Z",
   full_read_at: "2026-09-01T00:00:00Z",
@@ -67,6 +68,7 @@ test("fieldsFrom turns every list into newline text and the floor into a string"
   assert.deepEqual(fieldsFrom(CRITERIA), {
     levelWords: "senior\nstaff",
     roleWords: "engineer",
+    workWords: "engineer\ndeveloper",
     excludedTitleWords: "intern",
     teamNameWords: "",
     excludedStates: "",
@@ -96,6 +98,7 @@ test("patchFrom parses every field back into the criteria patch's shape", () => 
   const outcome = patchFrom({
     levelWords: "senior\nstaff",
     roleWords: "engineer",
+    workWords: "engineer\ndeveloper",
     excludedTitleWords: "intern",
     teamNameWords: "",
     excludedStates: "CA\nNY",
@@ -111,6 +114,7 @@ test("patchFrom parses every field back into the criteria patch's shape", () => 
     patch: {
       level_words: ["senior", "staff"],
       role_words: ["engineer"],
+      work_words: ["engineer", "developer"],
       excluded_title_words: ["intern"],
       team_name_words: [],
       excluded_states: ["CA", "NY"],

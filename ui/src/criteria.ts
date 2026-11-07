@@ -33,6 +33,7 @@ export function floorLabel(text: string): string | null {
 export interface CriteriaFormFields {
   readonly levelWords: string;
   readonly roleWords: string;
+  readonly workWords: string;
   readonly excludedTitleWords: string;
   readonly teamNameWords: string;
   readonly excludedStates: string;
@@ -48,6 +49,7 @@ export function fieldsFrom(criteria: Criteria): CriteriaFormFields {
   return {
     levelWords: formatList(criteria.level_words),
     roleWords: formatList(criteria.role_words),
+    workWords: formatList(criteria.work_words),
     excludedTitleWords: formatList(criteria.excluded_title_words),
     teamNameWords: formatList(criteria.team_name_words),
     excludedStates: formatList(criteria.excluded_states),
@@ -98,6 +100,7 @@ export function patchFrom(fields: CriteriaFormFields): PatchOutcome {
     patch: {
       level_words: parseList(fields.levelWords),
       role_words: parseList(fields.roleWords),
+      work_words: parseList(fields.workWords),
       excluded_title_words: parseList(fields.excludedTitleWords),
       team_name_words: parseList(fields.teamNameWords),
       excluded_states: parseList(fields.excludedStates),
@@ -204,7 +207,12 @@ const GROUPS: readonly FieldGroup[] = [
       {
         key: "roleWords",
         label: "Role words",
-        hint: "A title needs one of these, alongside real engineering work, to pass the role check.",
+        hint: "A title needs one of these, alongside a work word, to pass the role check.",
+      },
+      {
+        key: "workWords",
+        label: "Work words",
+        hint: "The kind of work you do. A role word only counts in a title with one of these, and a title with one but no level is settled by pay.",
       },
       {
         key: "excludedTitleWords",

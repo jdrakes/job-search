@@ -193,14 +193,15 @@ elsewhere.
     digits or Roman numeral used as a level, or the word Senior (or Sr.) alone. Whether a
     numbered or Senior level is senior enough is settled by the comp floor,
     not by the word; one with no pay posted is out, since there is nothing
-    to settle it against. A title that names engineering work (engineer,
-    developer) but no level at all is settled the same way: in when pay is
-    posted at or above the floor, out otherwise.
+    to settle it against. A title that carries a work word (for this operator
+    engineer, developer) but no level at all is settled the same way: in when
+    pay is posted at or above the floor, out otherwise.
   - Role: title words that signal the work — backend, full-stack,
     platform, infrastructure, distributed, api, services, payments,
     software engineer. A role word counts only in a title that also
-    names engineering work (engineer, developer, architect, member of
-    technical staff); alone it names a team or an industry.
+    carries a work word, the kind of work the operator does (for this
+    operator engineer, developer, architect, member of technical staff);
+    alone it names a team or an industry.
   - Excluded title words: the disciplines and specialisms he was never in,
     with the team-name exception (a word like "customer" after the role
     part of an engineering title does not exclude).

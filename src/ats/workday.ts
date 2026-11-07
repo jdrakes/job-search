@@ -5,9 +5,11 @@
 // "engineer", "developer" and "architect" finds the same 421 but takes 313
 // pages). So a tenant is read whole, unless it reports over WHOLE_TENANT_LIMIT
 // requisitions (25 of 358 boards, 3,187 of the 5,965 pages a whole read of
-// every board costs), where it is searched by LARGE_TENANT_QUERIES instead.
+// every board costs), where it is searched by LARGE_TENANT_QUERIES instead, or
+// by `largeBoardSearches` in the settings for a search that is not engineering.
 import { getJson, htmlToText, postJson, type HttpOptions } from "../net/http.ts";
 import type { Board, Workplace } from "../schema.ts";
+import { loadSettings } from "../settings.ts";
 import {
   asArray,
   asRecord,
@@ -166,7 +168,7 @@ async function rawListing(cxs: string, options?: HttpOptions): Promise<unknown[]
     await walkSearch(cxs, "", first, seen, out, options);
     return out;
   }
-  for (const query of LARGE_TENANT_QUERIES) {
+  for (const query of loadSettings().largeBoardSearches ?? LARGE_TENANT_QUERIES) {
     await walkSearch(cxs, query, null, seen, out, options);
   }
   return out;

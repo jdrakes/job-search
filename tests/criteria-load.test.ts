@@ -18,6 +18,15 @@ const VALID_INPUT = {
   max_age_days: null,
   excluded_locations: [],
   product_words: [],
+  work_words: [
+    "engineer",
+    "engineering",
+    "developer",
+    "swe",
+    "programmer",
+    "architect",
+    "technical staff",
+  ],
   assumed_bonus_pct: null,
 };
 

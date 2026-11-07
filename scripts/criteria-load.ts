@@ -30,6 +30,7 @@ const STRING_ARRAY_FIELDS = [
   "missing_languages",
   "excluded_locations",
   "product_words",
+  "work_words",
 ] as const satisfies readonly (keyof CriteriaInput)[];
 
 const NULLABLE_NUMBER_FIELDS = [
@@ -90,6 +91,7 @@ export function parseCriteriaInput(
       max_age_days: record.max_age_days as number | null,
       excluded_locations: record.excluded_locations as readonly string[],
       product_words: record.product_words as readonly string[],
+      work_words: record.work_words as readonly string[],
       assumed_bonus_pct: record.assumed_bonus_pct as number | null,
     },
   };
