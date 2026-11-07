@@ -25,6 +25,7 @@ export const PLATFORMS = [
   "hrmdirect",
   "icims",
   "clearcompany",
+  "phenom",
 ] as const;
 export type Platform = (typeof PLATFORMS)[number];
 

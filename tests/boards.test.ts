@@ -245,9 +245,11 @@ test("boardUrl: an HRMDirect board's link parses back as the ClearCompany board 
   });
 });
 
-test("boardUrl: the round-trip list and the HRMDirect exemption cover every platform in PLATFORMS", () => {
+// Phenom is exempt because a site sits on the employer's own host, which no
+// URL pattern can tell from any other: a Phenom board is bound by hand.
+test("boardUrl: the round-trip list and the HRMDirect and Phenom exemptions cover every platform in PLATFORMS", () => {
   assert.deepEqual(
-    new Set([...ROUND_TRIP_BOARDS.map((board) => board.platform), "hrmdirect"]),
+    new Set([...ROUND_TRIP_BOARDS.map((board) => board.platform), "hrmdirect", "phenom"]),
     new Set(PLATFORMS),
   );
 });

@@ -6,7 +6,7 @@ model anywhere in it.
 - **Discovery** finds companies hiring, as many as it can, and watches a
   company once its applicant tracking system answers under its name.
 - **Ingestion** reads every watched company from its own system every
-  weekday. Eighteen are supported, from Greenhouse and Lever to Workday,
+  weekday. Nineteen are supported, from Greenhouse and Lever to Workday,
   iCIMS and Avature; `src/ats/readers.ts` is the list. Every posting is
   recorded and nothing is filtered.
 - **Processor** judges every posting in or out by code, from criteria you set,

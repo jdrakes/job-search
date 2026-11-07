@@ -195,6 +195,8 @@ export function boardUrl(board: Board): string {
       return `https://apply.clearcompany.com/${board.id}`;
     case "avature":
       return `https://${board.id}.avature.net/careers`;
+    case "phenom":
+      return `https://${board.id}/us/en/search-results`;
     case "icims":
       return `https://${board.id}.jibeapply.com`;
     case "workday": {

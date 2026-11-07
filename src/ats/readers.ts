@@ -9,6 +9,7 @@ import { avatureReader } from "./avature.ts";
 import { bambooHrReader } from "./bamboohr.ts";
 import { breezyReader } from "./breezy.ts";
 import { clearcompanyReader } from "./clearcompany.ts";
+import { phenomReader } from "./phenom.ts";
 import { eightfoldReader } from "./eightfold.ts";
 import { greenhouseReader } from "./greenhouse.ts";
 import { hrmdirectReader } from "./hrmdirect.ts";
@@ -44,6 +45,7 @@ export const READERS: Record<Platform, Reader> = {
   hrmdirect: hrmdirectReader,
   icims: icimsReader,
   clearcompany: clearcompanyReader,
+  phenom: phenomReader,
 };
 
 // A body left null is what sends the judge to `body` for the page; a band
