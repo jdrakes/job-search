@@ -20,7 +20,13 @@ import type { FreshToken, SessionStore } from "./auth.ts";
 import type { AppConfig } from "./config.ts";
 import { EmptyState } from "./empty-state.ts";
 import { useMasterDetail } from "./master-detail.ts";
-import { labelOf, outcomeToastText, PostingCard, type DecidedOutcome } from "./posting.ts";
+import {
+  labelOf,
+  outcomeToastText,
+  PostingCard,
+  type DecidedOutcome,
+  type ScoreBasis,
+} from "./posting.ts";
 import {
   companyHeadLabel,
   FOLD_ICON,
@@ -87,12 +93,11 @@ export function filteredRecord(
  */
 export function orderedRecord(
   postings: readonly PostingSummary[],
-  compFloor: number | null,
-  productWords: readonly string[] = [],
+  basis: ScoreBasis | null,
   sort: Sort = "acted",
   view: ListView = "list",
 ): PostingSummary[] {
-  const sorted = sortedPostings(postings, sort, compFloor, productWords);
+  const sorted = sortedPostings(postings, sort, basis);
   return view === "company" ? groupedByCompany(sorted) : sorted;
 }
 
@@ -110,8 +115,7 @@ export const RecordView = defineComponent({
     config: { type: Object as PropType<AppConfig>, required: true },
     freshToken: { type: Function as PropType<FreshToken>, required: true },
     // Null when the criteria read failed; no card then guesses one.
-    compFloor: { type: [Number, null] as PropType<number | null>, required: true },
-    productWords: { type: Array as PropType<readonly string[]>, default: () => [] },
+    scoreBasis: { type: [Object, null] as PropType<ScoreBasis | null>, required: true },
     // Where the chosen view and sort are remembered across a reload.
     store: { type: Object as PropType<SessionStore>, default: () => NULL_STORE },
   },
@@ -144,8 +148,7 @@ export const RecordView = defineComponent({
     const filtered = computed(() =>
       orderedRecord(
         filteredRecord(props.postings, filters.value),
-        props.compFloor,
-        props.productWords,
+        props.scoreBasis,
         sort.value,
         view.value,
       ),
@@ -261,8 +264,7 @@ export const RecordView = defineComponent({
               :posting="row.posting"
               :config="config"
               :fresh-token="freshToken"
-              :comp-floor="compFloor"
-              :product-words="productWords"
+              :score-basis="scoreBasis"
               :selected="paneMode && selected !== null && row.posting.key === selected.key"
               :expandable="!paneMode"
               :revealed="isRevealed(row.posting.key)"
@@ -278,8 +280,7 @@ export const RecordView = defineComponent({
             :posting="selected"
             :config="config"
             :fresh-token="freshToken"
-            :comp-floor="compFloor"
-            :product-words="productWords"
+            :score-basis="scoreBasis"
             expanded
             :expandable="false"
             :actionable="false"

@@ -123,46 +123,93 @@ export function midpoint(posting: PostingSummary): number | null {
 }
 
 /*
- * Weights set from James's decisions (2026-09-29: 40 applied, 118 closed).
- * Pay alone ranks an applied posting over a closed one 67% of the time, a
- * product word in the title 61%. Age does not rank at all: James decides
- * within a week, and while these were measured the processor dropped
- * postings past 35 days, so freshness scored the same at weight 0, 15 or 30
- * (73%); the "By posted" sort covers age. With no max age set, older
- * postings reach the queue and this is worth measuring again. Full pay at 1.25 × floor: the apply rate climbs to 48%
- * between 1.25 and 1.5 × floor, but the shorter reach separates the rows
- * just above the floor, and ranked better (72% against 70%). The two
- * weights add up to 100; the score is their plain sum.
+ * The score reads each person's own list, so it holds at any salary level and
+ * with any rank words. Tested 2026-11-07 against James's 866 decisions (164
+ * applied, 702 closed): it ranked an applied row over a closed one 70.4% of
+ * the time, against 68.9% for the earlier fixed formula (full pay at 1.25 x
+ * floor). On a second search with an $85k floor the fixed formula tied 145 of
+ * 373 rows at 100; this one ties 2. Matching rank words in the posting's text
+ * as well as its title was tried and ranked worse (62.6%), so titles only.
  */
+/** Pay marks without office locations; with them, pay gives up the office marks. */
 export const PAY_WEIGHT = 60;
-/** Full pay marks at floor × (1 + PAY_REACH). */
-export const PAY_REACH = 0.25;
-/** Low: most unpriced rows are aggregator listings James closes (1 applied of 23). */
-export const UNPOSTED_PAY = 6;
-/** A product word in the title: James applied to 38% of such rows, 19% of the rest. */
 export const SHAPE_WEIGHT = 40;
+export const OFFICE_WEIGHT = 20;
+/** Full pay at this quantile of the person's own bands. Above it pays nothing more. */
+export const PAY_TOP_QUANTILE = 0.75;
+/** No posted pay is neither rewarded nor punished: half the pay marks. */
+export const UNPOSTED_SHARE = 0.5;
+/** A rank word in more than this share of the person's titles separates nothing, so it does not count. */
+export const WORD_SHARE_CAP = 0.25;
+
+export interface ScoreBasis {
+  readonly floor: number;
+  /** Where full pay marks are reached. */
+  readonly payTop: number;
+  /** The rank words that still separate this person's list. */
+  readonly words: readonly string[];
+  readonly officeLocations: readonly string[];
+}
+
+function bandTop(posting: Pick<PostingSummary, "comp_low" | "comp_high">): number | null {
+  return posting.comp_high ?? posting.comp_low;
+}
 
 /**
- * Score out of 100, shown on the card and the queue's default order.
- * `pay = PAY_WEIGHT × clamp((top − floor) / (floor × PAY_REACH), 0, 1)`,
- * UNPOSTED_PAY with no band, plus SHAPE_WEIGHT when the title carries a
- * product word whole-word. The top of the band, not the midpoint: the
- * processor admits a band when its top clears the floor, so a midpoint would
- * score an admitted band that straddles the floor at 0. Title only: the
- * score orders, never excludes.
+ * What a score is measured against, from the criteria and the person's list:
+ * every posting kept or acted on. With no bands to read, or a quantile at the
+ * floor, full pay falls back to 1.25 x the floor.
+ */
+export function scoreBasis(
+  criteria: {
+    comp_floor: number;
+    product_words: readonly string[];
+    office_locations?: readonly string[];
+  },
+  postings: readonly Pick<PostingSummary, "title" | "comp_low" | "comp_high">[],
+): ScoreBasis {
+  const floor = criteria.comp_floor;
+  const tops = postings.flatMap((posting) => bandTop(posting) ?? []).sort((a, b) => a - b);
+  const quantile = tops[Math.min(tops.length - 1, Math.floor(PAY_TOP_QUANTILE * tops.length))];
+  const payTop = quantile !== undefined && quantile > floor ? quantile : floor * 1.25;
+  const shareOf = (word: string): number =>
+    postings.filter((posting) => findWholeWord(posting.title ?? "", word) !== null).length /
+    Math.max(1, postings.length);
+  const words = criteria.product_words.filter(
+    (word) => postings.length === 0 || shareOf(word) <= WORD_SHARE_CAP,
+  );
+  return { floor, payTop, words, officeLocations: criteria.office_locations ?? [] };
+}
+
+/**
+ * Score out of 100, shown on the card and the queue's default order. Pay runs
+ * from the floor to `payTop` on the band's top, half marks with no band; a
+ * rank word whole-word in the title adds SHAPE_WEIGHT; a location naming an
+ * office location adds OFFICE_WEIGHT, taken from pay, when there are any.
+ * Title and location only: the score orders, never excludes.
  */
 export function scoreOf(
-  posting: PostingSummary,
-  compFloor: number,
-  productWords: readonly string[] = [],
+  posting: Pick<PostingSummary, "title" | "location" | "comp_low" | "comp_high">,
+  basis: ScoreBasis,
 ): number {
-  const pay = posting.comp_high ?? posting.comp_low;
-  // A floor of 0 makes the ratio meaningless (0/0 is NaN); score it at the floor.
-  const ratio = pay === null || compFloor <= 0 ? 0 : (pay - compFloor) / (compFloor * PAY_REACH);
-  const payScore = pay === null ? UNPOSTED_PAY : PAY_WEIGHT * Math.max(0, Math.min(1, ratio));
+  const top = bandTop(posting);
+  const reach = basis.payTop - basis.floor;
+  const payShare =
+    top === null
+      ? UNPOSTED_SHARE
+      : reach <= 0
+        ? 0
+        : Math.max(0, Math.min(1, (top - basis.floor) / reach));
+  const hasOffice = basis.officeLocations.length > 0;
+  const payWeight = hasOffice ? PAY_WEIGHT - OFFICE_WEIGHT : PAY_WEIGHT;
   const title = posting.title ?? "";
-  const namesProduct = productWords.some((word) => findWholeWord(title, word) !== null);
-  return Math.round(payScore + (namesProduct ? SHAPE_WEIGHT : 0));
+  const named = basis.words.some((word) => findWholeWord(title, word) !== null);
+  const atOffice =
+    hasOffice &&
+    basis.officeLocations.some((place) => findWholeWord(posting.location ?? "", place) !== null);
+  return Math.round(
+    payWeight * payShare + (named ? SHAPE_WEIGHT : 0) + (atOffice ? OFFICE_WEIGHT : 0),
+  );
 }
 
 export function formatComp(value: number): string {
@@ -293,8 +340,7 @@ export const PostingCard = defineComponent({
     config: { type: Object as PropType<AppConfig>, required: true },
     freshToken: { type: Function as PropType<FreshToken>, required: true },
     // Null when there is no criteria row; the card then shows no score.
-    compFloor: { type: [Number, null] as PropType<number | null>, required: true },
-    productWords: { type: Array as PropType<readonly string[]>, default: () => [] },
+    scoreBasis: { type: [Object, null] as PropType<ScoreBasis | null>, required: true },
     // Seeds the expansion; a test with no DOM to click renders the detail through it.
     expanded: { type: Boolean, default: false },
     // False for both cards of a master-detail split: the row's head only
@@ -363,7 +409,7 @@ export const PostingCard = defineComponent({
     const evidence = computed(() => evidenceLines(props.posting.evidence));
     const comp = computed(() => compLabel(props.posting));
     const score = computed(() =>
-      props.compFloor === null ? null : scoreOf(props.posting, props.compFloor, props.productWords),
+      props.scoreBasis === null ? null : scoreOf(props.posting, props.scoreBasis),
     );
     const age = computed(() => {
       // From the decision where there is one, from first_seen where not.

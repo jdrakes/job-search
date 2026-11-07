@@ -51,7 +51,7 @@ import { CandidatesView } from "./candidates.ts";
 import { CompaniesView, type DroppedCompany } from "./companies.ts";
 import { parseConfig, type AppConfig } from "./config.ts";
 import { CriteriaView } from "./criteria.ts";
-import type { DecidedOutcome } from "./posting.ts";
+import { scoreBasis, type DecidedOutcome } from "./posting.ts";
 import { QueueView } from "./queue.ts";
 import {
   clearReads,
@@ -539,6 +539,11 @@ export const AppRoot = defineComponent({
       droppedWith(companiesResult.value?.ok ? companiesResult.value.value : [], dropped.value),
     );
     const criteria = computed(() => (criteriaResult.value?.ok ? criteriaResult.value.value : null));
+    // Read off the whole record, kept and acted on, so the queue and the
+    // record score against the same list.
+    const scoreBasisValue = computed(() =>
+      criteria.value === null ? null : scoreBasis(criteria.value, allPostings.value),
+    );
     const candidates = computed(() => [
       ...added.value,
       ...(candidatesResult.value?.ok ? candidatesResult.value.value : []),
@@ -600,6 +605,7 @@ export const AppRoot = defineComponent({
       onCandidateAdded,
       queuePostings,
       allPostings,
+      scoreBasisValue,
       actedPostings,
       waitingPostings,
       companies,
@@ -643,8 +649,7 @@ export const AppRoot = defineComponent({
           :postings="queuePostings"
           :config="config"
           :fresh-token="freshToken"
-          :comp-floor="criteria === null ? null : criteria.comp_floor"
-          :product-words="criteria === null ? [] : criteria.product_words"
+          :score-basis="scoreBasisValue"
           :history="actedPostings"
           :store="store"
           @decided="onDecided" />
@@ -654,8 +659,7 @@ export const AppRoot = defineComponent({
           :postings="allPostings"
           :config="config"
           :fresh-token="freshToken"
-          :comp-floor="criteria === null ? null : criteria.comp_floor"
-          :product-words="criteria === null ? [] : criteria.product_words"
+          :score-basis="scoreBasisValue"
           :store="store"
           @decided="onDecided" />
 

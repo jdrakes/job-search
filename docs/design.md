@@ -318,14 +318,15 @@ elsewhere.
   well or a new one that pays less. The age is the board's own posting
   date. A posting whose board never gave one says nothing rather than
   passing off the day the search first saw it as the day it went up.
-- Each posting carries a score out of 100, read from two facts: the top
-  of its comp band against the comp floor (the same number the floor
-  admits it on), and whether its title names product work, from a list
-  James edits. How recently it was posted is not one: it did not rank
-  which postings James applied to, and the card and the posting-date
-  order already show it. A posting that names no pay scores below one
-  that names pay above the floor. The score is the queue's order and is
-  shown on the card.
+- Each posting carries a score out of 100, read from the person's own list,
+  so it holds at any salary level. Pay runs from the comp floor to the 75th
+  percentile of the bands in that list, nothing more above it, and half marks
+  where no pay is posted. A rank word in the title adds to it, from a list
+  James edits, unless the word is in more than a quarter of the list's titles,
+  where it separates nothing. With office locations set, a role in one adds
+  to it too. How recently it was posted is not one: it did not rank which
+  postings James applied to, and the card and the posting-date order already
+  show it. The score is the queue's order and is shown on the card.
 - A closed posting shows the reason James gave.
 - What James does to a posting is the only thing that moves it off the
   queue: applied, interviewing, rejected, offer, closed. Each records its

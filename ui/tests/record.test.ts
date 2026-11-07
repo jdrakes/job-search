@@ -1,3 +1,4 @@
+import { scoreBasis } from "../src/posting.ts";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
@@ -36,6 +37,11 @@ import {
   textOf,
   type TreeNode,
 } from "./render-tree.ts";
+
+/** The fixed-reach basis: full pay at 1.25 x the floor, no rank words. */
+function basisAt(floor: number) {
+  return scoreBasis({ comp_floor: floor, product_words: [] }, []);
+}
 
 function memoryStore(initial: Record<string, string> = {}): SessionStore {
   const data = new Map(Object.entries(initial));
@@ -153,7 +159,7 @@ test("RecordView renders the three filters and one card per posting", async () =
     postings: [a, b],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
 
   assert.match(html, /<select/);
@@ -174,7 +180,7 @@ test("RecordView's rows offer only the outcomes that make sense from their own s
     postings: [interviewing],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   // The row also auto-selects into the pane, so this reads the list row
   // alone.
@@ -190,7 +196,7 @@ test("RecordView shows the empty state when nothing is kept at all", async () =>
     postings: [],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
 
   assert.match(html, /class="empty"/);
@@ -211,7 +217,9 @@ test("orderedRecord puts acted-on postings first, most recent act first, then th
     posted_at: "2026-09-15",
   });
   assert.deepEqual(
-    orderedRecord([modestUntouched, oldAct, richUntouched, newAct], 150_000).map((p) => p.key),
+    orderedRecord([modestUntouched, oldAct, richUntouched, newAct], basisAt(150_000)).map(
+      (p) => p.key,
+    ),
     ["b::1", "a::1", "c::1", "d::1"],
   );
 });
@@ -230,12 +238,12 @@ test("orderedRecord sorts every row by score or by posted date when asked, acted
     posted_at: "2026-09-15",
   });
   assert.deepEqual(
-    orderedRecord([modestNew, richActed], null, [], "score").map((p) => p.key),
+    orderedRecord([modestNew, richActed], null, "score").map((p) => p.key),
     ["a::1", "b::1"],
     "the richer band leads whatever its status",
   );
   assert.deepEqual(
-    orderedRecord([richActed, modestNew], null, [], "posted").map((p) => p.key),
+    orderedRecord([richActed, modestNew], null, "posted").map((p) => p.key),
     ["b::1", "a::1"],
     "the newer posting leads whatever its status",
   );
@@ -259,7 +267,7 @@ test("orderedRecord in the company view keeps every row, companies in the order 
   });
   const acmeWaiting = posting("acme::3", { company: "Acme" });
   assert.deepEqual(
-    orderedRecord([acmeOld, bevel, acmeWaiting, acmeNew], null, [], "acted", "company").map(
+    orderedRecord([acmeOld, bevel, acmeWaiting, acmeNew], null, "acted", "company").map(
       (p) => p.key,
     ),
     ["acme::2", "acme::1", "acme::3", "bevel::1"],
@@ -272,7 +280,7 @@ test("RecordView shows a View group and a Sort group, 'List' and 'Recently acted
     postings: [posting("a::1")],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   const [view, sort] = [...html.matchAll(/class="order"[^>]*>([^]*?)<\/div>/g)].map(
     (m) => m[1] ?? "",
@@ -293,7 +301,7 @@ test("RecordView in the company view heads each company with its counts and mark
     ],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     store: memoryStore({ [viewKey("record")]: "company" }),
   });
   assert.match(html, /class="grouped list"/);
@@ -308,7 +316,7 @@ test("RecordView folds its filters under a summary and says its place on an unto
     postings: [untouched],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   assert.match(html, /<details class="filters"><summary>Filters<!---->/);
   assert.match(html, /class="status tag tone-neutral">In queue</);
@@ -326,7 +334,7 @@ test("a Record row's status-age still reads as days-since-status, unchanged, alo
     postings: [acted],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   // Only that the status-age wording is untouched and a separate
   // posting-age line has appeared beside it.
@@ -369,7 +377,7 @@ test("RecordView's status options carry their counts, In queue among them", asyn
     postings: [posting("a::1"), posting("b::1", { status: "applied" })],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   assert.match(html, /<option value="">All \(2\)<\/option>/);
   assert.match(html, /<option value="queue">In queue \(1\)<\/option>/);
@@ -388,7 +396,7 @@ test("RecordView auto-selects the first row of filtered into the pane with no pr
     postings: [untouched, acted],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   const pane = html.match(/<aside class="detail-pane"[^]*$/)?.[0] ?? "";
   assert.notEqual(pane, "", "the pane renders");
@@ -403,7 +411,7 @@ test("an empty filter result renders no master-detail pane at all", async () => 
     postings: [],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   assert.doesNotMatch(html, /class="master-detail"/);
   assert.doesNotMatch(html, /class="detail-pane"/);
@@ -419,7 +427,7 @@ test("no list card carries aria-current when paneMode is false, even though the 
     postings: [a, b],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   const list = html.match(/class="list">([^]*?)<\/div><aside/)?.[1] ?? "";
   assert.equal(
@@ -436,7 +444,7 @@ test("the pane's card is open with no disclosure that could shut it", async () =
     postings: [posting("a::1", { company: "Acme", evidence: { role: "words" } })],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   const pane = html.match(/<aside class="detail-pane"[^]*$/)?.[0] ?? "";
   assert.match(pane, /class="evidence"/, "the pane shows the posting's evidence");
@@ -450,7 +458,7 @@ test("the pane offers no outcome or change button, only its posting link", async
     postings: [posting("a::1", { company: "Acme", url: "https://boards.example/acme/1" })],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   const pane = html.match(/<aside class="detail-pane"[^]*$/)?.[0] ?? "";
   assert.doesNotMatch(pane, /class="act(?:"| )/, "no outcome button in the pane");
@@ -485,7 +493,7 @@ test("a refused write shows its reason on the row that issued it, and no other",
     ],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   try {
     click(outcomeButton(cardIn(app.root, "list", "Acme"), "Rejected — Acme"));
@@ -517,7 +525,7 @@ test("a Record decision hands the posting's key and the patch it wrote up to its
     postings: [posting("a::1", { company: "Acme" })],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     onDecided: (outcome: DecidedOutcome) => emitted.push(outcome),
   });
   try {
@@ -550,7 +558,7 @@ test("a decided Record row offers its new status's outcomes at once, and an end 
       posting("a::1", { company: "Acme", status: "applied", status_at: "2026-09-10" }),
       posting("b::2", { company: "Bevel" }),
     ],
-    { config: CONFIG, freshToken: FRESH_TOKEN, compFloor: null },
+    { config: CONFIG, freshToken: FRESH_TOKEN, scoreBasis: null },
   );
   try {
     click(outcomeButton(cardIn(app.root, "list", "Acme"), "Rejected — Acme"));
@@ -596,7 +604,7 @@ test("a second decision from a written Record row sends the applied_at the first
   const app = mountUnderAppRoot(RecordView, [posting("a::1", { company: "Acme" })], {
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   try {
     click(outcomeButton(cardIn(app.root, "list", "Acme"), "Applied — Acme"));
@@ -632,7 +640,7 @@ test("revealing Change on the list row reveals its own five outcomes; the non-ac
     ],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   try {
     assert.equal(elementsWithClass(cardIn(app.root, "detail-pane", "Acme"), "act").length, 0);
@@ -689,7 +697,7 @@ test("a reveal outlives a filter that takes its row off the list and puts it bac
     ],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   try {
     click(changeButton(cardIn(app.root, "list", "Acme")));
@@ -739,7 +747,7 @@ test("a Record filter says how many of its postings matched, and no filter says 
     ],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   try {
     const line = elementsWithClass(app.root, "matched")[0];
@@ -777,7 +785,7 @@ test("folding a company in the company view keeps its header and counts and take
     ],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     store: memoryStore({ [viewKey("record")]: "company" }),
   });
   try {

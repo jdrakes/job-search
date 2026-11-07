@@ -29,6 +29,7 @@ import {
   outcomeToastText,
   PostingCard,
   scoreOf,
+  type ScoreBasis,
   type DecidedOutcome,
 } from "./posting.ts";
 import { SearchBox } from "./search-box.ts";
@@ -55,13 +56,10 @@ function compareMidpoint(a: PostingSummary, b: PostingSummary): number {
 /** The default sort: score descending with a floor, comp-band midpoint descending without one. */
 function compareByScore(
   postings: readonly PostingSummary[],
-  compFloor: number | null,
-  productWords: readonly string[],
+  basis: ScoreBasis | null,
 ): (a: PostingSummary, b: PostingSummary) => number {
-  if (compFloor === null) return compareMidpoint;
-  const scores = new Map(
-    postings.map((posting) => [posting.key, scoreOf(posting, compFloor, productWords)]),
-  );
+  if (basis === null) return compareMidpoint;
+  const scores = new Map(postings.map((posting) => [posting.key, scoreOf(posting, basis)]));
   return (a, b) => {
     const diff = (scores.get(b.key) ?? 0) - (scores.get(a.key) ?? 0);
     return diff !== 0 ? diff : compareMidpoint(a, b);
@@ -81,10 +79,9 @@ export function byMostRecentAct(a: PostingSummary, b: PostingSummary): number {
 export function sortedPostings(
   postings: readonly PostingSummary[],
   sort: Sort,
-  compFloor: number | null,
-  productWords: readonly string[] = [],
+  basis: ScoreBasis | null,
 ): PostingSummary[] {
-  const byScore = compareByScore(postings, compFloor, productWords);
+  const byScore = compareByScore(postings, basis);
   if (sort === "score") return [...postings].sort(byScore);
   if (sort === "acted") {
     const acted = postings.filter((posting) => posting.status_at !== null).sort(byMostRecentAct);
@@ -123,13 +120,12 @@ export function groupedByCompany(
 /** `acted` is read by the company view alone: the list view is what is still waiting and nothing else. */
 export function orderedQueue(
   postings: readonly PostingSummary[],
-  compFloor: number | null,
-  productWords: readonly string[] = [],
+  basis: ScoreBasis | null,
   sort: Sort = "score",
   view: ListView = "list",
   acted: readonly PostingSummary[] = [],
 ): PostingSummary[] {
-  const sorted = sortedPostings(postings, sort, compFloor, productWords);
+  const sorted = sortedPostings(postings, sort, basis);
   return view === "company" ? groupedByCompany(sorted, acted) : sorted;
 }
 
@@ -264,11 +260,10 @@ export const MIN_SCORES = [10, 20, 30, 40, 50, 60, 70, 80, 90] as const;
 export function meetsMinScore(
   posting: PostingSummary,
   minScore: number | null,
-  compFloor: number | null,
-  productWords: readonly string[] = [],
+  basis: ScoreBasis | null,
 ): boolean {
-  if (minScore === null || compFloor === null) return true;
-  return scoreOf(posting, compFloor, productWords) >= minScore;
+  if (minScore === null || basis === null) return true;
+  return scoreOf(posting, basis) >= minScore;
 }
 
 /**
@@ -379,8 +374,7 @@ export const QueueView = defineComponent({
     config: { type: Object as PropType<AppConfig>, required: true },
     freshToken: { type: Function as PropType<FreshToken>, required: true },
     // Null when the criteria read failed; no card then guesses one.
-    compFloor: { type: [Number, null] as PropType<number | null>, required: true },
-    productWords: { type: Array as PropType<readonly string[]>, default: () => [] },
+    scoreBasis: { type: [Object, null] as PropType<ScoreBasis | null>, required: true },
     // Where the chosen view and sort are remembered across a reload.
     store: { type: Object as PropType<SessionStore>, default: () => NULL_STORE },
     // The record's postings, handed in by `app.ts`, which is where a
@@ -437,7 +431,7 @@ export const QueueView = defineComponent({
     const filtering = computed(
       () =>
         query.value.trim() !== "" ||
-        (minScore.value !== null && props.compFloor !== null) ||
+        (minScore.value !== null && props.scoreBasis !== null) ||
         notAppliedTo.value ||
         payBandOnly.value,
     );
@@ -454,7 +448,7 @@ export const QueueView = defineComponent({
       waitingTotal.value.filter(
         (posting) =>
           matchesQuery(posting, query.value) &&
-          meetsMinScore(posting, minScore.value, props.compFloor, props.productWords) &&
+          meetsMinScore(posting, minScore.value, props.scoreBasis) &&
           !(notAppliedTo.value && appliedCompanies.value.has(posting.company)) &&
           (!payBandOnly.value || hasPayBand(posting)),
       ),
@@ -472,14 +466,7 @@ export const QueueView = defineComponent({
       filtering.value ? `${waiting.value.length} of ${waitingTotal.value.length}` : "",
     );
     const visible = computed(() =>
-      orderedQueue(
-        waiting.value,
-        props.compFloor,
-        props.productWords,
-        sort.value,
-        view.value,
-        acted.value,
-      ),
+      orderedQueue(waiting.value, props.scoreBasis, sort.value, view.value, acted.value),
     );
     const rows = computed(() => queueRows(visible.value, view.value === "company"));
     const { isCollapsed, toggleCompany } = useCollapsedCompanies();
@@ -557,7 +544,7 @@ export const QueueView = defineComponent({
       <ArrangeBar tab="queue" tab-label="Queue" :view="view" :sort="sort" :sorts="QUEUE_SORTS" @view="setView" @sort="setSort" />
       <div class="queue-search">
         <SearchBox :value="query" placeholder="Company or role" @search="query = $event" />
-        <label v-if="compFloor !== null" class="min-score">
+        <label v-if="scoreBasis !== null" class="min-score">
           <span>Min score</span>
           <select :value="minScore === null ? '' : String(minScore)" @change="setMinScore($event.target.value)">
             <option value="">Any</option>
@@ -585,8 +572,7 @@ export const QueueView = defineComponent({
               :posting="row.posting"
               :config="config"
               :fresh-token="freshToken"
-              :comp-floor="compFloor"
-              :product-words="productWords"
+              :score-basis="scoreBasis"
               :selected="paneMode && selected !== null && row.posting.key === selected.key"
               :expandable="!paneMode"
               :revealed="isRevealed(row.posting.key)"
@@ -602,8 +588,7 @@ export const QueueView = defineComponent({
             :posting="selected"
             :config="config"
             :fresh-token="freshToken"
-            :comp-floor="compFloor"
-            :product-words="productWords"
+            :score-basis="scoreBasis"
             expanded
             :expandable="false"
             :actionable="false"

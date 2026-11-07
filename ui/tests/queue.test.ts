@@ -24,6 +24,9 @@ import {
   postingHref,
   PostingCard,
   resolveSelection,
+  OFFICE_WEIGHT,
+  PAY_WEIGHT,
+  scoreBasis,
   scoreOf,
   SHAPE_WEIGHT,
   statusTag,
@@ -82,6 +85,11 @@ import {
   typeInto,
   type TreeNode,
 } from "./render-tree.ts";
+
+/** The fixed-reach basis: full pay at 1.25 x the floor, no rank words. */
+function basisAt(floor: number) {
+  return scoreBasis({ comp_floor: floor, product_words: [] }, []);
+}
 
 function render(component: object, props: Record<string, unknown>): Promise<string> {
   return renderToString(createSSRApp(component, props));
@@ -275,7 +283,7 @@ test("orderedQueue with a floor sorts by score, not age: a stale richer band bea
     posted_at: "2026-09-15",
   });
   assert.deepEqual(
-    orderedQueue([freshModest, staleRich, freshRich], QUEUE_FLOOR).map((p) => p.key),
+    orderedQueue([freshModest, staleRich, freshRich], basisAt(QUEUE_FLOOR)).map((p) => p.key),
     ["c::1", "a::1", "b::1"],
   );
 });
@@ -289,31 +297,32 @@ test("orderedQueue with a floor breaks a score tie by midpoint, then posted_at",
     posted_at: "2026-09-15",
   });
   assert.deepEqual(
-    orderedQueue([wide, narrow], QUEUE_FLOOR).map((p) => p.key),
+    orderedQueue([wide, narrow], basisAt(QUEUE_FLOOR)).map((p) => p.key),
     ["b::1", "a::1"],
   );
 });
 
-test("orderedQueue with a floor puts a fresh unpriced posting under a fresh priced one above the floor", () => {
+test("orderedQueue with a floor puts a fresh unpriced posting at half pay, above a band just over the floor", () => {
   const unpriced = posting("a::1", { comp_low: null, comp_high: null, posted_at: "2026-09-15" });
   const priced = posting("b::1", {
     comp_low: 150_000,
     comp_high: 165_000,
     posted_at: "2026-09-15",
   });
-  // 6 against 24: a band just over the floor outranks no band.
+  // 30 against 24: no band is half the pay marks, so it sits above a band
+  // just over the floor.
   assert.deepEqual(
-    orderedQueue([unpriced, priced], QUEUE_FLOOR).map((p) => p.key),
-    ["b::1", "a::1"],
+    orderedQueue([unpriced, priced], basisAt(QUEUE_FLOOR)).map((p) => p.key),
+    ["a::1", "b::1"],
   );
-  // A band whose top is the floor scores 0, under the unpriced 6.
+  // A band whose top is the floor scores 0, under the unpriced 30.
   const atFloor = posting("c::1", {
     comp_low: 150_000,
     comp_high: 150_000,
     posted_at: "2026-09-15",
   });
   assert.deepEqual(
-    orderedQueue([atFloor, unpriced], QUEUE_FLOOR).map((p) => p.key),
+    orderedQueue([atFloor, unpriced], basisAt(QUEUE_FLOOR)).map((p) => p.key),
     ["a::1", "c::1"],
   );
 });
@@ -363,7 +372,7 @@ test("orderedQueue with order 'posted' sorts newest first and sinks a posting wi
   const noDate = posting("c::1", { posted_at: null, comp_low: 500_000, comp_high: 500_000 });
   // A richer band on the undated row must not move it off the bottom.
   assert.deepEqual(
-    orderedQueue([older, noDate, newer], null, [], "posted").map((p) => p.key),
+    orderedQueue([older, noDate, newer], null, "posted").map((p) => p.key),
     ["b::1", "a::1", "c::1"],
   );
   // Same day falls back to the (floorless) score order.
@@ -378,7 +387,7 @@ test("orderedQueue with order 'posted' sorts newest first and sinks a posting wi
     comp_high: 300_000,
   });
   assert.deepEqual(
-    orderedQueue([sameDayLow, sameDayHigh], null, [], "posted").map((p) => p.key),
+    orderedQueue([sameDayLow, sameDayHigh], null, "posted").map((p) => p.key),
     ["e::1", "d::1"],
   );
 });
@@ -431,7 +440,7 @@ test("orderedQueue in the company view pulls a company's rows together under the
     "the score order interleaves the two companies",
   );
   assert.deepEqual(
-    orderedQueue(scattered, null, [], "score", "company").map((p) => p.key),
+    orderedQueue(scattered, null, "score", "company").map((p) => p.key),
     ["acme::top", "acme::low", "bevel::mid"],
     "Acme leads on its best posting, and its own rows stay in score order",
   );
@@ -439,13 +448,13 @@ test("orderedQueue in the company view pulls a company's rows together under the
 
 test("orderedQueue in the company view returns one flat array holding every posting exactly once", () => {
   // The flat array is what `resolveSelection`/`nextSelection` index into.
-  const grouped = orderedQueue([ACME_LOW, BEVEL_MID, ACME_TOP], null, [], "score", "company");
+  const grouped = orderedQueue([ACME_LOW, BEVEL_MID, ACME_TOP], null, "score", "company");
   assert.deepEqual([...grouped].map((p) => p.key).sort(), ["acme::low", "acme::top", "bevel::mid"]);
 });
 
 test("orderedQueue in the company view follows a company's waiting rows with its history, most recent act first", () => {
   assert.deepEqual(
-    orderedQueue([ACME_LOW, BEVEL_MID, ACME_TOP], null, [], "score", "company", [
+    orderedQueue([ACME_LOW, BEVEL_MID, ACME_TOP], null, "score", "company", [
       ACME_APPLIED,
       ACME_CLOSED,
     ]).map((p) => p.key),
@@ -456,7 +465,7 @@ test("orderedQueue in the company view follows a company's waiting rows with its
 
 test("orderedQueue in the company view leaves out a company with nothing waiting, however much history it holds", () => {
   assert.deepEqual(
-    orderedQueue([BEVEL_MID], null, [], "score", "company", [CIRRUS_APPLIED, ACME_APPLIED]).map(
+    orderedQueue([BEVEL_MID], null, "score", "company", [CIRRUS_APPLIED, ACME_APPLIED]).map(
       (p) => p.key,
     ),
     ["bevel::mid"],
@@ -467,7 +476,7 @@ test("orderedQueue in the company view leaves out a company with nothing waiting
 test("orderedQueue reads the acted-on postings in the company order alone", () => {
   for (const order of ["score", "posted"] as const) {
     assert.deepEqual(
-      orderedQueue([ACME_TOP], null, [], order, "list", [ACME_APPLIED]).map((p) => p.key),
+      orderedQueue([ACME_TOP], null, order, "list", [ACME_APPLIED]).map((p) => p.key),
       ["acme::top"],
       `the ${order} order shows no history`,
     );
@@ -571,118 +580,97 @@ const FLOOR = 150_000;
 
 test("scoreOf at the floor is 0: no pay marks, and age is not scored", () => {
   const p = posting("a::1", { comp_low: FLOOR, comp_high: FLOOR, posted_at: "2026-09-15" });
-  assert.equal(scoreOf(p, FLOOR), 0);
+  assert.equal(scoreOf(p, basisAt(FLOOR)), 0);
 });
 
-test("scoreOf at a quarter again over the floor is full pay: 60", () => {
-  const p = posting("a::1", { comp_low: 187_500, comp_high: 187_500, posted_at: "2026-06-17" });
-  assert.equal(scoreOf(p, FLOOR), 60);
+test("scoreOf at full reach is full pay, and above it is capped", () => {
+  const atReach = posting("a::1", { comp_low: 187_500, comp_high: 187_500 });
+  const above = posting("a::2", { comp_low: 300_000, comp_high: 300_000 });
+  assert.equal(scoreOf(atReach, basisAt(FLOOR)), PAY_WEIGHT);
+  assert.equal(scoreOf(above, basisAt(FLOOR)), PAY_WEIGHT);
 });
 
-test("scoreOf at twice the floor is still 60 without a product title: pay is capped", () => {
-  const p = posting("a::1", { comp_low: 300_000, comp_high: 300_000, posted_at: "2026-09-15" });
-  assert.equal(scoreOf(p, FLOOR), 60);
+test("scoreOf reads the band's top, and a lone comp_low as the top", () => {
+  // Top 180k is 30k of the 37.5k reach: 60 x 0.8 = 48.
+  const band = posting("a::1", { comp_low: 120_000, comp_high: 180_000 });
+  const lone = posting("a::2", { comp_low: 180_000, comp_high: null });
+  assert.equal(scoreOf(band, basisAt(FLOOR)), 48);
+  assert.equal(scoreOf(lone, basisAt(FLOOR)), 48);
 });
 
-test("scoreOf halfway to full pay is 30", () => {
-  const p = posting("a::1", { comp_low: 168_750, comp_high: 168_750, posted_at: "2026-07-17" });
-  assert.equal(scoreOf(p, FLOOR), 30);
-});
-
-test("scoreOf with no band gets 6 of the pay marks", () => {
-  const p = posting("a::1", {
-    comp_low: null,
-    comp_high: null,
-    posted_at: null,
-    first_seen: "2026-06-17T00:00:00Z",
-  });
-  assert.equal(scoreOf(p, FLOOR), 6);
+// Breaks if a posting with no pay goes back to the bottom of the list, which
+// buried employers that never post pay.
+test("scoreOf with no band gets half the pay marks", () => {
+  const p = posting("a::1", { comp_low: null, comp_high: null });
+  assert.equal(scoreOf(p, basisAt(FLOOR)), PAY_WEIGHT / 2);
 });
 
 test("scoreOf ignores age: an old posting scores the same as a new one", () => {
   const old = posting("a::1", { comp_low: 180_000, comp_high: 180_000, posted_at: "2020-01-01" });
-  const recent = posting("a::1", {
+  const recent = posting("a::2", {
     comp_low: 180_000,
     comp_high: 180_000,
     posted_at: "2026-09-15",
   });
-  assert.equal(scoreOf(old, FLOOR), scoreOf(recent, FLOOR));
+  assert.equal(scoreOf(old, basisAt(FLOOR)), scoreOf(recent, basisAt(FLOOR)));
 });
 
-test("scoreOf reads a top over full reach as full pay: the band is capped, not a bonus", () => {
-  const p = posting("a::1", { comp_low: 200_000, comp_high: 250_000, posted_at: "2026-09-15" });
-  // Top 250k is past floor × 1.25.
-  assert.equal(scoreOf(p, FLOOR), 60);
-});
-
-test("scoreOf reads the band's top, so a band straddling the floor scores its reach above it", () => {
-  const p = posting("a::1", { comp_low: 120_000, comp_high: 180_000, posted_at: "2026-09-15" });
-  // Midpoint 150k is the floor and would score 0; top 180k is 30k of the
-  // 37.5k reach: 60 × 0.8 = 48.
-  assert.equal(scoreOf(p, FLOOR), 48);
-});
-
-test("scoreOf takes a lone comp_low as the band's top", () => {
-  const p = posting("a::1", { comp_low: 180_000, comp_high: null, posted_at: "2026-09-15" });
-  assert.equal(scoreOf(p, FLOOR), 48);
-});
-
-// An empty product-words list (the column's seed) adds no bonus.
-test("scoreOf with an empty product-words list is the pay alone", () => {
-  const p = posting("a::1", {
-    title: "Senior Product Engineer",
-    comp_low: 300_000,
-    comp_high: 300_000,
-    posted_at: "2026-09-15",
-  });
-  assert.equal(scoreOf(p, FLOOR, []), scoreOf(p, FLOOR));
-  assert.equal(scoreOf(p, FLOOR, []), 60);
-});
-
-test("scoreOf with the list, a product title scores SHAPE_WEIGHT above the same posting with a non-product title", () => {
-  const productWords = ["product", "growth"];
+test("scoreOf adds SHAPE_WEIGHT for a rank word in the title, whole-word only", () => {
+  const basis = { ...basisAt(FLOOR), words: ["product"] };
   const product = posting("a::1", {
-    title: "Senior Product Engineer",
-    comp_low: 225_000,
-    comp_high: 225_000,
-  });
-  const nonProduct = posting("a::1", {
-    title: "Senior Backend Engineer",
-    comp_low: 225_000,
-    comp_high: 225_000,
-  });
-  assert.equal(
-    scoreOf(product, FLOOR, productWords) - scoreOf(nonProduct, FLOOR, productWords),
-    SHAPE_WEIGHT,
-  );
-});
-
-test("scoreOf matches a product word whole-word only, not as a substring of a longer word", () => {
-  const productWords = ["product"];
-  // "Production" carries "product" as a substring, not a whole word.
-  const substring = posting("a::1", {
-    title: "Production Engineer",
-    comp_low: 225_000,
-    comp_high: 225_000,
-  });
-  const wholeWord = posting("a::1", {
     title: "Product Engineer",
     comp_low: 225_000,
     comp_high: 225_000,
   });
-  assert.equal(
-    scoreOf(wholeWord, FLOOR, productWords) - scoreOf(substring, FLOOR, productWords),
-    SHAPE_WEIGHT,
-  );
-});
-
-test("scoreOf with full pay and a product title is 60 + 40 = 100", () => {
-  const p = posting("a::1", {
-    title: "Senior Product Engineer",
+  const substring = posting("a::2", {
+    title: "Production Engineer",
     comp_low: 225_000,
     comp_high: 225_000,
   });
-  assert.equal(scoreOf(p, FLOOR, ["product"]), 100);
+  assert.equal(scoreOf(product, basis) - scoreOf(substring, basis), SHAPE_WEIGHT);
+  assert.equal(scoreOf(product, basis), 100);
+});
+
+// Breaks if pay goes back to a fixed multiple of the floor: at a low floor
+// that tied most of a list at full pay.
+test("scoreBasis sets full pay at the 75th percentile of the person's own bands", () => {
+  const list = [100, 120, 140, 160, 200].map((thousands, index) =>
+    posting(`a::${index}`, { comp_low: null, comp_high: thousands * 1000 }),
+  );
+  const basis = scoreBasis({ comp_floor: 85_000, product_words: [] }, list);
+  assert.equal(basis.payTop, 160_000);
+  const mid = posting("b::1", { comp_low: null, comp_high: 122_500 });
+  assert.equal(scoreOf(mid, basis), 30);
+});
+
+test("scoreBasis falls back to 1.25 x the floor with no bands above it", () => {
+  assert.equal(scoreBasis({ comp_floor: 100_000, product_words: [] }, []).payTop, 125_000);
+});
+
+// Breaks if a rank word that sits in most titles counts again: it raised
+// nearly every row by the same amount and separated nothing.
+test("scoreBasis drops a rank word in more than a quarter of the titles", () => {
+  const list = [
+    "Program Manager, Health",
+    "Program Manager",
+    "Senior Program Manager",
+    "Project Manager",
+    "Operations Manager",
+  ].map((title, index) => posting(`a::${index}`, { title }));
+  const basis = scoreBasis({ comp_floor: 85_000, product_words: ["program", "health"] }, list);
+  assert.deepEqual(basis.words, ["health"]);
+});
+
+test("scoreOf with office locations moves OFFICE_WEIGHT from pay to a role there", () => {
+  const basis = { ...basisAt(FLOOR), officeLocations: ["Austin"] };
+  const there = posting("a::1", { location: "Austin, TX", comp_low: 300_000, comp_high: 300_000 });
+  const elsewhere = posting("a::2", {
+    location: "Boston, MA",
+    comp_low: 300_000,
+    comp_high: 300_000,
+  });
+  assert.equal(scoreOf(there, basis), PAY_WEIGHT);
+  assert.equal(scoreOf(elsewhere, basis), PAY_WEIGHT - OFFICE_WEIGHT);
 });
 
 test("a card with no floor to read shows no score; one with a floor shows the tile", async () => {
@@ -692,7 +680,7 @@ test("a card with no floor to read shows no score; one with a floor shows the ti
     posting: p,
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   assert.doesNotMatch(withoutFloor, /class="score"/);
 
@@ -700,7 +688,7 @@ test("a card with no floor to read shows no score; one with a floor shows the ti
     posting: p,
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: FLOOR,
+    scoreBasis: basisAt(FLOOR),
   });
   // What the tile counts is named in its `title`, not a caption per row.
   assert.match(withFloor, /class="score"[^>]*title="[^"]+"[^>]*>\d+<\/span>/);
@@ -720,7 +708,7 @@ test("a card shows comp, the evidence the processor kept it for, and the posting
     posting: p,
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
 
   assert.match(html, /\$180k–\$220k/);
@@ -739,7 +727,7 @@ test("a card's expansion carries the evidence sentences on demand", async () => 
     posting: p,
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   assert.doesNotMatch(closed, /class="evidence"/);
 
@@ -747,7 +735,7 @@ test("a card's expansion carries the evidence sentences on demand", async () => 
     posting: p,
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     expanded: true,
   });
   assert.match(open, /class="evidence"/);
@@ -764,7 +752,7 @@ test("a single-office posting's drawer shows no offices list, matching today's m
     posting: p,
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     expanded: true,
   });
 
@@ -783,7 +771,7 @@ test("a multi-office posting's drawer lists every office as a working link", asy
     posting: p,
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     expanded: true,
   });
 
@@ -811,7 +799,7 @@ test("an office whose url is unsafe renders as plain text in the offices list", 
     posting: p,
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     expanded: true,
   });
 
@@ -835,7 +823,7 @@ test("an office with a null name renders with a fallback label in the offices li
     posting: p,
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     expanded: true,
   });
 
@@ -859,7 +847,7 @@ test("the drawer shows each reason once, as evidence, and a closed posting's not
     }),
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     expanded: true,
   });
   assert.equal((html.match(/title carries level word/g) ?? []).length, 1);
@@ -880,7 +868,7 @@ test("the drawer puts the close reason above the evidence", async () => {
     }),
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     expanded: true,
   });
   assert.ok(html.indexOf('class="note"') < html.indexOf('class="evidence"'));
@@ -895,7 +883,7 @@ test("a rejected card with 'change' revealed offers all five outcomes in order, 
     posting: p,
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     revealed: true,
   });
 
@@ -910,7 +898,7 @@ test("closing opens the close dialog as an accessible, labelled modal", async ()
     posting: p,
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     closing: true,
   });
 
@@ -931,7 +919,7 @@ test("the close dialog's aria-labelledby stays one IDREF when the posting key ho
     posting: p,
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     closing: true,
   });
 
@@ -949,7 +937,7 @@ test("with closing false (the default), no dialog renders at all", async () => {
     posting: p,
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
 
   assert.doesNotMatch(html, /role="dialog"/);
@@ -962,7 +950,7 @@ test("a card with no URL shows no posting link", async () => {
     posting: p,
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
 
   assert.doesNotMatch(html, /class="icon-btn"/);
@@ -975,7 +963,7 @@ test("the posting link opens the group of actions, inside .acts, and every contr
     posting: posting("acme::1", { company: "Acme", url: "https://acme.example/job/1" }),
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   try {
     assert.equal(elementsWithClass(card.root, "tools").length, 0, "the link's old wrapper is gone");
@@ -1005,7 +993,7 @@ test("every action carries a glyph, and its word rides in aria-label and title, 
     posting: posting("Acme::1", { status: "rejected" }),
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     revealed: true,
   });
   const glyphs = html.match(/class="glyph"/g) ?? [];
@@ -1034,7 +1022,7 @@ test("a posting with a status shows it as a toned pill with its age", async () =
     posting: posting("Acme::1", { status: "applied", status_at: threeDaysAgo }),
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   assert.match(withStatus, /class="status tag tone-progress"/);
   assert.match(withStatus, /for 3 days/);
@@ -1046,7 +1034,7 @@ test("a posting with no status says it is in the queue, and for how long", async
     posting: posting("Acme::2", { first_seen: fourDaysAgo }),
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   assert.match(without, /class="meta"/);
   assert.match(without, /class="status tag tone-neutral"/);
@@ -1061,7 +1049,7 @@ test("the tag needs no prop to decide it: the same card says it on either page",
     posting: posting("Acme::3"),
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   };
   const once = await render(PostingCard, props);
   const twice = await render(PostingCard, props);
@@ -1111,7 +1099,7 @@ test("a card shows how long ago it was posted, alongside — not in place of —
     }),
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   assert.match(html, /class="age"[^>]*>for 2 days</);
   assert.match(html, /class="age posted-age"[^>]*>posted 5 days ago</);
@@ -1124,7 +1112,7 @@ test("a bare queue card (no status) still says how long ago it was posted", asyn
     posting: posting("Acme::1", { posted_at: tenDaysAgo }),
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   assert.match(html, /class="meta"/);
   assert.match(html, /posted 10 days ago/);
@@ -1135,7 +1123,7 @@ test("a posting with no posted_at says nothing of posting age, unlike scoreOf wh
     posting: posting("Acme::1", { posted_at: null, first_seen: "2026-01-01T00:00:00Z" }),
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   assert.doesNotMatch(html, /posted-age/);
   assert.doesNotMatch(html, /posted \d+ days? ago|posted today/);
@@ -1158,7 +1146,7 @@ test("QueueView renders in score order when it has a floor", async () => {
     postings: [stale, fresh],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: 150_000,
+    scoreBasis: basisAt(150_000),
   });
   assert.ok(html.indexOf("Fresh") < html.indexOf("Stale"), "a score tie goes to the newer posting");
 });
@@ -1172,7 +1160,7 @@ test("QueueView renders in midpoint order with an unposted band at the floor whe
     postings: [noBand, modest, top],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
 
   const order = ["Top", "Modest", "NoBand"].map((name) => html.indexOf(name));
@@ -1187,7 +1175,7 @@ test("QueueView shows the empty state when nothing is waiting", async () => {
     postings: [],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
 
   assert.match(html, /class="empty"/);
@@ -1215,7 +1203,7 @@ test("a queue row states its place, so a group's waiting rows read beside its ac
     ],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     store: memoryStore({ [viewKey("queue")]: "company" }),
   });
   assert.match(html, /class="status tag tone-neutral">In queue</);
@@ -1229,7 +1217,7 @@ test("QueueView cards offer applied and closed only, read straight off the posti
     postings: [p],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   const list = queue.match(/class="list">([^]*?)<\/div><aside/)?.[1] ?? "";
   assert.deepEqual(outcomeLabels(list), ["Applied", "Closed"]);
@@ -1245,7 +1233,7 @@ test("the rendered queue shows a View group and a Sort group, 'List' and 'By sco
     postings: [posting("a::1")],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   const { view, sort } = orderGroups(html);
   assert.match(view, />View</);
@@ -1263,7 +1251,7 @@ test("a stored view and sort are read on mount, each pressing its own button", a
     postings: [posting("a::1")],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     store: memoryStore({ [viewKey("queue")]: "company", [sortKey("queue")]: "posted" }),
   });
   const { view, sort } = orderGroups(html);
@@ -1340,7 +1328,7 @@ test("choosing 'Newest first' reorders the list and writes the sort key", async 
     postings: [older, newer],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     store,
   });
   try {
@@ -1383,7 +1371,7 @@ test("choosing 'By company' writes the view key at once and leaves the sort alon
     postings: [ACME_LOW, BEVEL_MID, ACME_TOP],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     store,
   });
   try {
@@ -1405,7 +1393,7 @@ test("the company view with 'Newest first' orders companies by their newest wait
   const acmeNew = posting("acme::new", { company: "Acme", posted_at: "2026-09-10" });
   const bevelMid = posting("bevel::mid", { company: "Bevel", posted_at: "2026-09-05" });
   assert.deepEqual(
-    orderedQueue([acmeOld, bevelMid, acmeNew], null, [], "posted", "company").map((p) => p.key),
+    orderedQueue([acmeOld, bevelMid, acmeNew], null, "posted", "company").map((p) => p.key),
     ["acme::new", "acme::old", "bevel::mid"],
   );
 });
@@ -1419,7 +1407,7 @@ test("the grouped list is one list, with the company headers as siblings of the 
     postings: [ACME_LOW, BEVEL_MID, ACME_TOP],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     store: memoryStore({ [viewKey("queue")]: "company" }),
   });
   try {
@@ -1460,14 +1448,14 @@ test("the list is marked grouped only in grouped mode, which is the hook the row
     postings: [ACME_LOW, BEVEL_MID, ACME_TOP],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     store: memoryStore({ [viewKey("queue")]: "company" }),
   });
   const byScore = mountTree(QueueView, {
     postings: [ACME_LOW, BEVEL_MID, ACME_TOP],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   try {
     const groupedList = elementsWithClass(grouped.root, "list")[0];
@@ -1488,7 +1476,7 @@ test("a grouped company shows the history app.ts hands in under its waiting rows
     postings: [ACME_LOW, BEVEL_MID, ACME_TOP],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     store: memoryStore({ [viewKey("queue")]: "company" }),
     history: [ACME_APPLIED, CIRRUS_APPLIED],
   });
@@ -1526,7 +1514,7 @@ test("a grouped company's history row offers the outcomes its own status allows,
     postings: [ACME_TOP],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     store: memoryStore({ [viewKey("queue")]: "company" }),
     history: [ACME_APPLIED],
   });
@@ -1560,7 +1548,7 @@ test("the filtered count counts what is waiting on James, not the rows the group
     postings: [ACME_LOW, BEVEL_MID, ACME_TOP],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     store: memoryStore({ [viewKey("queue")]: "company" }),
     history: [ACME_APPLIED, ACME_CLOSED],
   });
@@ -1582,7 +1570,7 @@ test("nothing waiting is still the empty state, however much history the record 
     postings: [],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     store: memoryStore({ [viewKey("queue")]: "company" }),
     history: [ACME_APPLIED, CIRRUS_APPLIED],
   });
@@ -1598,9 +1586,7 @@ test("the pane's successor after a decision is the row the grouped list reads ne
   // composable: removing a card runs `TransitionGroup`'s leave hooks, which
   // need a real `classList` the object-tree renderer has none of.
   const postings = [ACME_LOW, BEVEL_MID, ACME_TOP];
-  const grouped = useMasterDetail(
-    computed(() => orderedQueue(postings, null, [], "score", "company")),
-  );
+  const grouped = useMasterDetail(computed(() => orderedQueue(postings, null, "score", "company")));
   grouped.selectedKey.value = "acme::top";
   grouped.advanceSelection("acme::top");
   assert.equal(grouped.selectedKey.value, "acme::low");
@@ -1616,7 +1602,7 @@ test("deciding a company's last waiting row sends the pane to that company's his
   // moves Applied to Interviewing on.
   const grouped = useMasterDetail(
     computed(() =>
-      orderedQueue([ACME_LOW, BEVEL_MID, ACME_TOP], null, [], "score", "company", [ACME_APPLIED]),
+      orderedQueue([ACME_LOW, BEVEL_MID, ACME_TOP], null, "score", "company", [ACME_APPLIED]),
     ),
   );
   grouped.selectedKey.value = "acme::low";
@@ -1656,7 +1642,7 @@ test("a queue row (no status) offers exactly Applied and Closed", async () => {
     posting: posting("a::1"),
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   assert.deepEqual(outcomeLabels(html), ["Applied", "Closed"]);
 });
@@ -1666,7 +1652,7 @@ test("an applied row offers Interviewing, Rejected and Closed, and no Applied bu
     posting: posting("a::1", { status: "applied", status_at: "2026-09-10T00:00:00Z" }),
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   assert.deepEqual(outcomeLabels(html), ["Interviewing", "Rejected", "Closed"]);
 });
@@ -1676,7 +1662,7 @@ test("an interviewing row offers Offer, Rejected and Closed", async () => {
     posting: posting("a::1", { status: "interviewing", status_at: "2026-09-10T00:00:00Z" }),
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   assert.deepEqual(outcomeLabels(html), ["Offer", "Rejected", "Closed"]);
 });
@@ -1686,7 +1672,7 @@ test("an offer row offers Closed alone", async () => {
     posting: posting("a::1", { status: "offer", status_at: "2026-09-10T00:00:00Z" }),
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   assert.deepEqual(outcomeLabels(html), ["Closed"]);
 });
@@ -1696,7 +1682,7 @@ test("a rejected row offers no outcome buttons, only the quiet change control", 
     posting: posting("a::1", { status: "rejected", status_at: "2026-09-10T00:00:00Z" }),
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   assert.deepEqual(outcomeLabels(html), []);
   assert.match(html, /class="ghost change"/);
@@ -1707,7 +1693,7 @@ test("a closed row offers no outcome buttons, only the quiet change control", as
     posting: posting("a::1", { status: "closed", status_at: "2026-09-10T00:00:00Z" }),
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   assert.deepEqual(outcomeLabels(html), []);
   assert.match(html, /class="ghost change"/);
@@ -1718,7 +1704,7 @@ test("the quiet change control carries a glyph and a title, same as the outcome 
     posting: posting("a::1", { status: "rejected", status_at: "2026-09-10T00:00:00Z" }),
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   const change = html.match(/<button[^>]*class="ghost change"[^>]*>([\s\S]*?)<\/button>/);
   assert.ok(change, "no change button in the rendered card");
@@ -1745,7 +1731,7 @@ test("activating a rejected card's 'change' control reveals all five outcomes an
     }),
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   try {
     assert.equal(elementsWithClass(card.root, "act").length, 0, "no outcomes offered yet");
@@ -1779,7 +1765,7 @@ test("a refused status write shows its reason on the card", async () => {
     posting: posting("a::1"),
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   assert.doesNotMatch(html, /role="alert"/);
   // Mounted live so the outcome can be clicked and the refusal arrive.
@@ -1788,7 +1774,7 @@ test("a refused status write shows its reason on the card", async () => {
     posting: posting("a::1", { company: "Acme" }),
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   try {
     const applied = elementsWithClass(card.root, "act").find(
@@ -1825,7 +1811,7 @@ test("the queue's panel is programmatically focusable, so a decided card's remov
     postings: [posting("a::1")],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
 
   assert.match(
@@ -1844,7 +1830,7 @@ test("a decision hands the posting's key and the patch it wrote up to its parent
     postings: [posting("a::1", { company: "Acme" })],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     onDecided: (outcome: DecidedOutcome) => emitted.push(outcome),
   });
   try {
@@ -1875,7 +1861,7 @@ test("the decision that empties the queue sends focus to the panel its tab names
   const app = mountUnderAppRoot(QueueView, [ACME_TOP], {
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   try {
     click(outcomeButton(cardIn(app.root, "list", "Acme"), "Applied — Acme"));
@@ -1901,7 +1887,7 @@ test("a filter says how many of the waiting rows it matched, and clearing it say
     postings: [ACME_TOP, BEVEL_MID, ACME_LOW],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   try {
     const line = matchedLine(app.root);
@@ -1930,7 +1916,7 @@ test("a card's head button, where a committed Close sends focus, is never disabl
     posting: posting("Acme::1"),
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
 
   const head = html.match(/<button[^>]*class="head"[^>]*>/)?.[0] ?? "";
@@ -1943,7 +1929,7 @@ test("a selected card carries aria-current and the selected class", async () => 
     posting: posting("acme::1"),
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     selected: true,
   });
   assert.match(html, /class="card selected"/);
@@ -1955,7 +1941,7 @@ test("an unselected card carries neither aria-current nor the selected class", a
     posting: posting("acme::1"),
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     selected: false,
   });
   assert.doesNotMatch(html, /selected/);
@@ -1968,7 +1954,7 @@ test("an expandable card's head is a disclosure: it says whether its own detail 
     posting: p,
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   assert.match(shut.match(/<button[^>]*class="head"[^>]*>/)?.[0] ?? "", /aria-expanded="false"/);
 
@@ -1976,7 +1962,7 @@ test("an expandable card's head is a disclosure: it says whether its own detail 
     posting: p,
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     expanded: true,
   });
   assert.match(open.match(/<button[^>]*class="head"[^>]*>/)?.[0] ?? "", /aria-expanded="true"/);
@@ -1990,7 +1976,7 @@ test("a card that cannot expand claims no aria-expanded, open or shut", async ()
     posting: p,
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     expandable: false,
   });
   assert.doesNotMatch(row, /aria-expanded/);
@@ -2001,7 +1987,7 @@ test("a card that cannot expand claims no aria-expanded, open or shut", async ()
     posting: p,
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     expanded: true,
     expandable: false,
   });
@@ -2064,7 +2050,7 @@ test("QueueView auto-selects the top-ordered posting into the pane with no prior
     postings: [stale, fresh],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: 150_000,
+    scoreBasis: basisAt(150_000),
   });
   const pane = html.match(/<aside class="detail-pane"[^]*$/)?.[0] ?? "";
   assert.notEqual(pane, "", "the pane renders");
@@ -2077,7 +2063,7 @@ test("an empty queue renders no master-detail pane at all", async () => {
     postings: [],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   assert.doesNotMatch(html, /class="master-detail"/);
   assert.doesNotMatch(html, /class="detail-pane"/);
@@ -2093,7 +2079,7 @@ test("no list card carries aria-current when paneMode is false, even though the 
     postings: [a, b],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   const list = html.match(/class="list">([^]*?)<\/div><aside/)?.[1] ?? "";
   assert.equal(
@@ -2110,7 +2096,7 @@ test("the pane's card is open with no disclosure that could shut it", async () =
     postings: [posting("a::1", { company: "Acme", evidence: { role: "words" } })],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   const pane = html.match(/<aside class="detail-pane"[^]*$/)?.[0] ?? "";
   assert.match(pane, /class="evidence"/, "the pane shows the posting's evidence");
@@ -2125,7 +2111,7 @@ test("the pane offers no outcome or change button, only its posting link", async
     postings: [posting("a::1", { company: "Acme", url: "https://boards.example/acme/1" })],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   const pane = html.match(/<aside class="detail-pane"[^]*$/)?.[0] ?? "";
   assert.doesNotMatch(pane, /class="act(?:"| )/, "no outcome button in the pane");
@@ -2163,7 +2149,7 @@ test("a Close dialog submitted twice before it can close writes the posting once
     posting: posting("Acme::1", { company: "Acme" }),
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     closing: true,
   });
   try {
@@ -2188,7 +2174,7 @@ test("a card mid-write disables every control that could start a second one", as
     posting: posting("Acme::1", { company: "Acme" }),
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     closing: true,
   });
   try {
@@ -2219,7 +2205,7 @@ test("a refused write in the queue shows its reason on the row that issued it, a
     postings: [posting("a::1", { company: "Acme" }), posting("b::2", { company: "Bevel" })],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   try {
     click(outcomeButton(cardIn(app.root, "list", "Acme"), "Applied — Acme"));
@@ -2244,7 +2230,7 @@ test("a successful decision takes the row out of the queue", async () => {
   const app = mountUnderAppRoot(
     QueueView,
     [posting("a::1", { company: "Acme" }), posting("b::2", { company: "Bevel" })],
-    { config: CONFIG, freshToken: FRESH_TOKEN, compFloor: null },
+    { config: CONFIG, freshToken: FRESH_TOKEN, scoreBasis: null },
   );
   try {
     click(outcomeButton(cardIn(app.root, "list", "Acme"), "Applied — Acme"));
@@ -2284,7 +2270,7 @@ test("a card names its posting in data-key, so the list can find that row again 
       postings: [ACME_TOP, BEVEL_MID],
       config: CONFIG,
       freshToken: FRESH_TOKEN,
-      compFloor: null,
+      scoreBasis: null,
     }),
   );
   assert.match(html, /<article class="card"[^>]*data-key="acme::top"/);
@@ -2297,7 +2283,7 @@ test("headOf finds the head button of the card holding a given key", () => {
     postings: [ACME_TOP, BEVEL_MID],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   try {
     const list = elementsWithClass(app.root, "master-detail")[0];
@@ -2319,7 +2305,7 @@ test("headOf answers null for a key no card is showing, so the caller can fall t
     postings: [ACME_TOP],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   try {
     const list = elementsWithClass(app.root, "master-detail")[0];
@@ -2337,7 +2323,7 @@ test("headOf takes a null key, which is what nextSelection returns when nothing 
     postings: [ACME_TOP],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   try {
     const list = elementsWithClass(app.root, "master-detail")[0];
@@ -2359,7 +2345,7 @@ test("the successor headOf is asked for is the row that takes the decided one's 
     postings: [ACME_TOP, BEVEL_MID, ACME_LOW],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   try {
     const list = elementsWithClass(app.root, "master-detail")[0];
@@ -2408,7 +2394,7 @@ test("the queue renders one search input, over company and role", async () => {
       postings: [ACME_TOP, BEVEL_MID],
       config: CONFIG,
       freshToken: FRESH_TOKEN,
-      compFloor: null,
+      scoreBasis: null,
     }),
   );
   const box = html.match(/<div class="queue-search">[^]*?<\/div>/)?.[0] ?? "";
@@ -2429,7 +2415,7 @@ test("narrowing composes: the rows the queue would show are the ordering of what
     ["acme::top", "acme::low"],
   );
 
-  const rows = queueRows(orderedQueue(matching, null, [], "score", "company"), true);
+  const rows = queueRows(orderedQueue(matching, null, "score", "company"), true);
   const heads = rows.filter((row) => row.head !== null).map((row) => row.head?.company);
   assert.deepEqual(heads, ["Acme"], "only the matching company opens a group");
   assert.equal(
@@ -2450,7 +2436,7 @@ test("headAt gives the row that now sits where the decided one was", () => {
     postings: [ACME_TOP, BEVEL_MID, ACME_LOW],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   try {
     const list = elementsWithClass(app.root, "master-detail")[0];
@@ -2471,7 +2457,7 @@ test("headAt clamps past the end, so a shorter list still yields a row and not t
     postings: [ACME_TOP, BEVEL_MID],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   try {
     const list = elementsWithClass(app.root, "master-detail")[0];
@@ -2489,7 +2475,7 @@ test("headAt answers null for an empty list and a negative index, so the caller 
     postings: [ACME_TOP],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   try {
     const list = elementsWithClass(app.root, "master-detail")[0];
@@ -2514,7 +2500,7 @@ test("a company's group closes when its last waiting row is decided, taking its 
   });
   const other = posting("bevel::1", { company: "Bevel", title: "Bevel role" });
 
-  const before = orderedQueue([waiting, other], null, [], "score", "company", [history]);
+  const before = orderedQueue([waiting, other], null, "score", "company", [history]);
   assert.deepEqual(
     before.map((each) => each.key),
     ["acme::last", "acme::done", "bevel::1"],
@@ -2523,7 +2509,7 @@ test("a company's group closes when its last waiting row is decided, taking its 
   assert.equal(nextSelection(before, "acme::last"), "acme::done");
 
   // Acme has nothing waiting, so the whole group goes.
-  const after = orderedQueue([other], null, [], "score", "company", [history]);
+  const after = orderedQueue([other], null, "score", "company", [history]);
   assert.deepEqual(
     after.map((each) => each.key),
     ["bevel::1"],
@@ -2555,7 +2541,7 @@ test("the Queue's company history shows every role he applied to, rejected inclu
     postings: [ACME_TOP],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     store: memoryStore({ [viewKey("queue")]: "company" }),
     history: STATUSES.map(acted),
   });
@@ -2585,20 +2571,27 @@ function chooseMinScore(target: TreeNode, value: string): void {
 
 test("meetsMinScore keeps a row at or above the minimum and drops one below", () => {
   // Floor 200k: Acme top (300k) scores 60, Bevel (200k) scores 0.
-  assert.equal(meetsMinScore(ACME_TOP, 60, 200_000), true, "at the minimum is kept");
-  assert.equal(meetsMinScore(ACME_TOP, 70, 200_000), false);
-  assert.equal(meetsMinScore(BEVEL_MID, 10, 200_000), false);
-  assert.equal(meetsMinScore(BEVEL_MID, null, 200_000), true, "no minimum keeps everything");
+  assert.equal(meetsMinScore(ACME_TOP, 60, basisAt(200_000)), true, "at the minimum is kept");
+  assert.equal(meetsMinScore(ACME_TOP, 70, basisAt(200_000)), false);
+  assert.equal(meetsMinScore(BEVEL_MID, 10, basisAt(200_000)), false);
+  assert.equal(
+    meetsMinScore(BEVEL_MID, null, basisAt(200_000)),
+    true,
+    "no minimum keeps everything",
+  );
 });
 
 test("meetsMinScore filters nothing with no floor, since there is no score to compare", () => {
   assert.equal(meetsMinScore(BEVEL_MID, 90, null), true);
 });
 
-test("meetsMinScore counts the product word toward the score", () => {
-  // Bevel's pay scores 0; "Mid role" carries the product word "role", worth SHAPE_WEIGHT.
-  assert.equal(meetsMinScore(BEVEL_MID, SHAPE_WEIGHT, 200_000, ["role"]), true);
-  assert.equal(meetsMinScore(BEVEL_MID, SHAPE_WEIGHT, 200_000, []), false);
+test("meetsMinScore counts a rank word toward the score", () => {
+  // Bevel's pay scores 0; "Mid role" carries the rank word "role", worth SHAPE_WEIGHT.
+  assert.equal(
+    meetsMinScore(BEVEL_MID, SHAPE_WEIGHT, { ...basisAt(200_000), words: ["role"] }),
+    true,
+  );
+  assert.equal(meetsMinScore(BEVEL_MID, SHAPE_WEIGHT, basisAt(200_000)), false);
 });
 
 test("the score filter offers Any and every step, in ascending order", async () => {
@@ -2606,7 +2599,7 @@ test("the score filter offers Any and every step, in ascending order", async () 
     postings: [ACME_TOP],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: 200_000,
+    scoreBasis: basisAt(200_000),
   });
   assert.match(html, /<span>Min score<\/span>/);
   assert.match(html, /<option value(="")?>Any<\/option>/);
@@ -2622,7 +2615,7 @@ test("with no floor the queue renders no score filter, since no card shows a sco
     postings: [ACME_TOP],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   assert.doesNotMatch(html, /Min score/);
   assert.doesNotMatch(html, /<select/);
@@ -2634,7 +2627,7 @@ test("choosing a minimum score narrows the queue and says how many it kept", asy
     postings: [ACME_TOP, BEVEL_MID, ACME_LOW],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: 200_000,
+    scoreBasis: basisAt(200_000),
   });
   try {
     const select = minScoreSelect(app.root);
@@ -2685,7 +2678,7 @@ test("the not-applied-to filter leaves only companies he has not applied to, and
     postings: [ACME_TOP, BEVEL_MID, ACME_LOW],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     history: [ACME_APPLIED, ACME_CLOSED],
   });
   try {
@@ -2714,7 +2707,7 @@ test("a closed role does not count as applying, a rejected one does", async () =
     postings: [ACME_TOP, BEVEL_MID],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
     history: [ACME_CLOSED, posting("bevel::rejected", { company: "Bevel", status: "rejected" })],
   });
   try {
@@ -2758,7 +2751,7 @@ test("the has-pay-band filter hides postings with no band, and says how many", a
     postings: [ACME_TOP, unpaid, BEVEL_MID],
     config: CONFIG,
     freshToken: FRESH_TOKEN,
-    compFloor: null,
+    scoreBasis: null,
   });
   try {
     assert.match(textOf(app.root), /Unpaid role/, "unchecked shows every posting");
