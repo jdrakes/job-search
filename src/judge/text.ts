@@ -265,8 +265,25 @@ function locationAffirmsRemote(location: string | null): boolean {
 // text affirms remote, or the location does; a stated office requirement in
 // the text overrules either unless the recruiter's tag or the location
 // names Remote. Scored by `npm run score:remote`; a change to these phrase
-// lists records the before/after in the commit.
-function judgeRemote(body: string, location: string | null, workplace: Workplace | null): Reason {
+// lists records the before/after in the commit. A location naming one of the
+// operator's office locations is in before any of that: they can go to the
+// office there, so whether the role is remote no longer matters.
+function judgeRemote(
+  body: string,
+  location: string | null,
+  workplace: Workplace | null,
+  officeLocations: readonly string[],
+): Reason {
+  const office = officeLocations.find(
+    (place) => location !== null && findWholeWord(location, place) !== null,
+  );
+  if (office !== undefined) {
+    return {
+      criterion: "remote",
+      verdict: "in",
+      detail: `location names office location "${office}": "${location}"`,
+    };
+  }
   if (workplace !== null) {
     return {
       criterion: "remote",
@@ -1059,7 +1076,7 @@ export function judgeText(
 ): { readonly kept: boolean; readonly reasons: Reason[] } {
   const body = posting.body ?? "";
   const reasons: Reason[] = [
-    judgeRemote(body, posting.location, posting.workplace),
+    judgeRemote(body, posting.location, posting.workplace, criteria.office_locations),
     judgeExcludedStates(body, criteria),
     judgeCountryRestriction(body),
     judgeMissingLanguages(body, criteria),

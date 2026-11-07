@@ -27,6 +27,7 @@ const VALID_INPUT = {
     "architect",
     "technical staff",
   ],
+  office_locations: [],
   assumed_bonus_pct: null,
 };
 

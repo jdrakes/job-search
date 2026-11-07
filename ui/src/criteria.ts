@@ -34,6 +34,7 @@ export interface CriteriaFormFields {
   readonly levelWords: string;
   readonly roleWords: string;
   readonly workWords: string;
+  readonly officeLocations: string;
   readonly excludedTitleWords: string;
   readonly teamNameWords: string;
   readonly excludedStates: string;
@@ -50,6 +51,7 @@ export function fieldsFrom(criteria: Criteria): CriteriaFormFields {
     levelWords: formatList(criteria.level_words),
     roleWords: formatList(criteria.role_words),
     workWords: formatList(criteria.work_words),
+    officeLocations: formatList(criteria.office_locations),
     excludedTitleWords: formatList(criteria.excluded_title_words),
     teamNameWords: formatList(criteria.team_name_words),
     excludedStates: formatList(criteria.excluded_states),
@@ -101,6 +103,7 @@ export function patchFrom(fields: CriteriaFormFields): PatchOutcome {
       level_words: parseList(fields.levelWords),
       role_words: parseList(fields.roleWords),
       work_words: parseList(fields.workWords),
+      office_locations: parseList(fields.officeLocations),
       excluded_title_words: parseList(fields.excludedTitleWords),
       team_name_words: parseList(fields.teamNameWords),
       excluded_states: parseList(fields.excludedStates),
@@ -230,6 +233,11 @@ const GROUPS: readonly FieldGroup[] = [
     title: "Location",
     hint: "Where the role can be based.",
     listFields: [
+      {
+        key: "officeLocations",
+        label: "Office locations",
+        hint: "A role based in one of these passes the remote check, hybrid and on-site included. Empty means remote only.",
+      },
       {
         key: "excludedStates",
         label: "Excluded states",

@@ -184,6 +184,7 @@ test("loadCriteria returns the one row, unwrapped from the array PostgREST sends
       "architect",
       "technical staff",
     ],
+    office_locations: [],
     assumed_bonus_pct: null,
     updated_at: "2026-09-01T00:00:00Z",
   };
@@ -492,6 +493,7 @@ test("saveCriteria patches the row and stamps updated_at from the injected clock
         "architect",
         "technical staff",
       ],
+      office_locations: [],
       assumed_bonus_pct: null,
     },
     fetchImpl,
@@ -520,6 +522,7 @@ test("saveCriteria patches the row and stamps updated_at from the injected clock
       "architect",
       "technical staff",
     ],
+    office_locations: [],
     assumed_bonus_pct: null,
     comp_floor: 160000,
     updated_at: "2026-09-15T12:00:00Z",

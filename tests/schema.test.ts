@@ -149,7 +149,7 @@ test("the gone_at migration's DROP COLUMN statements remove postings.last_seen a
 });
 
 test("the migrations' ADD COLUMN statements append to CRITERIA_FIELDS in order", () => {
-  assert.equal(columnsOf("criteria").at(-1), "work_words");
+  assert.equal(columnsOf("criteria").at(-1), "office_locations");
 });
 
 test("the migrations' postings.platform CHECK matches PLATFORMS, in order", () => {

@@ -244,6 +244,7 @@ const SEEDED_CRITERIA: Criteria = {
     "architect",
     "technical staff",
   ],
+  office_locations: [],
   assumed_bonus_pct: null,
   updated_at: "2026-09-14T00:00:00Z",
   full_read_at: "2026-09-14T00:00:00Z",

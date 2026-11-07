@@ -205,7 +205,9 @@ elsewhere.
   - Excluded title words: the disciplines and specialisms he was never in,
     with the team-name exception (a word like "customer" after the role
     part of an engineering title does not exclude).
-  - Remote required: where the board states the posting's workplace, that
+  - Remote required: unless the posting's location names one of the operator's
+    office locations (for this operator none), which passes it whatever its
+    workplace. Otherwise, where the board states the posting's workplace, that
     decides — remote is in; hybrid and on-site are out — whatever the text
     says. Where it states none, the posting's text affirms it, or says
     nothing and its location does; a stated office requirement in the text

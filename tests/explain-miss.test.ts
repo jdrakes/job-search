@@ -122,6 +122,7 @@ const criteria = {
   level_words: ["staff"],
   role_words: ["backend"],
   work_words: ["engineer"],
+  office_locations: [],
   excluded_title_words: [],
   team_name_words: [],
   excluded_locations: [],

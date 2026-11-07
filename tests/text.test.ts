@@ -27,6 +27,7 @@ function criteria(overrides: Partial<Criteria> = {}): Criteria {
       "architect",
       "technical staff",
     ],
+    office_locations: [],
     assumed_bonus_pct: null,
     updated_at: "2026-09-14T00:00:00Z",
     full_read_at: "2026-09-14T00:00:00Z",
@@ -1808,4 +1809,33 @@ test("clearance: optional or obtainable is in", () => {
       body,
     );
   }
+});
+
+// Breaks if an office location stops admitting a hybrid or on-site role, or
+// starts admitting one somewhere else.
+test("remote: a role based in an office location is in, whatever its workplace", () => {
+  const austin = criteria({ office_locations: ["Austin"] });
+  for (const workplace of ["hybrid", "onsite"] as const) {
+    const { reasons } = judgeText(
+      posting({ location: "Austin, TX", workplace, body: "You will work from our office." }),
+      austin,
+    );
+    assert.equal(reasonFor(reasons, "remote").verdict, "in");
+  }
+});
+
+test("remote: a hybrid role elsewhere is still out with an office location set", () => {
+  const { reasons } = judgeText(
+    posting({ location: "Boston, MA", workplace: "hybrid", body: "Based in our office." }),
+    criteria({ office_locations: ["Austin"] }),
+  );
+  assert.equal(reasonFor(reasons, "remote").verdict, "out");
+});
+
+test("remote: with no office locations a hybrid role in that city is out", () => {
+  const { reasons } = judgeText(
+    posting({ location: "Austin, TX", workplace: "hybrid", body: "Based in our office." }),
+    criteria(),
+  );
+  assert.equal(reasonFor(reasons, "remote").verdict, "out");
 });
