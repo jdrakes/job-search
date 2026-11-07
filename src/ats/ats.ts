@@ -24,7 +24,9 @@ export interface Reader {
   readonly platform: Platform;
   list(board: Board, options?: HttpOptions): Promise<Listing[]>;
   body?(board: Board, id: string, options?: HttpOptions): Promise<Listing | null>;
-  // True for a board an operator detail read names.
+  // Present on a reader that decides board by board whether it reads pages:
+  // true for a board an operator detail read names, or one the reader found
+  // has no public listing.
   readsDetail?(board: Board): boolean;
 }
 

@@ -7,10 +7,10 @@
 // A company can turn the public API off (it answers 404) while its hosted
 // board stays up. That board is read through the GraphQL endpoint the hosted
 // page itself calls, list only: one request per board. The list states no
-// description and no date, so a hosted board's text comes from
-// `hostedDetailRead`, once the operator's settings name the board. A board
-// the hosted page does not have either keeps the API's 404, so it is still
-// `gone`.
+// description and no date, so a board read this way is read in two phases for
+// the rest of the run: its text comes from `hostedDetailRead`, once per posting
+// the judge asks about. A board the hosted page does not have either keeps the
+// API's 404, so it is still `gone`.
 import { getJson, HttpError, htmlToText, postJson, type HttpOptions } from "../net/http.ts";
 import type { Board } from "../schema.ts";
 import {
@@ -177,37 +177,53 @@ export function hostedDetailRead(board: string): DetailRead {
   };
 }
 
-async function listHosted(
-  board: Board,
-  refused: HttpError,
+// One request. Null when the hosted page has no such board.
+export async function readHostedBoard(
+  boardId: string,
   options?: HttpOptions,
-): Promise<Listing[]> {
+): Promise<Listing[] | null> {
   const reply = await postJson<unknown>(
     `${HOSTED_GRAPHQL}?op=ApiJobBoardWithTeams`,
     {
       operationName: "ApiJobBoardWithTeams",
-      variables: { organizationHostedJobsPageName: board.id },
+      variables: { organizationHostedJobsPageName: boardId },
       query: HOSTED_BOARD_QUERY,
     },
     options,
   );
-  const listings = parseHostedBoard(reply, board.id);
-  if (listings === null) throw refused;
-  return listings;
+  return parseHostedBoard(reply, boardId);
 }
 
-async function list(board: Board, options?: HttpOptions): Promise<Listing[]> {
-  let data: unknown;
-  try {
-    data = await getJson<unknown>(
-      `https://api.ashbyhq.com/posting-api/job-board/${board.id}?includeCompensation=true`,
-      options,
-    );
-  } catch (err) {
-    if (err instanceof HttpError && err.status === 404) return listHosted(board, err, options);
-    throw err;
+// A reader remembers, for its process, which boards fell back: one run's list
+// phase decides it for that run's judge. A board whose read failed today is
+// not remembered, so a re-judge in that run reads no page, as for any board
+// whose listing did not arrive; the next successful read corrects it.
+export function makeAshbyReader(): Reader {
+  const hostedBoards = new Set<string>();
+
+  async function list(board: Board, options?: HttpOptions): Promise<Listing[]> {
+    let data: unknown;
+    try {
+      data = await getJson<unknown>(
+        `https://api.ashbyhq.com/posting-api/job-board/${board.id}?includeCompensation=true`,
+        options,
+      );
+    } catch (err) {
+      if (!(err instanceof HttpError && err.status === 404)) throw err;
+      const listings = await readHostedBoard(board.id, options);
+      if (listings === null) throw err;
+      hostedBoards.add(board.id);
+      return listings;
+    }
+    return parseAshby(data);
   }
-  return parseAshby(data);
+
+  return {
+    platform: "ashby",
+    list,
+    body: (board, id, options) => hostedDetailRead(board.id).body(id, options),
+    readsDetail: (board) => hostedBoards.has(board.id),
+  };
 }
 
-export const ashbyReader: Reader = { platform: "ashby", list };
+export const ashbyReader: Reader = makeAshbyReader();

@@ -4,10 +4,13 @@ import assert from "node:assert/strict";
 import {
   ashbyReader,
   hostedDetailRead,
+  makeAshbyReader,
   parseHostedBoard,
   parseHostedPosting,
 } from "../src/ats/ashby.ts";
+import { READERS, withDetailReads } from "../src/ats/readers.ts";
 import { isGone } from "../src/companies.ts";
+import { twoPhase } from "../src/ingest.ts";
 
 // Written from the hosted board's GraphQL reply, not captured: the envelope
 // and field names are Ashby's, while the company, ids and titles are
@@ -239,4 +242,58 @@ test("hostedDetailRead: one ApiJobPosting request carrying the board and posting
     organizationHostedJobsPageName: "contoso",
     jobPostingId: "p-1",
   });
+});
+
+// Breaks if a hosted board stops being read for its text without an
+// operator's setting, or a board the public API reads starts paying for pages.
+test("makeAshbyReader: only a board that fell back reads its pages, from that run's list", async () => {
+  const reader = makeAshbyReader();
+  const hosted = { platform: "ashby", id: "contoso" } as const;
+  const { options, requests } = fakeFetch({
+    "posting-api": () => json({}, 404),
+    ApiJobBoardWithTeams: () => json(BOARD),
+    ApiJobPosting: () => json(POSTING),
+  });
+
+  assert.equal(reader.readsDetail?.(hosted), false);
+  await reader.list(hosted, options);
+  assert.equal(reader.readsDetail?.(hosted), true);
+  assert.equal(reader.readsDetail?.({ platform: "ashby", id: "fabrikam" }), false);
+
+  const detail = await reader.body?.(hosted, "p-1", options);
+  assert.equal(detail?.id, "p-1");
+  assert.deepEqual(requests, ["posting-api", "ApiJobBoardWithTeams", "ApiJobPosting"]);
+});
+
+test("twoPhase: an Ashby board is one-phase until its hosted fallback fires", async () => {
+  const reader = makeAshbyReader();
+  const { options } = fakeFetch({
+    "posting-api": () => json({}, 404),
+    ApiJobBoardWithTeams: () => json(BOARD),
+  });
+
+  assert.equal(twoPhase("ashby", "contoso", reader), false);
+  await reader.list({ platform: "ashby", id: "contoso" }, options);
+  assert.equal(twoPhase("ashby", "contoso", reader), true);
+  assert.equal(twoPhase("ashby", "fabrikam", reader), false);
+});
+
+// Breaks if a board the operator names stops winning, or wrapping another
+// board on the platform hides a fallback.
+test("withDetailReads: a wrapped Ashby reader still reads the page of a board that fell back", async () => {
+  const reader = withDetailReads({ ...READERS, ashby: makeAshbyReader() }, [
+    hostedDetailRead("named"),
+  ]).ashby;
+  const { options } = fakeFetch({
+    "posting-api": () => json({}, 404),
+    ApiJobBoardWithTeams: () => json(BOARD),
+    ApiJobPosting: () => json(POSTING),
+  });
+  const fellBack = { platform: "ashby", id: "contoso" } as const;
+
+  assert.equal(reader.readsDetail?.({ platform: "ashby", id: "named" }), true);
+  assert.equal(reader.readsDetail?.(fellBack), false);
+  await reader.list(fellBack, options);
+  assert.equal(reader.readsDetail?.(fellBack), true);
+  assert.equal((await reader.body?.(fellBack, "p-1", options))?.id, "p-1");
 });
