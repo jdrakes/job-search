@@ -43,6 +43,7 @@
 // instead (`pageReported` says why).
 import { getJson, getText, htmlToText, HttpError, type HttpOptions } from "../net/http.ts";
 import { asArray, asRecord, asText } from "../ats/ats.ts";
+import { readHostedBoard } from "../ats/ashby.ts";
 import type { Board } from "../schema.ts";
 import { avatureSiteName, readBoardName } from "./boards.ts";
 
@@ -429,9 +430,22 @@ async function askSlug(
     // has been measured failing that way, and a case is not handled here
     // until it is seen.
     if (error instanceof HttpError && error.status === 429) throw error;
-    return null;
+    if (!(platform === "ashby" && error instanceof HttpError && error.status === 404)) return null;
+    if (!(await hostedBoardAnswers(board, options))) return null;
   }
   return REPORTED[platform](data, board, options);
+}
+
+// An Ashby company can turn its public API off while its hosted board stays
+// up; the reader falls back the same way. Failing here means what failing
+// above means: a 429 is no answer, anything else is no board.
+async function hostedBoardAnswers(board: Board, options: HttpOptions): Promise<boolean> {
+  try {
+    return (await readHostedBoard(board.id, options)) !== null;
+  } catch (error) {
+    if (error instanceof HttpError && error.status === 429) throw error;
+    return false;
+  }
 }
 
 // The platforms are different hosts and http.ts's `rateLimit` is

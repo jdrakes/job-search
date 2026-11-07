@@ -169,6 +169,56 @@ test("probe: a slug refused for its name moves on to the next candidate and is k
   ]);
 });
 
+const ASHBY_HOSTED_BOARD = "https://jobs.ashbyhq.com/api/non-user-graphql?op=ApiJobBoardWithTeams";
+
+// A company can turn the public API off while its hosted board stays up.
+test("probe: an Ashby slug with its public API off and a live hosted board is taken", async () => {
+  const page = fixture("commoncrawl/ashby-thyme-care-head.html");
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const url = String(input);
+    if (url === "https://jobs.ashbyhq.com/thyme-care") return new Response(page);
+    if (url !== ASHBY_HOSTED_BOARD) return new Response(null, { status: 404 });
+    const sent = JSON.parse(String(init?.body)) as {
+      variables: { organizationHostedJobsPageName: string };
+    };
+    const live = sent.variables.organizationHostedJobsPageName === "thyme-care";
+    return new Response(JSON.stringify({ data: { jobBoard: live ? { jobPostings: [] } : null } }));
+  };
+
+  const { boards } = await probe("Thyme Care", {
+    fetchImpl,
+    userAgent: TEST_USER_AGENT,
+    sleep: noSleep,
+  });
+
+  assert.deepEqual(boards, [{ platform: "ashby", id: "thyme-care" }]);
+});
+
+test("probe: an Ashby slug gone from both the public API and the hosted page is no board", async () => {
+  const fetchImpl = fakeFetch({ [ASHBY_HOSTED_BOARD]: { data: { jobBoard: null } } });
+
+  const { boards, refused } = await probe("Thyme Care", {
+    fetchImpl,
+    userAgent: TEST_USER_AGENT,
+    sleep: noSleep,
+  });
+
+  assert.deepEqual(boards, []);
+  assert.deepEqual(refused, []);
+});
+
+// A hosted board that declines to answer has said nothing; the name is probed
+// again next run, as for a 429 from any other platform.
+test("probe: a 429 from Ashby's hosted page throws rather than reading as no board", async () => {
+  const fetchImpl: typeof fetch = async (input) =>
+    new Response(null, { status: String(input) === ASHBY_HOSTED_BOARD ? 429 : 404 });
+
+  await assert.rejects(
+    probe("Thyme Care", { fetchImpl, userAgent: TEST_USER_AGENT, sleep: noSleep }),
+    (error: unknown) => error instanceof HttpError && error.status === 429,
+  );
+});
+
 // Ashby's listing names nobody, so the board page's <title> is read
 // (fixture: a Common Crawl capture, "Thyme Care Jobs").
 test("probe: an Ashby slug whose page title names the company is taken", async () => {
