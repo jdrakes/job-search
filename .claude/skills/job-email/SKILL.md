@@ -54,10 +54,9 @@ UTC day at a time:
    `pageSize` 50, `view` `THREAD_VIEW_MINIMAL`. While a reply carries a
    `nextPageToken`, ask again with it.
 2. A search is cut off when its last page came with no `nextPageToken`
-   and it returned 50 threads in all, or fewer than its
-   `resultCountEstimate`. Run a cut-off search again as two, one with
-   `category:updates` added and one with `-category:updates`, each paged
-   the same way. A half still cut off is incomplete: keep its day for
+   and it returned 50 threads in all. Run a cut-off search again as two,
+   one with `category:updates` added and one with `-category:updates`, each
+   paged the same way. A half still cut off is incomplete: keep its day for
    step 4.
 3. Dedupe by thread id; a thread that spans days comes back on each.
 4. Sort each thread by sender and subject into two lists. One that could
