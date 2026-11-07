@@ -618,13 +618,16 @@ function admits(posting: TitleAndPlace, readsPage: boolean, criteria: Criteria):
 // each detail: asked of `READERS`, never of the reader `ingest` is handed.
 // `withDetailReads` wraps a whole platform for one board's detail read, so
 // every Greenhouse board's reader has a `body`, though a Greenhouse listing
-// states all the pay it ever will.
+// states all the pay it ever will. A reader with its own `readsDetail` decides
+// board by board, so its `body` does not make the whole platform two-phase.
 function nativeTwoPhase(platform: Platform): boolean {
-  return READERS[platform].body !== undefined;
+  const reader = READERS[platform];
+  return reader.body !== undefined && reader.readsDetail === undefined;
 }
 
-// A board is two-phase when its platform's own reader is, or when the
-// operator gave this board a detail read. Another board on a wrapped
+// A board is two-phase when its platform's own reader is, when the operator
+// gave this board a detail read, or when its reader found this board has no
+// public listing. Another board on a wrapped
 // platform is one-phase, as it would be unwrapped. A row with no board is
 // decided by its platform alone; a hand-added row with no platform has no
 // detail to read.

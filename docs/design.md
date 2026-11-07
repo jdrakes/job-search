@@ -165,7 +165,9 @@ elsewhere.
   be given a detail read, named in the operator's settings, not shipped with
   the tool. That board is then read in two phases, as Workday's is: the
   listing without its text, then the page once per posting the listing
-  criteria admit, for its workplace, pay and text.
+  criteria admit, for its workplace, pay and text. An Ashby board whose
+  public API is off needs no setting: the run that falls back to its hosted
+  list reads it the same way.
 - A posting's full text is fetched in the same run, for every posting that
   clears the listing-level criteria, so the text-level criteria can be
   judged that morning. Its text is stored only where something reads it:
